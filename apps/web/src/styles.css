@@ -1,0 +1,41 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+}
+body {
+  margin: 0;
+  background: #f6f7f2;
+  color: #1a2019;
+}
+.shell {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem;
+}
+h1 {
+  margin: 0 0 0.4rem 0;
+}
+.hint {
+  color: #57604f;
+  font-size: 0.92rem;
+}
+.error {
+  color: #b23a2e;
+  font-size: 0.92rem;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+}
+th, td {
+  text-align: left;
+  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid #dde2d3;
+  font-size: 0.9rem;
+}
+code {
+  background: #eef1e8;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+}
