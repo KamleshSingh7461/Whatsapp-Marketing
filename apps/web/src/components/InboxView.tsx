@@ -523,13 +523,17 @@ export const InboxView: React.FC<InboxViewProps> = ({
                         {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
                       {isOutbound && (
-                        <span className="msg-status-indicator" title={`Status: ${msg.status}`}>
+                        <span className="msg-status-indicator" title={`Status: ${msg.status}${msg.errorCode ? ` (${msg.errorCode})` : ''}`}>
                           {msg.status === 'READ' ? (
                             <span className="ticks blue">✓✓</span>
                           ) : msg.status === 'DELIVERED' ? (
                             <span className="ticks">✓✓</span>
+                          ) : msg.status === 'FAILED' ? (
+                            <span className="ticks failed" style={{ color: '#EF4444', fontWeight: 600, fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
+                              ⚠ Failed
+                            </span>
                           ) : (
-                            <span className="ticks">✓</span>
+                            <span className="ticks" title="Sent to Meta">✓</span>
                           )}
                         </span>
                       )}

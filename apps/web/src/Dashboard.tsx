@@ -550,7 +550,7 @@ export function Dashboard() {
       id: `msg_${Date.now()}`,
       conversationId: convId,
       direction: 'OUTBOUND',
-      status: 'DELIVERED',
+      status: isInternalNote ? 'DELIVERED' : 'SENT',
       content: text,
       isInternalNote: !!isInternalNote,
       authorName: user?.name || 'Agent',
@@ -610,10 +610,25 @@ export function Dashboard() {
           });
 
           if (res && res.success === false) {
-            const errStr = (res.error || '').toString().toLowerCase();
-            if (errStr.includes('131047') || errStr.includes('24 hours') || errStr.includes('template') || errStr.includes('re-engagement')) {
-              alert(`Meta WhatsApp Notice for +${phone}:\nDirect text messages can only be sent within 24 hours of a customer's message. Because this window is closed or this customer hasn't messaged yet, Meta requires an Approved Template to contact them.`);
+            const errStr = (res.error || '').toString();
+            // Mark message as failed in the conversation
+            setMessagesByConvId(prev => ({
+              ...prev,
+              [convId]: (prev[convId] || []).map(m => m.id === newMsg.id ? { ...m, status: 'FAILED', errorCode: errStr } : m),
+            }));
+
+            if (errStr.includes('131030') || errStr.toLowerCase().includes('not in allowed list')) {
+              alert(`Meta Cloud API Sandbox Notice for +${phone}:\nYour Meta App is in Development Mode. Messages can only be sent to Verified Test Phone Numbers added in the Meta Developer Portal, or switch your Meta App to Live Mode.`);
+            } else if (errStr.includes('131047') || errStr.toLowerCase().includes('24 hours') || errStr.toLowerCase().includes('template') || errStr.toLowerCase().includes('re-engagement')) {
+              alert(`Meta WhatsApp Notice for +${phone}:\nDirect text messages can only be sent within 24 hours of a customer's message. Because this window is closed, Meta requires an Approved Template to contact this number.`);
+            } else {
+              alert(`Meta Delivery Notice for +${phone}:\n${errStr}`);
             }
+          } else if (res && res.success && res.messageId) {
+            setMessagesByConvId(prev => ({
+              ...prev,
+              [convId]: (prev[convId] || []).map(m => m.id === newMsg.id ? { ...m, metaMessageId: res.messageId } : m),
+            }));
           }
         } catch (e) {
           console.warn('Failed to send text message via Meta Cloud API:', e);
@@ -630,7 +645,7 @@ export function Dashboard() {
       id: `msg_tpl_${Date.now()}`,
       conversationId: convId,
       direction: 'OUTBOUND',
-      status: 'DELIVERED',
+      status: 'SENT',
       templateId: template.id,
       templateData: template.bodyJson,
       headerText: template.bodyJson?.header?.text,
@@ -699,7 +714,7 @@ export function Dashboard() {
           });
         }
 
-        await apiFetch('/whatsapp/send-template', {
+        const res = await apiFetch<any>('/whatsapp/send-template', {
           method: 'POST',
           body: JSON.stringify({
             to: phone,
@@ -708,6 +723,27 @@ export function Dashboard() {
             components: components.length > 0 ? components : undefined,
           }),
         });
+
+        if (res && res.success === false) {
+          const errStr = (res.error || '').toString();
+          setMessagesByConvId(prev => ({
+            ...prev,
+            [convId]: (prev[convId] || []).map(m => m.id === newMsg.id ? { ...m, status: 'FAILED', errorCode: errStr } : m),
+          }));
+
+          if (errStr.includes('131030') || errStr.toLowerCase().includes('not in allowed list')) {
+            alert(`Meta Cloud API Sandbox Notice for +${phone}:\nYour Meta App is in Development Mode. Messages can only be sent to Verified Test Phone Numbers added in the Meta Developer Portal, or switch your Meta App to Live Mode.`);
+          } else if (errStr.includes('131031') || errStr.toLowerCase().includes('payment')) {
+            alert(`Meta WhatsApp Billing Notice for +${phone}:\nA payment method is required in Meta Business Manager to deliver business-initiated templates.`);
+          } else {
+            alert(`Meta Template Notice for +${phone}:\n${errStr}`);
+          }
+        } else if (res && res.success && res.messageId) {
+          setMessagesByConvId(prev => ({
+            ...prev,
+            [convId]: (prev[convId] || []).map(m => m.id === newMsg.id ? { ...m, metaMessageId: res.messageId } : m),
+          }));
+        }
       } catch (e) {
         console.warn('Failed to send template via Meta Cloud API:', e);
       }
