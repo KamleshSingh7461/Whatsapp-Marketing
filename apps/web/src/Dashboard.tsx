@@ -394,11 +394,46 @@ export function Dashboard() {
         try { setConversations(JSON.parse(e.newValue)); } catch (err) {}
       }
       if (e.key === 'fgsn_saved_messages' && e.newValue) {
+        try { setMessagesByConvId(JSON.parse(e.newValue)); } catch (err) {}
       }
     };
     window.addEventListener('storage', handleStorage);
     return () => window.removeEventListener('storage', handleStorage);
   }, []);
+
+  // Sync conversations & messages from Backend Database on Login
+  useEffect(() => {
+    if (!user || !getToken()) return;
+
+    apiFetch<any[]>('/inbox/conversations')
+      .then(async (serverConvs) => {
+        if (serverConvs && Array.isArray(serverConvs) && serverConvs.length > 0) {
+          setConversations(prev => {
+            const merged = [...serverConvs];
+            prev.forEach(p => {
+              if (!merged.some(m => m.id === p.id || m.contact?.phone === p.contact?.phone)) {
+                merged.push(p);
+              }
+            });
+            return merged;
+          });
+
+          serverConvs.forEach(sc => {
+            apiFetch<any[]>(`/inbox/messages/${sc.id}`)
+              .then(sMsgs => {
+                if (sMsgs && sMsgs.length > 0) {
+                  setMessagesByConvId(prev => ({
+                    ...prev,
+                    [sc.id]: sMsgs,
+                  }));
+                }
+              })
+              .catch(() => null);
+          });
+        }
+      })
+      .catch(() => null);
+  }, [user]);
 
   // 4. Automatically provision Live Shared Inbox conversations for CRM contacts
   useEffect(() => {
@@ -471,6 +506,19 @@ export function Dashboard() {
       [convId]: [...(prev[convId] || []), newMsg],
     }));
 
+    if (getToken()) {
+      apiFetch('/inbox/messages', {
+        method: 'POST',
+        body: JSON.stringify({
+          conversationId: convId,
+          direction: 'OUTBOUND',
+          text,
+          isInternalNote: !!isInternalNote,
+          authorName: user?.name || 'Agent',
+        }),
+      }).catch(() => null);
+    }
+
     if (!isInternalNote) {
       setConversations(prev =>
         prev.map(c =>
@@ -518,6 +566,19 @@ export function Dashboard() {
       ...prev,
       [convId]: [...(prev[convId] || []), newMsg],
     }));
+
+    if (getToken()) {
+      apiFetch('/inbox/messages', {
+        method: 'POST',
+        body: JSON.stringify({
+          conversationId: convId,
+          direction: 'OUTBOUND',
+          text: renderedText,
+          templateId: template.id,
+          authorName: user?.name || 'Agent',
+        }),
+      }).catch(() => null);
+    }
 
     setConversations(prev =>
       prev.map(c =>

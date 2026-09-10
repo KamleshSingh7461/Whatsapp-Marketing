@@ -8,6 +8,7 @@ import { TemplatesModule } from './templates/templates.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { BillingModule } from './billing/billing.module';
 import { MailModule } from './mail/mail.module';
+import { InboxModule } from './inbox/inbox.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { MailModule } from './mail/mail.module';
     }),
     PrismaModule,
     MailModule,
+    InboxModule,
     AuthModule,
     WhatsappIntegrationModule,
     TemplatesModule,
