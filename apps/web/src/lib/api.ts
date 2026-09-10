@@ -52,13 +52,19 @@ export async function getMeApi() {
 }
 
 export async function createInviteApi(email: string, role: string) {
-  return apiFetch<{ id: string; email: string; role: string; token: string; expiresAt: string }>(
-    '/auth/invite',
-    {
-      method: 'POST',
-      body: JSON.stringify({ email, role }),
-    },
-  );
+  return apiFetch<{
+    id: string;
+    email: string;
+    role: string;
+    token: string;
+    expiresAt: string;
+    emailSent?: boolean;
+    emailMessage?: string;
+    inviteLink?: string;
+  }>('/auth/invite', {
+    method: 'POST',
+    body: JSON.stringify({ email, role }),
+  });
 }
 
 export async function validateInviteApi(token: string) {

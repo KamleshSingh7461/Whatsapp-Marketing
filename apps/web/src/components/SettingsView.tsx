@@ -39,7 +39,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [isInviteOpen, setIsInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<Role>('AGENT');
-  const [generatedInviteLink, setGeneratedInviteLink] = useState<string | null>(null);
+  const [inviteResult, setInviteResult] = useState<{
+    email: string;
+    emailSent?: boolean;
+    emailMessage?: string;
+    inviteLink: string;
+  } | null>(null);
   const [inviteLoading, setInviteLoading] = useState(false);
 
   // Payment Methods & Billing States
@@ -109,7 +114,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       setInviteLoading(true);
       const res = await createInviteApi(inviteEmail.trim(), inviteRole);
       const link = `${window.location.origin}/#invite?token=${res.token}`;
-      setGeneratedInviteLink(link);
+      setInviteResult({
+        email: inviteEmail.trim(),
+        emailSent: res.emailSent,
+        emailMessage: res.emailMessage,
+        inviteLink: link,
+      });
       loadTeam();
     } catch (err: any) {
       alert(err.message || 'Failed to create invite');
@@ -245,58 +255,78 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       {/* Tabs Header */}
-      <div style={{ display: 'flex', gap: 12, borderBottom: '2px solid var(--border-color)', marginBottom: 24, paddingBottom: 8 }}>
+      <div style={{ display: 'flex', gap: 10, borderBottom: '2px solid #E2E8F0', marginBottom: 24, paddingBottom: 10, flexWrap: 'wrap' }}>
         <button
+          type="button"
           className={`btn-secondary ${activeTab === 'team' ? 'active' : ''}`}
           onClick={() => setActiveTab('team')}
           style={{
-            background: activeTab === 'team' ? 'var(--primary-color)' : 'transparent',
-            color: activeTab === 'team' ? '#fff' : 'var(--text-main)',
-            borderColor: activeTab === 'team' ? 'var(--primary-color)' : 'var(--border-color)',
-            padding: '8px 16px',
-            fontWeight: 600,
+            background: activeTab === 'team' ? '#059669' : '#FFFFFF',
+            color: activeTab === 'team' ? '#FFFFFF' : '#0F172A',
+            borderColor: activeTab === 'team' ? '#059669' : '#CBD5E1',
+            padding: '9px 18px',
+            fontWeight: 700,
+            fontSize: '0.84rem',
+            borderRadius: '6px',
+            boxShadow: activeTab === 'team' ? '0 2px 4px rgba(5, 150, 105, 0.2)' : 'none',
+            cursor: 'pointer',
           }}
         >
           Team & Access Invites
         </button>
 
         <button
+          type="button"
           className={`btn-secondary ${activeTab === 'billing' ? 'active' : ''}`}
           onClick={() => setActiveTab('billing')}
           style={{
-            background: activeTab === 'billing' ? 'var(--primary-color)' : 'transparent',
-            color: activeTab === 'billing' ? '#fff' : 'var(--text-main)',
-            borderColor: activeTab === 'billing' ? 'var(--primary-color)' : 'var(--border-color)',
-            padding: '8px 16px',
-            fontWeight: 600,
+            background: activeTab === 'billing' ? '#059669' : '#FFFFFF',
+            color: activeTab === 'billing' ? '#FFFFFF' : '#0F172A',
+            borderColor: activeTab === 'billing' ? '#059669' : '#CBD5E1',
+            padding: '9px 18px',
+            fontWeight: 700,
+            fontSize: '0.84rem',
+            borderRadius: '6px',
+            boxShadow: activeTab === 'billing' ? '0 2px 4px rgba(5, 150, 105, 0.2)' : 'none',
+            cursor: 'pointer',
           }}
         >
           Payment Methods & Meta Billing
         </button>
 
         <button
+          type="button"
           className={`btn-secondary ${activeTab === 'webhook' ? 'active' : ''}`}
           onClick={() => setActiveTab('webhook')}
           style={{
-            background: activeTab === 'webhook' ? 'var(--primary-color)' : 'transparent',
-            color: activeTab === 'webhook' ? '#fff' : 'var(--text-main)',
-            borderColor: activeTab === 'webhook' ? 'var(--primary-color)' : 'var(--border-color)',
-            padding: '8px 16px',
-            fontWeight: 600,
+            background: activeTab === 'webhook' ? '#059669' : '#FFFFFF',
+            color: activeTab === 'webhook' ? '#FFFFFF' : '#0F172A',
+            borderColor: activeTab === 'webhook' ? '#059669' : '#CBD5E1',
+            padding: '9px 18px',
+            fontWeight: 700,
+            fontSize: '0.84rem',
+            borderRadius: '6px',
+            boxShadow: activeTab === 'webhook' ? '0 2px 4px rgba(5, 150, 105, 0.2)' : 'none',
+            cursor: 'pointer',
           }}
         >
           Meta Webhook Configuration
         </button>
 
         <button
+          type="button"
           className={`btn-secondary ${activeTab === 'waba' ? 'active' : ''}`}
           onClick={() => setActiveTab('waba')}
           style={{
-            background: activeTab === 'waba' ? 'var(--primary-color)' : 'transparent',
-            color: activeTab === 'waba' ? '#fff' : 'var(--text-main)',
-            borderColor: activeTab === 'waba' ? 'var(--primary-color)' : 'var(--border-color)',
-            padding: '8px 16px',
-            fontWeight: 600,
+            background: activeTab === 'waba' ? '#059669' : '#FFFFFF',
+            color: activeTab === 'waba' ? '#FFFFFF' : '#0F172A',
+            borderColor: activeTab === 'waba' ? '#059669' : '#CBD5E1',
+            padding: '9px 18px',
+            fontWeight: 700,
+            fontSize: '0.84rem',
+            borderRadius: '6px',
+            boxShadow: activeTab === 'waba' ? '0 2px 4px rgba(5, 150, 105, 0.2)' : 'none',
+            cursor: 'pointer',
           }}
         >
           Meta Cloud API Credentials
@@ -313,7 +343,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 Super Admin (<code>admin@fgsnlive.com</code>) can invite team members to join workspace via email link.
               </p>
             </div>
-            <button className="btn-primary" onClick={() => { setIsInviteOpen(true); setGeneratedInviteLink(null); }}>
+            <button className="btn-primary" onClick={() => { setIsInviteOpen(true); setInviteResult(null); setInviteEmail(''); }}>
               + Invite Team Member
             </button>
           </div>
@@ -561,10 +591,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <button className="close-btn" onClick={() => setIsInviteOpen(false)}>✕</button>
             </div>
 
-            {!generatedInviteLink ? (
+            {!inviteResult ? (
               <form onSubmit={handleCreateInvite}>
                 <div className="form-group" style={{ marginBottom: 14 }}>
-                  <label>Work Email Address</label>
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#0F172A', marginBottom: 6 }}>
+                    Work Email Address
+                  </label>
                   <input
                     type="email"
                     required
@@ -573,10 +605,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     value={inviteEmail}
                     onChange={(e) => setInviteEmail(e.target.value)}
                   />
+                  <span style={{ fontSize: 11, color: '#64748B', marginTop: 4, display: 'block' }}>
+                    An automated branded invitation email with an onboarding link will be sent to this address.
+                  </span>
                 </div>
 
                 <div className="form-group" style={{ marginBottom: 20 }}>
-                  <label>Assign Role</label>
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#0F172A', marginBottom: 6 }}>
+                    Assign Role
+                  </label>
                   <select
                     value={inviteRole}
                     onChange={(e) => setInviteRole(e.target.value as Role)}
@@ -589,39 +626,82 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   </select>
                 </div>
 
-                <div className="modal-actions">
-                  <button type="button" className="btn-secondary" onClick={() => setIsInviteOpen(false)}>Cancel</button>
+                <div className="modal-actions" style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
+                  <button type="button" className="btn-secondary" onClick={() => setIsInviteOpen(false)}>
+                    Cancel
+                  </button>
                   <button type="submit" className="btn-primary" disabled={inviteLoading}>
-                    {inviteLoading ? 'Generating Link...' : 'Create Invite Link'}
+                    {inviteLoading ? 'Sending Invitation...' : '✉️ Send Invitation Email'}
                   </button>
                 </div>
               </form>
             ) : (
               <div>
-                <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: 14, borderRadius: 8, marginBottom: 16 }}>
-                  <div style={{ color: '#166534', fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Invitation Link Created!</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-main)', marginBottom: 8 }}>
-                    Share this unique invitation link with <strong>{inviteEmail}</strong>:
+                <div style={{ background: '#f0fdf4', border: '1px solid #86efac', padding: 16, borderRadius: 10, marginBottom: 18 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#15803d', fontWeight: 700, fontSize: 15, marginBottom: 6 }}>
+                    <span>✉️</span>
+                    <span>Invitation Email Sent!</span>
                   </div>
+                  <p style={{ fontSize: 13, color: '#334155', lineHeight: 1.5, margin: '0 0 10px 0' }}>
+                    {inviteResult.emailMessage || `Invitation email has been sent directly to ${inviteResult.email}.`}
+                  </p>
+                  <div style={{ display: 'inline-block', background: '#dcfce7', color: '#166534', padding: '3px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700 }}>
+                    Assigned Role: {inviteRole}
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 18 }}>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                    Direct Onboarding Link (Backup)
+                  </label>
                   <input
                     type="text"
                     readOnly
-                    value={generatedInviteLink}
-                    style={{ width: '100%', padding: '8px 10px', fontSize: 11, fontFamily: 'monospace', borderRadius: 6, border: '1px solid var(--border-color)', background: '#fff' }}
+                    value={inviteResult.inviteLink}
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      fontSize: 12,
+                      fontFamily: 'monospace',
+                      borderRadius: 6,
+                      border: '1px solid #CBD5E1',
+                      background: '#F8FAFC',
+                      color: '#0F172A',
+                    }}
                   />
                 </div>
 
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                   <button
-                    className="btn-primary"
+                    type="button"
+                    className="btn-secondary"
                     onClick={() => {
-                      navigator.clipboard.writeText(generatedInviteLink);
+                      navigator.clipboard.writeText(inviteResult.inviteLink);
                       alert('Invitation link copied to clipboard!');
                     }}
                   >
                     📋 Copy Link
                   </button>
-                  <button className="btn-secondary" onClick={() => setIsInviteOpen(false)}>Close</button>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => {
+                      setInviteEmail('');
+                      setInviteResult(null);
+                    }}
+                  >
+                    + Invite Another
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={() => {
+                      setIsInviteOpen(false);
+                      setInviteResult(null);
+                    }}
+                  >
+                    Done
+                  </button>
                 </div>
               </div>
             )}

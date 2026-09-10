@@ -11,12 +11,14 @@ import { Role } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class AuthService implements OnModuleInit {
   constructor(
     private prisma: PrismaService,
     private jwt: JwtService,
+    private mailService: MailService,
   ) {}
 
   async onModuleInit() {
@@ -115,12 +117,23 @@ export class AuthService implements OnModuleInit {
       },
     });
 
+    const mailResult = await this.mailService.sendInviteEmail({
+      to: email,
+      inviterName: inviter.name,
+      role: invite.role,
+      token: invite.token,
+      expiresAt: invite.expiresAt,
+    });
+
     return {
       id: invite.id,
       email: invite.email,
       role: invite.role,
       token: invite.token,
       expiresAt: invite.expiresAt,
+      emailSent: mailResult.sent,
+      emailMessage: mailResult.message,
+      inviteLink: mailResult.inviteLink,
     };
   }
 

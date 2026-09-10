@@ -7,6 +7,7 @@ import { WhatsappIntegrationModule } from './whatsapp-integration/whatsapp-integ
 import { TemplatesModule } from './templates/templates.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { BillingModule } from './billing/billing.module';
+import { MailModule } from './mail/mail.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { BillingModule } from './billing/billing.module';
       envFilePath: ['apps/api/.env', '.env', '../../.env'],
     }),
     PrismaModule,
+    MailModule,
     AuthModule,
     WhatsappIntegrationModule,
     TemplatesModule,
