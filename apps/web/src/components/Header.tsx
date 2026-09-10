@@ -42,6 +42,10 @@ export const Header: React.FC<HeaderProps> = ({
         )}
         <div className="header-title-wrap">
           <h1 className="header-title">FGSN Operations Portal</h1>
+          <div className="header-brand-badge hide-on-mobile" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', background: 'rgba(16, 185, 129, 0.12)', border: '1px solid rgba(16, 185, 129, 0.25)', borderRadius: 20, fontSize: 12, fontWeight: 600, color: '#10B981', marginLeft: 12 }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#10B981', display: 'inline-block', boxShadow: '0 0 8px #10B981' }}></span>
+            Freedom Global Sports Network (+91 86558 51749)
+          </div>
         </div>
       </div>
 
