@@ -701,6 +701,37 @@ export function Dashboard() {
 
   const totalUnread = conversations.reduce((acc, c) => acc + c.unreadCount, 0);
 
+  // 1. Accept Invite View
+  if (inviteToken) {
+    return (
+      <AcceptInviteModal
+        token={inviteToken}
+        onSuccess={(newUser) => {
+          setUser(newUser);
+          setInviteToken(null);
+          window.location.hash = '';
+        }}
+        onCancel={() => {
+          setInviteToken(null);
+          window.location.hash = '';
+        }}
+      />
+    );
+  }
+
+  // 2. Strict Unauthenticated View: Render ONLY AuthModal (Zero ERP Dashboard UI visible)
+  if (!user) {
+    return (
+      <AuthModal
+        isOpen={true}
+        isMandatory={true}
+        onClose={() => {}}
+        onLogin={handleLogin}
+      />
+    );
+  }
+
+  // 3. Authenticated ERP Dashboard View
   return (
     <div className="app-layout">
       {/* Sidebar Navigation */}
@@ -786,32 +817,6 @@ export function Dashboard() {
           )}
         </div>
       </main>
-
-      {/* Accept Invite Modal */}
-      {inviteToken && (
-        <AcceptInviteModal
-          token={inviteToken}
-          onSuccess={(newUser) => {
-            setUser(newUser);
-            setInviteToken(null);
-            window.location.hash = '';
-          }}
-          onCancel={() => {
-            setInviteToken(null);
-            window.location.hash = '';
-          }}
-        />
-      )}
-
-      {/* Mandatory Auth Modal */}
-      <AuthModal
-        isOpen={isAuthOpen || !user}
-        isMandatory={!user}
-        onClose={() => {
-          if (user) setIsAuthOpen(false);
-        }}
-        onLogin={handleLogin}
-      />
     </div>
   );
 }

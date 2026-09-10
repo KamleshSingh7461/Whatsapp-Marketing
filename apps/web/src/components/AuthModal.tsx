@@ -14,8 +14,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onLogin,
   isMandatory = false,
 }) => {
-  const [email, setEmail] = useState('admin@fgsnlive.com');
-  const [password, setPassword] = useState('Admin@fgsn2026!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,75 +29,144 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       await onLogin(email, password);
       onClose();
     } catch (err: any) {
-      setError(err.message || 'Authentication failed. Please verify credentials.');
+      setError(err.message || 'Authentication failed. Please verify email & password.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="modal-overlay" style={{ zIndex: 9999 }}>
-      <div className="modal-card auth-card" style={{ maxWidth: 460, width: '90%' }}>
-        <div className="modal-header">
-          <div className="auth-brand-head" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div className="fgsn-logo-wrap" style={{ width: 44, height: 44, flexShrink: 0 }}>
-              <img src={fgsnLogo} alt="FGSN" className="fgsn-brand-img" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100vw',
+        height: '100vh',
+        background: '#0B0F17',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 999999,
+        padding: 20,
+        boxSizing: 'border-box',
+      }}
+    >
+      <div
+        className="modal-card auth-card"
+        style={{
+          maxWidth: 440,
+          width: '100%',
+          background: '#131B2E',
+          borderRadius: 16,
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
+          padding: 32,
+          color: '#F8FAFC',
+        }}
+      >
+        <div className="modal-header" style={{ marginBottom: 24, borderBottom: 'none', padding: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(255, 255, 255, 0.05)', padding: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <img src={fgsnLogo} alt="FGSN Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
             </div>
             <div>
-              <h3 className="modal-title" style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Sign In to FGSN ERP</h3>
-              <p className="modal-subtitle" style={{ fontSize: 12, color: 'var(--text-muted)', margin: '2px 0 0' }}>Enterprise WhatsApp Marketing & Operations</p>
+              <h3 style={{ fontSize: 20, fontWeight: 700, margin: 0, color: '#FFFFFF' }}>Sign In to FGSN ERP</h3>
+              <p style={{ fontSize: 13, color: '#94A3B8', margin: '4px 0 0' }}>Enterprise WhatsApp Marketing Suite</p>
             </div>
           </div>
-          {!isMandatory && <button className="close-btn" onClick={onClose}>✕</button>}
+          {!isMandatory && (
+            <button className="close-btn" onClick={onClose} style={{ color: '#94A3B8' }}>✕</button>
+          )}
         </div>
 
-        {error && <div className="alert-error-box" style={{ padding: '10px 14px', borderRadius: 8, background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', fontSize: 13, marginBottom: 16 }}>{error}</div>}
-
-        <div style={{ background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)', padding: '10px 14px', borderRadius: 8, marginBottom: 18, fontSize: 12, color: 'var(--text-main)' }}>
-          <strong>Super Admin Default Credentials:</strong>
-          <div style={{ fontFamily: 'monospace', marginTop: 4, color: 'var(--primary-color)' }}>
-            Email: <strong>admin@fgsnlive.com</strong><br />
-            Password: <strong>Admin@fgsn2026!</strong>
+        {error && (
+          <div
+            style={{
+              padding: '12px 14px',
+              borderRadius: 8,
+              background: 'rgba(239, 68, 68, 0.15)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              color: '#FCA5A5',
+              fontSize: 13,
+              marginBottom: 20,
+              fontWeight: 500,
+            }}
+          >
+            {error}
           </div>
-        </div>
+        )}
 
-        <form onSubmit={handleSubmit} className="auth-form">
-          <div className="form-group" style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Work Email</label>
+        <form onSubmit={handleSubmit}>
+          <div style={{ marginBottom: 18 }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#CBD5E1', marginBottom: 8 }}>
+              Work Email Address
+            </label>
             <input
               type="email"
               required
-              placeholder="admin@fgsnlive.com"
-              className="form-input"
+              placeholder="e.g. admin@fgsnlive.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border-color)' }}
+              style={{
+                width: '100%',
+                padding: '12px 14px',
+                borderRadius: 10,
+                border: '1px solid rgba(255, 255, 255, 0.15)',
+                background: '#0F172A',
+                color: '#FFFFFF',
+                fontSize: 14,
+                boxSizing: 'border-box',
+                outline: 'none',
+              }}
             />
           </div>
 
-          <div className="form-group" style={{ marginBottom: 20 }}>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Password</label>
+          <div style={{ marginBottom: 24 }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#CBD5E1', marginBottom: 8 }}>
+              Password
+            </label>
             <input
               type="password"
               required
               placeholder="••••••••••••"
-              className="form-input"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border-color)' }}
+              style={{
+                width: '100%',
+                padding: '12px 14px',
+                borderRadius: 10,
+                border: '1px solid rgba(255, 255, 255, 0.15)',
+                background: '#0F172A',
+                color: '#FFFFFF',
+                fontSize: 14,
+                boxSizing: 'border-box',
+                outline: 'none',
+              }}
             />
           </div>
 
-          <div className="modal-actions" style={{ marginTop: 24 }}>
-            <button
-              type="submit"
-              className="btn-primary"
-              disabled={loading || !email.trim() || !password.trim()}
-              style={{ width: '100%', padding: '12px', borderRadius: 8, background: 'var(--primary-color)', color: '#fff', fontWeight: 600, border: 'none', cursor: 'pointer', display: 'flex', justifyContent: 'center' }}
-            >
-              {loading ? 'Authenticating...' : 'Sign In to Workspace'}
-            </button>
-          </div>
+          <button
+            type="submit"
+            disabled={loading || !email.trim() || !password.trim()}
+            style={{
+              width: '100%',
+              padding: '14px',
+              borderRadius: 10,
+              background: 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)',
+              color: '#FFFFFF',
+              fontWeight: 700,
+              fontSize: 15,
+              border: 'none',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)',
+            }}
+          >
+            {loading ? 'Authenticating...' : 'Sign In to Workspace'}
+          </button>
         </form>
       </div>
     </div>
