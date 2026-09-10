@@ -75,16 +75,25 @@ export class InboxService {
         }
       }
 
-      return messages.map((m) => ({
-        id: m.id,
-        conversationId: conversationId,
-        direction: m.direction,
-        status: m.status,
-        content: (m.payloadJson as any)?.body || (m.payloadJson as any)?.text || '',
-        isInternalNote: (m.payloadJson as any)?.isInternalNote || false,
-        authorName: (m.payloadJson as any)?.authorName,
-        timestamp: m.createdAt.toISOString(),
-      }));
+      return messages.map((m) => {
+        const p = (m.payloadJson as any) || {};
+        return {
+          id: m.id,
+          conversationId: conversationId,
+          direction: m.direction,
+          status: m.status,
+          templateId: m.templateId,
+          templateData: p.templateData,
+          headerText: p.headerText,
+          headerType: p.headerType,
+          footerText: p.footerText,
+          buttons: p.buttons,
+          content: p.body || p.text || '',
+          isInternalNote: p.isInternalNote || false,
+          authorName: p.authorName,
+          timestamp: m.createdAt.toISOString(),
+        };
+      });
     } catch (e: any) {
       this.logger.warn(`Could not query messages for conversation ${conversationId}: ${e.message}`);
       return [];
@@ -99,6 +108,11 @@ export class InboxService {
     authorName?: string;
     metaMessageId?: string;
     templateId?: string;
+    templateData?: any;
+    headerText?: string;
+    headerType?: string;
+    footerText?: string;
+    buttons?: any[];
     phone?: string;
     name?: string;
   }) {
@@ -156,6 +170,10 @@ export class InboxService {
           direction: dto.direction,
           status: 'DELIVERED',
           content: dto.text,
+          headerText: dto.headerText,
+          headerType: dto.headerType,
+          footerText: dto.footerText,
+          buttons: dto.buttons,
           timestamp: new Date().toISOString(),
         };
       }
@@ -171,6 +189,11 @@ export class InboxService {
             body: dto.text,
             isInternalNote: dto.isInternalNote,
             authorName: dto.authorName,
+            templateData: dto.templateData,
+            headerText: dto.headerText,
+            headerType: dto.headerType,
+            footerText: dto.footerText,
+            buttons: dto.buttons,
           },
         },
       });
@@ -188,6 +211,12 @@ export class InboxService {
         conversationId: conv.id,
         direction: msg.direction,
         status: msg.status,
+        templateId: msg.templateId,
+        templateData: dto.templateData,
+        headerText: dto.headerText,
+        headerType: dto.headerType,
+        footerText: dto.footerText,
+        buttons: dto.buttons,
         content: dto.text,
         timestamp: msg.createdAt.toISOString(),
         authorName: dto.authorName,
@@ -201,6 +230,10 @@ export class InboxService {
         direction: dto.direction,
         status: 'DELIVERED',
         content: dto.text,
+        headerText: dto.headerText,
+        headerType: dto.headerType,
+        footerText: dto.footerText,
+        buttons: dto.buttons,
         timestamp: new Date().toISOString(),
       };
     }

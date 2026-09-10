@@ -58,6 +58,36 @@ export const InboxView: React.FC<InboxViewProps> = ({
   const [selectedTemplateForModal, setSelectedTemplateForModal] = useState<Template | null>(null);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'ALL' | 'OPEN' | 'RESOLVED' | 'VIP'>('ALL');
+  const [cannedList, setCannedList] = useState<Array<{ label: string; text: string }>>(() => {
+    try {
+      const saved = localStorage.getItem('fgsn_saved_canned_responses');
+      return saved ? JSON.parse(saved) : CANNED_RESPONSES;
+    } catch (e) {
+      return CANNED_RESPONSES;
+    }
+  });
+  const [cannedSearch, setCannedSearch] = useState('');
+  const [showCannedEditor, setShowCannedEditor] = useState(false);
+  const [cannedFormLabel, setCannedFormLabel] = useState('');
+  const [cannedFormText, setCannedFormText] = useState('');
+
+  const handleSaveCanned = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cannedFormLabel.trim() || !cannedFormText.trim()) return;
+    const updated = [{ label: cannedFormLabel.trim(), text: cannedFormText.trim() }, ...cannedList];
+    setCannedList(updated);
+    try { localStorage.setItem('fgsn_saved_canned_responses', JSON.stringify(updated)); } catch (e) {}
+    setCannedFormLabel('');
+    setCannedFormText('');
+    setShowCannedEditor(false);
+  };
+
+  const handleDeleteCanned = (idx: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = cannedList.filter((_, i) => i !== idx);
+    setCannedList(updated);
+    try { localStorage.setItem('fgsn_saved_canned_responses', JSON.stringify(updated)); } catch (e) {}
+  };
 
   // Start New Chat Modal States
   const [showNewChatModal, setShowNewChatModal] = useState(false);
@@ -120,17 +150,17 @@ export const InboxView: React.FC<InboxViewProps> = ({
 
   const handleDispatchTemplate = (tpl: Template) => {
     let rendered = tpl.bodyJson.body;
-    if (tpl.sampleVariables && activeConversation?.contact) {
-      rendered = rendered.replace('{{customer_name}}', activeConversation.contact.displayName);
-      rendered = rendered.replace('{{1}}', activeConversation.contact.displayName);
-      rendered = rendered.replace('{{discount_code}}', 'VIP20');
-      rendered = rendered.replace('{{order_id}}', 'ORD-98214');
+    if (activeConversation?.contact) {
+      rendered = rendered.replace(/\{\{customer_name\}\}/gi, activeConversation.contact.displayName);
+      rendered = rendered.replace(/\{\{1\}\}/gi, activeConversation.contact.displayName);
+      rendered = rendered.replace(/\{\{discount_code\}\}/gi, 'VIP20');
+      rendered = rendered.replace(/\{\{order_id\}\}/gi, 'ORD-98214');
     }
 
     if (onSendTemplateMessage) {
       onSendTemplateMessage(activeConversation.id, tpl, rendered);
     } else {
-      onSendMessage(activeConversation.id, `[Template: ${tpl.name}]\n${rendered}`, false);
+      onSendMessage(activeConversation.id, rendered, false);
     }
     setShowTemplateModal(false);
   };
@@ -160,11 +190,11 @@ export const InboxView: React.FC<InboxViewProps> = ({
   const getSentimentBadge = (sentiment?: string) => {
     switch (sentiment) {
       case 'POSITIVE':
-        return <span className="status-chip success">Positive Sentiment</span>;
+        return <span className="sentiment-badge positive">😊 Happy</span>;
       case 'FRUSTRATED':
-        return <span className="status-chip danger">Priority Attention</span>;
+        return <span className="sentiment-badge negative">😡 Escalation Risk</span>;
       default:
-        return <span className="status-chip neutral">Neutral</span>;
+        return <span className="sentiment-badge neutral">😐 Inquired</span>;
     }
   };
 
@@ -184,6 +214,9 @@ export const InboxView: React.FC<InboxViewProps> = ({
   });
 
   const windowState = activeConversation ? getWindowStatus(activeConversation.windowExpiresAt) : null;
+  const filteredCanned = cannedList.filter(
+    c => c.label.toLowerCase().includes(cannedSearch.toLowerCase()) || c.text.toLowerCase().includes(cannedSearch.toLowerCase())
+  );
 
   return (
     <div className={`inbox-layout mobile-${mobileView}`}>
@@ -439,10 +472,41 @@ export const InboxView: React.FC<InboxViewProps> = ({
               }
 
               const isOutbound = msg.direction === 'OUTBOUND';
+              const matchedTemplate = msg.templateId ? templates.find(t => t.id === msg.templateId || t.name === msg.templateId) : null;
+              const headerText = msg.headerText || (msg as any).templateData?.header?.text || matchedTemplate?.bodyJson?.header?.text;
+              const headerType = msg.headerType || (msg as any).templateData?.header?.type || matchedTemplate?.bodyJson?.header?.type;
+              const footerText = msg.footerText || (msg as any).templateData?.footer || matchedTemplate?.bodyJson?.footer;
+              const buttons = msg.buttons || (msg as any).templateData?.buttons || matchedTemplate?.bodyJson?.buttons;
+
               return (
                 <div key={msg.id} className={`message-row ${isOutbound ? 'outbound' : 'inbound'}`}>
-                  <div className={`message-bubble ${isOutbound ? 'outbound-bubble' : 'inbound-bubble'}`}>
+                  <div className={`message-bubble ${isOutbound ? 'outbound-bubble' : 'inbound-bubble'} ${matchedTemplate || headerText || buttons ? 'template-card-bubble' : ''}`}>
+                    {/* Optional Template Media or Text Header */}
+                    {headerType === 'IMAGE' && (
+                      <div className="whatsapp-bubble-media-header">
+                        <div className="media-placeholder-img">
+                          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                          <span>Live Broadcast Event Banner</span>
+                        </div>
+                      </div>
+                    )}
+                    {headerText && headerType !== 'IMAGE' && (
+                      <div className="whatsapp-bubble-header-text">
+                        {headerText}
+                      </div>
+                    )}
+
+                    {/* Main WhatsApp Message Body */}
                     <p className="message-text">{msg.content}</p>
+
+                    {/* Optional Footer Text */}
+                    {footerText && (
+                      <div className="whatsapp-bubble-footer-text">
+                        {footerText}
+                      </div>
+                    )}
+
+                    {/* Delivery Status & Timestamp */}
                     <div className="message-meta">
                       <span className="msg-time">
                         {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -459,26 +523,101 @@ export const InboxView: React.FC<InboxViewProps> = ({
                         </span>
                       )}
                     </div>
+
+                    {/* WhatsApp Action Buttons (Quick Replies, URL Link, Phone Call) */}
+                    {buttons && buttons.length > 0 && (
+                      <div className="whatsapp-bubble-buttons">
+                        {buttons.map((btn: any, bIdx: number) => (
+                          <div key={bIdx} className="whatsapp-bubble-btn">
+                            {btn.type === 'URL' || btn.url ? (
+                              <span className="btn-icon">↗</span>
+                            ) : btn.type === 'PHONE_NUMBER' || btn.phone ? (
+                              <span className="btn-icon">📞</span>
+                            ) : (
+                              <span className="btn-icon">↩</span>
+                            )}
+                            <span>{btn.text}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
             })}
           </div>
 
-          {/* Canned Responses Popover */}
+          {/* Canned Responses Popover & Manager */}
           {showCanned && (
             <div className="canned-picker-popup">
               <div className="canned-head">
-                <span>Quick Response Snippets</span>
+                <span>Quick Response Snippets ({filteredCanned.length})</span>
                 <button className="close-btn sm" onClick={() => setShowCanned(false)}>✕</button>
               </div>
-              <div className="canned-list">
-                {CANNED_RESPONSES.map((cr, idx) => (
-                  <button key={idx} className="canned-item-btn" onClick={() => handleInsertCanned(cr.text)}>
-                    <strong>{cr.label}</strong>
-                    <p>{cr.text}</p>
+
+              <div className="canned-actions-bar">
+                <input
+                  type="text"
+                  className="canned-search-input"
+                  placeholder="Search quick replies..."
+                  value={cannedSearch}
+                  onChange={e => setCannedSearch(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="canned-add-btn"
+                  onClick={() => setShowCannedEditor(prev => !prev)}
+                >
+                  {showCannedEditor ? 'Cancel' : '+ New'}
+                </button>
+              </div>
+
+              {showCannedEditor && (
+                <form onSubmit={handleSaveCanned} style={{ padding: '8px 10px', background: '#F1F5F9', borderBottom: '1px solid #CBD5E1' }}>
+                  <input
+                    type="text"
+                    placeholder="Snippet Title (e.g. VIP Pass Info)"
+                    value={cannedFormLabel}
+                    onChange={e => setCannedFormLabel(e.target.value)}
+                    style={{ width: '100%', padding: '4px 8px', fontSize: '0.75rem', marginBottom: 6, borderRadius: 4, border: '1px solid #94A3B8' }}
+                    required
+                  />
+                  <textarea
+                    placeholder="Message Content..."
+                    value={cannedFormText}
+                    onChange={e => setCannedFormText(e.target.value)}
+                    rows={2}
+                    style={{ width: '100%', padding: '4px 8px', fontSize: '0.75rem', marginBottom: 6, borderRadius: 4, border: '1px solid #94A3B8' }}
+                    required
+                  />
+                  <button type="submit" className="btn-primary sm" style={{ width: '100%', fontSize: '0.72rem', padding: '4px' }}>
+                    Save Quick Response
                   </button>
-                ))}
+                </form>
+              )}
+
+              <div className="canned-list">
+                {filteredCanned.length === 0 ? (
+                  <div style={{ padding: '12px', fontSize: '0.75rem', color: '#64748B', textAlign: 'center' }}>
+                    No matching snippets found.
+                  </div>
+                ) : (
+                  filteredCanned.map((cr, idx) => (
+                    <div key={idx} className="canned-item-row">
+                      <button className="canned-item-btn" onClick={() => handleInsertCanned(cr.text)}>
+                        <strong>{cr.label}</strong>
+                        <p>{cr.text}</p>
+                      </button>
+                      <button
+                        className="canned-del-btn"
+                        onClick={e => handleDeleteCanned(idx, e)}
+                        title="Delete this quick response"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           )}

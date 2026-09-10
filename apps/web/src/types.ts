@@ -72,10 +72,14 @@ export interface Message {
   status: 'QUEUED' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED';
   metaMessageId?: string | null;
   templateId?: string | null;
+  templateData?: any;
+  headerText?: string;
+  headerType?: string;
+  footerText?: string;
   content: string;
   mediaUrl?: string;
   mediaType?: 'image' | 'document' | 'audio';
-  buttons?: Array<{ text: string; payload?: string }>;
+  buttons?: Array<any>;
   isInternalNote?: boolean; // For private agent notes
   authorName?: string;
   timestamp: string;

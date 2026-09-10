@@ -67,32 +67,33 @@ export class WhatsappIntegrationService {
   }
 
   async sendTemplateMessage(dto: { to: string; templateName: string; language?: string; components?: any[] }) {
-    const phoneNumberId = this.config.get<string>('META_PHONE_NUMBER_ID') || '1313091738548766';
+    const phoneNumberId = this.config.get<string>('META_PHONE_NUMBER_ID') || '1268849126320372';
     const systemToken = this.config.get<string>('META_SYSTEM_USER_TOKEN');
     const apiVersion = this.config.get<string>('META_GRAPH_API_VERSION') || 'v21.0';
 
     const formattedTo = dto.to.replace(/[^\d]/g, '');
+    const initialLang = dto.language || 'en_US';
 
-    const payload: any = {
-      messaging_product: 'whatsapp',
-      recipient_type: 'individual',
-      to: formattedTo,
-      type: 'template',
-      template: {
-        name: dto.templateName,
-        language: {
-          code: dto.language || 'en_US',
+    const executeCall = async (langCode: string, comps?: any[]) => {
+      const payload: any = {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: formattedTo,
+        type: 'template',
+        template: {
+          name: dto.templateName,
+          language: {
+            code: langCode,
+          },
         },
-      },
-    };
+      };
 
-    if (dto.components && dto.components.length > 0) {
-      payload.template.components = dto.components;
-    }
+      if (comps && comps.length > 0) {
+        payload.template.components = comps;
+      }
 
-    this.logger.log(`Submitting live WhatsApp message for template '${dto.templateName}' to phone: +${formattedTo}...`);
+      this.logger.log(`Submitting WhatsApp template '${dto.templateName}' (lang: ${langCode}) to +${formattedTo}...`);
 
-    try {
       const res = await fetch(`https://graph.facebook.com/${apiVersion}/${phoneNumberId}/messages`, {
         method: 'POST',
         headers: {
@@ -106,21 +107,39 @@ export class WhatsappIntegrationService {
       let data: any = {};
       try { data = JSON.parse(responseText); } catch (e) {}
 
-      if (!res.ok) {
-        this.logger.error(`Meta WhatsApp send failed (${res.status}): ${responseText}`);
+      return { ok: res.ok, status: res.status, data, responseText };
+    };
+
+    try {
+      let callResult = await executeCall(initialLang, dto.components);
+
+      // If failed due to language mismatch, automatically retry with alternate language code
+      if (!callResult.ok) {
+        const errorMsg = callResult.data?.error?.message || '';
+        const errorCode = callResult.data?.error?.code || callResult.data?.error?.error_subcode;
+
+        if (errorCode === 132001 || errorMsg.toLowerCase().includes('does not exist in the translated language') || errorMsg.toLowerCase().includes('language')) {
+          const alternateLang = initialLang === 'en_US' ? 'en' : initialLang === 'en' ? 'en_US' : 'en_US';
+          this.logger.warn(`Retrying template '${dto.templateName}' with alternate language code: '${alternateLang}'...`);
+          callResult = await executeCall(alternateLang, dto.components);
+        }
+      }
+
+      if (!callResult.ok) {
+        this.logger.error(`Meta WhatsApp send failed (${callResult.status}): ${callResult.responseText}`);
         return {
           success: false,
-          error: data.error?.message || `Meta API error ${res.status}`,
-          metaResponse: data,
+          error: callResult.data?.error?.message || `Meta API error ${callResult.status}`,
+          metaResponse: callResult.data,
         };
       }
 
-      const msgId = data.messages?.[0]?.id || `wmid.${Date.now()}`;
+      const msgId = callResult.data.messages?.[0]?.id || `wmid.${Date.now()}`;
       this.logger.log(`WhatsApp message successfully sent via Meta Cloud API! WAMID: ${msgId}`);
       return {
         success: true,
         messageId: msgId,
-        metaResponse: data,
+        metaResponse: callResult.data,
       };
     } catch (err: any) {
       this.logger.error(`Meta Cloud API request exception: ${err.message}`);

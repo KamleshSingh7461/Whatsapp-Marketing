@@ -447,8 +447,21 @@ export function Dashboard() {
                 if (Array.isArray(sMsgs) && sMsgs.length > 0) {
                   setMessagesByConvId(prev => {
                     const existing = prev[sc.id] || prev[`conv_${sc.contact?.phone}`] || [];
+                    
+                    // Deduplicate: replace optimistic local messages if server has recorded them
+                    const serverMsgKeys = new Set(sMsgs.map(sm => `${sm.content.trim()}_${sm.direction}`));
+                    const cleanExisting = existing.filter(em => {
+                      if (em.id.startsWith('msg_') || em.id.startsWith('msg_tpl_')) {
+                        const key = `${em.content.trim()}_${em.direction}`;
+                        if (serverMsgKeys.has(key)) {
+                          return false; // Verified server message exists
+                        }
+                      }
+                      return true;
+                    });
+
                     const msgMap = new Map<string, Message>();
-                    existing.forEach(m => msgMap.set(m.id, m));
+                    cleanExisting.forEach(m => msgMap.set(m.id, m));
                     sMsgs.forEach(m => msgMap.set(m.id, m));
                     const merged = Array.from(msgMap.values()).sort(
                       (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
@@ -472,21 +485,22 @@ export function Dashboard() {
     fetchInbox();
     const interval = setInterval(fetchInbox, 2500);
     return () => clearInterval(interval);
-  }, [user]);
+  }, []);
 
-  // 4. Automatically provision Live Shared Inbox conversations for CRM contacts
+  // Synchronize contacts as conversations in shared inbox
   useEffect(() => {
     if (contacts.length === 0) return;
 
     setConversations(prev => {
-      let modified = false;
       const next = [...prev];
+      let modified = false;
 
       contacts.forEach(contact => {
-        const exists = next.some(c => c.contact.phone === contact.phone || c.contact.id === contact.id);
+        const convId = `conv_${contact.phone.replace(/[^0-9]/g, '')}`;
+        const exists = next.some(c => c.id === convId || c.contact?.phone === contact.phone);
+
         if (!exists) {
           modified = true;
-          const convId = `conv_${contact.id}`;
           next.unshift({
             id: convId,
             contact: contact,
@@ -546,6 +560,15 @@ export function Dashboard() {
       [convId]: [...(prev[convId] || []), newMsg],
     }));
 
+    if (!isInternalNote) {
+      // Increment live WABA Daily Sent & Care metrics
+      setStatus(prev => prev ? ({
+        ...prev,
+        dailyMessagesSent: (prev.dailyMessagesSent || 0) + 1,
+        freeMonthlyServiceUsed: Math.min(1000, (prev.freeMonthlyServiceUsed || 0) + 1),
+      }) : prev);
+    }
+
     if (getToken()) {
       apiFetch('/inbox/messages', {
         method: 'POST',
@@ -600,6 +623,11 @@ export function Dashboard() {
       direction: 'OUTBOUND',
       status: 'DELIVERED',
       templateId: template.id,
+      templateData: template.bodyJson,
+      headerText: template.bodyJson?.header?.text,
+      headerType: template.bodyJson?.header?.type,
+      footerText: template.bodyJson?.footer,
+      buttons: template.bodyJson?.buttons,
       content: renderedText,
       authorName: user?.name || 'Agent',
       timestamp: new Date().toISOString(),
@@ -610,6 +638,13 @@ export function Dashboard() {
       [convId]: [...(prev[convId] || []), newMsg],
     }));
 
+    // Increment live WABA Daily Sent & Care metrics
+    setStatus(prev => prev ? ({
+      ...prev,
+      dailyMessagesSent: (prev.dailyMessagesSent || 0) + 1,
+      freeMonthlyServiceUsed: Math.min(1000, (prev.freeMonthlyServiceUsed || 0) + 1),
+    }) : prev);
+
     if (getToken()) {
       apiFetch('/inbox/messages', {
         method: 'POST',
@@ -618,6 +653,11 @@ export function Dashboard() {
           direction: 'OUTBOUND',
           text: renderedText,
           templateId: template.id,
+          templateData: template.bodyJson,
+          headerText: template.bodyJson?.header?.text,
+          headerType: template.bodyJson?.header?.type,
+          footerText: template.bodyJson?.footer,
+          buttons: template.bodyJson?.buttons,
           authorName: user?.name || 'Agent',
           phone,
           name: conv?.contact?.displayName,
@@ -640,12 +680,23 @@ export function Dashboard() {
 
     if (phone) {
       try {
+        const components: any[] = [];
+        if (conv?.contact?.displayName) {
+          components.push({
+            type: 'body',
+            parameters: [
+              { type: 'text', text: conv.contact.displayName }
+            ]
+          });
+        }
+
         await apiFetch('/whatsapp/send-template', {
           method: 'POST',
           body: JSON.stringify({
             to: phone,
             templateName: template.name,
             language: template.language || 'en_US',
+            components: components.length > 0 ? components : undefined,
           }),
         });
       } catch (e) {
@@ -819,6 +870,8 @@ export function Dashboard() {
 
     // If no contacts matched target tags or tags list empty, send to all contacts in database
     const recipientsList = targetContacts.length > 0 ? targetContacts : contacts;
+    const matchingTpl = templates.find(t => t.name === newCmp.templateName);
+    const templateLang = matchingTpl?.language || 'en_US';
 
     for (const contact of recipientsList) {
       try {
@@ -827,6 +880,7 @@ export function Dashboard() {
           body: JSON.stringify({
             to: contact.phone,
             templateName: newCmp.templateName,
+            language: templateLang,
           }),
         });
       } catch (err) {
