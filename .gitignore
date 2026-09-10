@@ -4,6 +4,9 @@ build/
 *.tsbuildinfo
 .env
 .env.local
+*.env
+apps/api/.env
+apps/web/.env
 *.log
 .DS_Store
 coverage/

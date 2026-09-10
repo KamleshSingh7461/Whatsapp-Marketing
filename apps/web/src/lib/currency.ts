@@ -19,10 +19,10 @@ export const CURRENCIES: Record<CurrencyCode, CurrencyConfig> = {
  */
 export function formatCurrency(
   amountInUSD: number,
-  currency: CurrencyCode = 'USD',
+  currency: CurrencyCode = 'INR',
   decimals: number = 0
 ): string {
-  const config = CURRENCIES[currency] || CURRENCIES.USD;
+  const config = CURRENCIES[currency] || CURRENCIES.INR;
   const converted = amountInUSD * config.rate;
 
   if (decimals === 0) {
@@ -39,10 +39,10 @@ export function formatCurrency(
  */
 export function formatRate(
   amountInUSD: number,
-  currency: CurrencyCode = 'USD',
+  currency: CurrencyCode = 'INR',
   decimals: number = 4
 ): string {
-  const config = CURRENCIES[currency] || CURRENCIES.USD;
+  const config = CURRENCIES[currency] || CURRENCIES.INR;
   const converted = amountInUSD * config.rate;
   return `${config.symbol}${converted.toFixed(decimals)}`;
 }
@@ -50,6 +50,6 @@ export function formatRate(
 /**
  * Returns the currency symbol for the code
  */
-export function getCurrencySymbol(currency: CurrencyCode = 'USD'): string {
-  return (CURRENCIES[currency] || CURRENCIES.USD).symbol;
+export function getCurrencySymbol(currency: CurrencyCode = 'INR'): string {
+  return (CURRENCIES[currency] || CURRENCIES.INR).symbol;
 }

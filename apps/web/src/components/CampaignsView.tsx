@@ -12,7 +12,7 @@ interface CampaignsViewProps {
 export const CampaignsView: React.FC<CampaignsViewProps> = ({
   campaigns,
   templates,
-  currency = 'USD',
+  currency = 'INR',
   onLaunchCampaign,
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);

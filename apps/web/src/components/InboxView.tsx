@@ -34,7 +34,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
   conversations,
   messagesByConvId,
   templates = [],
-  currency = 'USD',
+  currency = 'INR',
   onSendMessage,
   onSendTemplateMessage,
   onSimulateInbound,

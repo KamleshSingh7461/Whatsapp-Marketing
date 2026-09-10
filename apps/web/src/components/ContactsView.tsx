@@ -10,7 +10,7 @@ interface ContactsViewProps {
 
 export const ContactsView: React.FC<ContactsViewProps> = ({
   contacts,
-  currency = 'USD',
+  currency = 'INR',
   onAddContact,
 }) => {
   const [search, setSearch] = useState('');
@@ -114,39 +114,51 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
       </div>
 
       {/* Highlights Grid */}
-      <div className="metrics-grid">
-        <div className="metric-card">
-          <div className="metric-header">
-            <span className="metric-label">VIP Tier 1 Threshold</span>
-          </div>
-          <div className="metric-primary-value text-primary-brand">{formatCurrency(2480, currency)}+</div>
-          <div className="metric-footer-text">Repeat buyers with 10+ completed orders</div>
-        </div>
+      {(() => {
+        const vipContacts = contacts.filter(c => c.rfmSegment === 'CHAMPIONS');
+        const avgVipLtv = vipContacts.length > 0 ? Math.round(vipContacts.reduce((a, c) => a + (c.lifetimeValue || 0), 0) / vipContacts.length) : 0;
+        const loyalContacts = contacts.filter(c => c.rfmSegment === 'LOYAL_CUSTOMERS');
+        const avgLoyalLtv = loyalContacts.length > 0 ? Math.round(loyalContacts.reduce((a, c) => a + (c.lifetimeValue || 0), 0) / loyalContacts.length) : 0;
+        const highIntent = contacts.filter(c => c.rfmSegment === 'POTENTIAL_LOYALIST');
+        const avgHighIntentLtv = highIntent.length > 0 ? Math.round(highIntent.reduce((a, c) => a + (c.lifetimeValue || 0), 0) / highIntent.length) : 0;
+        const optedInCount = contacts.filter(c => c.optedIn).length;
 
-        <div className="metric-card">
-          <div className="metric-header">
-            <span className="metric-label">Frequent Buyers Avg</span>
-          </div>
-          <div className="metric-primary-value">{formatCurrency(1200, currency)}+</div>
-          <div className="metric-footer-text">Active in past 60 days</div>
-        </div>
+        return (
+          <div className="metrics-grid">
+            <div className="metric-card">
+              <div className="metric-header">
+                <span className="metric-label">VIP Tier 1 Avg LTV</span>
+              </div>
+              <div className="metric-primary-value text-primary-brand">{formatCurrency(avgVipLtv, currency)}</div>
+              <div className="metric-footer-text">{vipContacts.length} VIP contacts enrolled</div>
+            </div>
 
-        <div className="metric-card">
-          <div className="metric-header">
-            <span className="metric-label">High Intent Cart Avg</span>
-          </div>
-          <div className="metric-primary-value">{formatCurrency(890, currency)}</div>
-          <div className="metric-footer-text">High-value abandoned checkouts</div>
-        </div>
+            <div className="metric-card">
+              <div className="metric-header">
+                <span className="metric-label">Frequent Buyers Avg</span>
+              </div>
+              <div className="metric-primary-value">{formatCurrency(avgLoyalLtv, currency)}</div>
+              <div className="metric-footer-text">{loyalContacts.length} loyal customers</div>
+            </div>
 
-        <div className="metric-card">
-          <div className="metric-header">
-            <span className="metric-label">Verified Opt-In Contacts</span>
+            <div className="metric-card">
+              <div className="metric-header">
+                <span className="metric-label">High Intent Cart Avg</span>
+              </div>
+              <div className="metric-primary-value">{formatCurrency(avgHighIntentLtv, currency)}</div>
+              <div className="metric-footer-text">{highIntent.length} potential buyers</div>
+            </div>
+
+            <div className="metric-card">
+              <div className="metric-header">
+                <span className="metric-label">Verified Opt-In Contacts</span>
+              </div>
+              <div className="metric-primary-value">{optedInCount} / {contacts.length}</div>
+              <div className="metric-footer-text">WhatsApp compliant opt-ins</div>
+            </div>
           </div>
-          <div className="metric-primary-value">{contacts.filter(c => c.optedIn).length} / {contacts.length}</div>
-          <div className="metric-footer-text">WhatsApp compliant opt-ins</div>
-        </div>
-      </div>
+        );
+      })()}
 
       {/* Filter and Search Bar */}
       <div className="panel-card" style={{ marginBottom: 16 }}>

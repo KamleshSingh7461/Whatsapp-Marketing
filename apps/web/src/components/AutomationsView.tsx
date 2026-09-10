@@ -10,7 +10,7 @@ interface AutomationsViewProps {
 
 export const AutomationsView: React.FC<AutomationsViewProps> = ({
   flows,
-  currency = 'USD',
+  currency = 'INR',
   onToggleStatus,
 }) => {
   const [selectedFlowId, setSelectedFlowId] = useState<string>(flows[0]?.id || '');

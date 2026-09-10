@@ -19,8 +19,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onRemoveTeamMember,
 }) => {
   // WABA Form States
-  const [wabaId, setWabaId] = useState(status?.wabaId || '109845728392019');
-  const [phoneNumberId, setPhoneNumberId] = useState(status?.phoneNumberId || '104829104829104');
+  const [wabaId, setWabaId] = useState(status?.wabaId || '1845046976654799');
+  const [phoneNumberId, setPhoneNumberId] = useState(status?.phoneNumberId || '1313091738548766');
   const [businessToken, setBusinessToken] = useState('EAAOxk98214...');
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);

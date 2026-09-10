@@ -22,4 +22,16 @@ export class WhatsappIntegrationController {
   status() {
     return this.integration.getStatus();
   }
+
+  @Post('send-template')
+  @Roles(Role.ADMIN, Role.MARKETER, Role.AGENT)
+  sendTemplate(@Body() body: { to: string; templateName: string; language?: string; components?: any[] }) {
+    return this.integration.sendTemplateMessage(body);
+  }
+
+  @Post('send-text')
+  @Roles(Role.ADMIN, Role.MARKETER, Role.AGENT)
+  sendText(@Body() body: { to: string; text: string }) {
+    return this.integration.sendTextMessage(body);
+  }
 }

@@ -4,6 +4,8 @@ import fgsnLogo from '../assets/logo.png';
 
 interface TemplatesViewProps {
   templates: Template[];
+  wabaAccountName?: string;
+  displayPhoneNumber?: string;
   onCreateTemplate: (template: Partial<Template>) => void;
 }
 
@@ -11,21 +13,67 @@ const PROMOTIONAL_KEYWORDS = ['sale', 'discount', 'offer', 'deal', 'buy now', 'c
 
 export const TemplatesView: React.FC<TemplatesViewProps> = ({
   templates,
+  wabaAccountName = 'Freedom Global Sports Network',
+  displayPhoneNumber = '+91 86558 51946',
   onCreateTemplate,
 }) => {
   const [name, setName] = useState('');
   const [language, setLanguage] = useState('en_US');
   const [category, setCategory] = useState<TemplateCategory>('MARKETING');
-  const [headerType, setHeaderType] = useState<'TEXT' | 'IMAGE'>('TEXT');
+  const [headerType, setHeaderType] = useState<'NONE' | 'TEXT' | 'IMAGE' | 'DOCUMENT'>('TEXT');
   const [headerText, setHeaderText] = useState('Exclusive VIP Offer');
-  const [bodyText, setBodyText] = useState('Hello {{1}}, your 20% promotional code {{2}} is active through this weekend.');
+  
+  const [bodyText, setBodyText] = useState('Hello {{1}}, welcome to Freedom Global Sports Network! Use code {{2}} at checkout.');
   const [footerText, setFooterText] = useState('Reply STOP to unsubscribe');
-  const [buttonText, setButtonText] = useState('Shop Now');
 
+  // Button config
+  const [buttonType, setButtonType] = useState<'NONE' | 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER'>('QUICK_REPLY');
+  const [buttonText, setButtonText] = useState('Shop Now');
+  const [buttonUrl, setButtonUrl] = useState('https://fgsnlive.com/shop');
+  const [buttonPhone, setButtonPhone] = useState('+918655851946');
+
+  // Sample variable values
   const [varValues, setVarValues] = useState<Record<string, string>>({
     '1': 'Elena',
-    '2': 'VIP20',
+    '2': 'FGSN20',
   });
+
+  // Category Change Handler - Automatically populates Meta compliant presets
+  const handleCategoryChange = (newCategory: TemplateCategory) => {
+    setCategory(newCategory);
+
+    if (newCategory === 'AUTHENTICATION') {
+      setHeaderType('NONE');
+      setHeaderText('');
+      setBodyText('Your verification code is {{1}}. Valid for 10 minutes. Do not share this code with anyone.');
+      setFooterText('WhatsApp Security Notice');
+      setButtonType('QUICK_REPLY');
+      setButtonText('Copy Code');
+      setVarValues({ '1': '948201' });
+    } else if (newCategory === 'UTILITY') {
+      setHeaderType('TEXT');
+      setHeaderText('Order Dispatch Update');
+      setBodyText('Hello {{1}}, your order #{{2}} has been dispatched and is on its way.');
+      setFooterText('Customer Support 24/7');
+      setButtonType('URL');
+      setButtonText('Track Order');
+      setButtonUrl('https://fgsnlive.com/track');
+      setVarValues({ '1': 'Elena', '2': 'ORD-9048' });
+    } else {
+      // MARKETING
+      setHeaderType('TEXT');
+      setHeaderText('Exclusive VIP Offer');
+      setBodyText('Hi {{1}}, get 20% off all new arrivals with promo code {{2}}.');
+      setFooterText('Reply STOP to unsubscribe');
+      setButtonType('URL');
+      setButtonText('Shop Now');
+      setButtonUrl('https://fgsnlive.com/shop');
+      setVarValues({ '1': 'Elena', '2': 'FGSN20' });
+    }
+  };
+
+  // Automatically detect variables {{1}}, {{2}} in body text
+  const detectedVariables = Array.from(new Set((bodyText.match(/\{\{\d+\}\}/g) || []).map(v => v.replace(/\D/g, ''))));
 
   const handleVarChange = (key: string, val: string) => {
     setVarValues(prev => ({ ...prev, [key]: val }));
@@ -33,8 +81,9 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
 
   const getRenderedBody = () => {
     let rendered = bodyText;
-    Object.entries(varValues).forEach(([k, v]) => {
-      rendered = rendered.replace(new RegExp(`\\{\\{${k}\\}\\}`, 'g'), v || `{{${k}}}`);
+    detectedVariables.forEach((k) => {
+      const val = varValues[k] || `{{${k}}}`;
+      rendered = rendered.replace(new RegExp(`\\{\\{${k}\\}\\}`, 'g'), val);
     });
     return rendered;
   };
@@ -48,31 +97,49 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
       : null;
   };
 
-  const warning = checkMiscategorization(category, bodyText, headerText);
+  const warning = checkMiscategorization(category, bodyText, headerType === 'TEXT' ? headerText : '');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !bodyText.trim()) return;
 
+    // Strict Meta snake_case name formatting
+    const formattedName = name.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+
+    let headerObj: any = undefined;
+    if (headerType === 'TEXT' && headerText.trim()) {
+      headerObj = { type: 'TEXT', text: headerText.trim() };
+    } else if (headerType === 'IMAGE') {
+      headerObj = { type: 'IMAGE', url: headerText.trim() || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600' };
+    } else if (headerType === 'DOCUMENT') {
+      headerObj = { type: 'DOCUMENT', url: headerText.trim() };
+    }
+
+    let buttonsObj: any[] = [];
+    if (buttonType === 'QUICK_REPLY' && buttonText.trim()) {
+      buttonsObj = [{ type: 'QUICK_REPLY', text: buttonText.trim() }];
+    } else if (buttonType === 'URL' && buttonText.trim()) {
+      buttonsObj = [{ type: 'URL', text: buttonText.trim(), url: buttonUrl.trim() || 'https://fgsnlive.com' }];
+    } else if (buttonType === 'PHONE_NUMBER' && buttonText.trim()) {
+      buttonsObj = [{ type: 'PHONE_NUMBER', text: buttonText.trim(), phone: buttonPhone.trim() || '+918655851946' }];
+    }
+
     onCreateTemplate({
-      name: name.trim().toLowerCase().replace(/\s+/g, '_'),
+      name: formattedName,
       language,
       category,
-      status: 'APPROVED',
+      status: 'PENDING',
       bodyJson: {
-        header: headerText ? { type: headerType, text: headerText } : undefined,
+        header: headerObj,
         body: bodyText,
-        footer: footerText || undefined,
-        buttons: buttonText ? [{ type: 'QUICK_REPLY', text: buttonText }] : undefined,
+        footer: footerText.trim() || undefined,
+        buttons: buttonsObj.length > 0 ? buttonsObj : undefined,
       },
       sampleVariables: varValues,
       warning: warning || undefined,
     });
 
     setName('');
-    setHeaderText('');
-    setBodyText('');
-    setFooterText('');
   };
 
   return (
@@ -80,7 +147,7 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
       <div className="page-header-row">
         <div>
           <h2 className="view-title">Template Studio & Compliance Sandbox</h2>
-          <p className="view-subtitle">Author and test WhatsApp Cloud API message templates with variable parameters and compliance verification</p>
+          <p className="view-subtitle">Author and test WhatsApp Cloud API message templates formatted to Meta's exact Graph API specification</p>
         </div>
       </div>
 
@@ -89,20 +156,23 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
         <div className="panel-card">
           <h3 className="panel-title">Template Configuration</h3>
           <p className="panel-desc" style={{ marginBottom: 16 }}>
-            Variables like <code>{'{{1}}'}</code>, <code>{'{{2}}'}</code> will be populated dynamically upon dispatch.
+            Use <code>{'{{1}}'}</code>, <code>{'{{2}}'}</code> for dynamic parameters. Meta requires sample values for approval.
           </p>
 
           <form onSubmit={handleSubmit} className="template-form">
             <div className="form-group">
-              <label>Template Identifier (snake_case)</label>
+              <label>Template Identifier (lowercase_snake_case)</label>
               <input
                 type="text"
                 required
-                placeholder="e.g. order_dispatch_notification"
+                placeholder="e.g. order_confirmation_v1"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="form-input"
               />
+              <span className="field-hint" style={{ fontSize: '0.74rem', color: '#64748B' }}>
+                Only lowercase letters, numbers, and underscores allowed by Meta.
+              </span>
             </div>
 
             <div className="form-row">
@@ -110,12 +180,12 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
                 <label>Category</label>
                 <select
                   value={category}
-                  onChange={(e) => setCategory(e.target.value as TemplateCategory)}
+                  onChange={(e) => handleCategoryChange(e.target.value as TemplateCategory)}
                   className="form-input"
                 >
                   <option value="MARKETING">Marketing (Promotions & Offers)</option>
-                  <option value="UTILITY">Utility (Order updates & Tracking)</option>
-                  <option value="AUTHENTICATION">Authentication (OTPs)</option>
+                  <option value="UTILITY">Utility (Order updates & Notifications)</option>
+                  <option value="AUTHENTICATION">Authentication (OTPs & Security)</option>
                 </select>
               </div>
 
@@ -127,42 +197,50 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
                   className="form-input"
                 >
                   <option value="en_US">English (US)</option>
-                  <option value="es_ES">Spanish</option>
-                  <option value="pt_BR">Portuguese</option>
-                  <option value="hi_IN">Hindi</option>
+                  <option value="en_GB">English (UK)</option>
+                  <option value="hi_IN">Hindi (hi_IN)</option>
+                  <option value="es_ES">Spanish (es_ES)</option>
+                  <option value="pt_BR">Portuguese (pt_BR)</option>
                 </select>
               </div>
             </div>
 
+            {/* Header Format */}
             <div className="form-group">
-              <div className="header-type-toggle">
-                <label>Header Format</label>
-                <div className="btn-group-segmented">
+              <label>Header Format</label>
+              <div className="btn-group-segmented" style={{ marginBottom: 8 }}>
+                {(['NONE', 'TEXT', 'IMAGE', 'DOCUMENT'] as const).map(fmt => (
                   <button
+                    key={fmt}
                     type="button"
-                    className={`btn-seg-item ${headerType === 'TEXT' ? 'active' : ''}`}
-                    onClick={() => setHeaderType('TEXT')}
+                    className={`btn-seg-item ${headerType === fmt ? 'active' : ''}`}
+                    onClick={() => setHeaderType(fmt)}
                   >
-                    Text
+                    {fmt}
                   </button>
-                  <button
-                    type="button"
-                    className={`btn-seg-item ${headerType === 'IMAGE' ? 'active' : ''}`}
-                    onClick={() => setHeaderType('IMAGE')}
-                  >
-                    Image
-                  </button>
-                </div>
+                ))}
               </div>
-              <input
-                type="text"
-                placeholder={headerType === 'TEXT' ? 'e.g. Shipment Dispatched' : 'https://cdn.example.com/banner.jpg'}
-                value={headerText}
-                onChange={(e) => setHeaderText(e.target.value)}
-                className="form-input"
-              />
+              {headerType === 'TEXT' && (
+                <input
+                  type="text"
+                  placeholder="e.g. Exclusive VIP Announcement"
+                  value={headerText}
+                  onChange={(e) => setHeaderText(e.target.value)}
+                  className="form-input"
+                />
+              )}
+              {(headerType === 'IMAGE' || headerType === 'DOCUMENT') && (
+                <input
+                  type="text"
+                  placeholder="Sample Media URL (e.g. https://example.com/image.png)"
+                  value={headerText}
+                  onChange={(e) => setHeaderText(e.target.value)}
+                  className="form-input"
+                />
+              )}
             </div>
 
+            {/* Body Text */}
             <div className="form-group">
               <label>Body Text</label>
               <textarea
@@ -175,33 +253,29 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
               />
             </div>
 
-            {/* Variable Test Values */}
-            <div className="variable-test-container">
-              <span className="var-test-title">Sample Variable Sandbox:</span>
-              <div className="var-inputs-row">
-                <div className="var-input-group">
-                  <label>{'{{1}}'} Name:</label>
-                  <input
-                    type="text"
-                    value={varValues['1'] || ''}
-                    onChange={(e) => handleVarChange('1', e.target.value)}
-                    placeholder="Elena"
-                    className="form-input sm"
-                  />
-                </div>
-                <div className="var-input-group">
-                  <label>{'{{2}}'} Param:</label>
-                  <input
-                    type="text"
-                    value={varValues['2'] || ''}
-                    onChange={(e) => handleVarChange('2', e.target.value)}
-                    placeholder="VIP20"
-                    className="form-input sm"
-                  />
+            {/* Dynamic Variable Sandbox */}
+            {detectedVariables.length > 0 && (
+              <div className="variable-test-container">
+                <span className="var-test-title">Meta Mandatory Sample Variables:</span>
+                <div className="var-inputs-row">
+                  {detectedVariables.map((vNum) => (
+                    <div key={vNum} className="var-input-group">
+                      <label>{`{{${vNum}}}`} Sample:</label>
+                      <input
+                        type="text"
+                        required
+                        value={varValues[vNum] || ''}
+                        onChange={(e) => handleVarChange(vNum, e.target.value)}
+                        placeholder={`Value for {{${vNum}}}`}
+                        className="form-input sm"
+                      />
+                    </div>
+                  ))}
                 </div>
               </div>
-            </div>
+            )}
 
+            {/* Footer Text */}
             <div className="form-group">
               <label>Footer Text (Optional)</label>
               <input
@@ -213,15 +287,63 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
               />
             </div>
 
+            {/* Button Type Selector */}
             <div className="form-group">
-              <label>Quick Reply Button</label>
-              <input
-                type="text"
-                placeholder="e.g. Track Order"
-                value={buttonText}
-                onChange={(e) => setButtonText(e.target.value)}
-                className="form-input"
-              />
+              <label>Call-to-Action / Quick Reply Buttons</label>
+              <div className="btn-group-segmented" style={{ marginBottom: 8 }}>
+                {(['NONE', 'QUICK_REPLY', 'URL', 'PHONE_NUMBER'] as const).map(bType => (
+                  <button
+                    key={bType}
+                    type="button"
+                    className={`btn-seg-item ${buttonType === bType ? 'active' : ''}`}
+                    onClick={() => setButtonType(bType)}
+                  >
+                    {bType.replace('_', ' ')}
+                  </button>
+                ))}
+              </div>
+
+              {buttonType !== 'NONE' && (
+                <div className="form-row">
+                  <div className="form-group half">
+                    <label>Button Label Text</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Shop Now"
+                      value={buttonText}
+                      onChange={(e) => setButtonText(e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+                  {buttonType === 'URL' && (
+                    <div className="form-group half">
+                      <label>Target URL</label>
+                      <input
+                        type="url"
+                        required
+                        placeholder="https://fgsnlive.com/shop"
+                        value={buttonUrl}
+                        onChange={(e) => setButtonUrl(e.target.value)}
+                        className="form-input"
+                      />
+                    </div>
+                  )}
+                  {buttonType === 'PHONE_NUMBER' && (
+                    <div className="form-group half">
+                      <label>Phone Number (E.164 format)</label>
+                      <input
+                        type="tel"
+                        required
+                        placeholder="+918655851946"
+                        value={buttonPhone}
+                        onChange={(e) => setButtonPhone(e.target.value)}
+                        className="form-input"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Compliance Warning Alert */}
@@ -232,7 +354,7 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
             )}
 
             <button type="submit" className="btn-primary" style={{ marginTop: 12 }}>
-              Save & Submit to Meta
+              Save & Submit to Meta Cloud API
             </button>
           </form>
         </div>
@@ -304,12 +426,13 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
 
                   <div className="wa-partner-meta">
                     <div className="wa-partner-name-row">
-                      <span className="wa-partner-name">FGSN Official</span>
+                      <span className="wa-partner-name">{wabaAccountName}</span>
                       <svg viewBox="0 0 24 24" width="12" height="12" fill="#059669" className="verified-shield">
+                        <title>Verified Meta Business Account</title>
                         <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
                       </svg>
                     </div>
-                    <span className="wa-partner-desc">Official WhatsApp Business Account</span>
+                    <span className="wa-partner-desc">{displayPhoneNumber} • Verified Business</span>
                   </div>
                 </div>
 
@@ -385,15 +508,26 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
                     <span className="wa-double-check" title="Delivered & Read">✓✓</span>
                   </div>
 
-                  {/* Interactive Quick Reply / Call-to-Action Buttons */}
-                  {buttonText && (
+                  {/* Interactive Buttons */}
+                  {buttonType !== 'NONE' && buttonText && (
                     <div className="wa-bubble-actions">
                       <button type="button" className="wa-action-button">
-                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#007AFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6 }}>
-                          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                          <polyline points="15 3 21 3 21 9" />
-                          <line x1="10" y1="14" x2="21" y2="3" />
-                        </svg>
+                        {buttonType === 'URL' ? (
+                          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#007AFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6 }}>
+                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                            <polyline points="15 3 21 3 21 9" />
+                            <line x1="10" y1="14" x2="21" y2="3" />
+                          </svg>
+                        ) : buttonType === 'PHONE_NUMBER' ? (
+                          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#007AFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6 }}>
+                            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
+                          </svg>
+                        ) : (
+                          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#007AFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6 }}>
+                            <polyline points="15 10 20 15 15 20" />
+                            <path d="M4 4v7a4 4 0 0 0 4 4h12" />
+                          </svg>
+                        )}
                         <span>{buttonText}</span>
                       </button>
                     </div>
@@ -430,7 +564,7 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
 
       {/* Templates Table */}
       <div className="panel-card" style={{ marginTop: 24 }}>
-        <h3 className="panel-title">Approved Message Templates</h3>
+        <h3 className="panel-title">Submitted Message Templates</h3>
         <table className="corporate-table">
           <thead>
             <tr>
@@ -460,7 +594,7 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
                     <span className="status-chip neutral">{t.category}</span>
                   </td>
                   <td>
-                    <span className={`status-chip ${t.status === 'APPROVED' ? 'success' : t.status === 'PENDING' ? 'warning' : 'neutral'}`}>
+                    <span className={`status-chip ${t.status === 'APPROVED' ? 'success' : t.status === 'PENDING' ? 'warning' : 'danger'}`}>
                       {t.status}
                     </span>
                   </td>

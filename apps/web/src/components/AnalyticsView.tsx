@@ -51,7 +51,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
           </p>
         </div>
         <div className="currency-segmented-group" title="Select Display Currency">
-          {(['USD', 'EUR', 'INR', 'GBP'] as const).map(c => (
+          {(['INR', 'USD', 'EUR', 'GBP'] as const).map(c => (
             <button
               key={c}
               className={`currency-seg-btn ${currency === c ? 'active' : ''}`}
