@@ -117,11 +117,19 @@ export class WhatsappIntegrationService {
       if (!callResult.ok) {
         const errorMsg = callResult.data?.error?.message || '';
         const errorCode = callResult.data?.error?.code || callResult.data?.error?.error_subcode;
+        const details = callResult.data?.error?.error_data?.details || '';
 
         if (errorCode === 132001 || errorMsg.toLowerCase().includes('does not exist in the translated language') || errorMsg.toLowerCase().includes('language')) {
           const alternateLang = initialLang === 'en_US' ? 'en' : initialLang === 'en' ? 'en_US' : 'en_US';
           this.logger.warn(`Retrying template '${dto.templateName}' with alternate language code: '${alternateLang}'...`);
           callResult = await executeCall(alternateLang, dto.components);
+        } else if (errorCode === 132000 || details.toLowerCase().includes('localizable_params') || errorMsg.toLowerCase().includes('parameters does not match')) {
+          this.logger.warn(`Retrying template '${dto.templateName}' without component parameters due to param count mismatch...`);
+          callResult = await executeCall(initialLang, undefined);
+          if (!callResult.ok && (initialLang === 'en_US' || initialLang === 'en')) {
+            const alternateLang = initialLang === 'en_US' ? 'en' : 'en_US';
+            callResult = await executeCall(alternateLang, undefined);
+          }
         }
       }
 

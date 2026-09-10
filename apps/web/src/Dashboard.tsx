@@ -705,7 +705,9 @@ export function Dashboard() {
     if (phone) {
       try {
         const components: any[] = [];
-        if (conv?.contact?.displayName) {
+        const bodyContent = template.bodyJson?.body || (template as any).body || '';
+        const hasVariables = typeof bodyContent === 'string' && (bodyContent.includes('{{') || /\{\{\d+\}\}/.test(bodyContent));
+        if (hasVariables && conv?.contact?.displayName) {
           components.push({
             type: 'body',
             parameters: [
