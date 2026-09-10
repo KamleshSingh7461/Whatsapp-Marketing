@@ -824,7 +824,7 @@ export function Dashboard() {
     }
   };
 
-  const handleCreateTemplate = async (newTpl: Partial<Template>) => {
+  const handleCreateTemplate = async (newTpl: Partial<Template>): Promise<{ success: boolean; message?: string }> => {
     try {
       const res = await apiFetch<any>('/templates', {
         method: 'POST',
@@ -836,28 +836,54 @@ export function Dashboard() {
         }),
       });
 
-      // Refetch live templates list directly from Meta Graph API
-      const liveList = await apiFetch<Template[]>('/templates').catch(() => null);
-      if (liveList && Array.isArray(liveList) && liveList.length > 0) {
-        setTemplates(liveList);
-      } else {
-        const returnedStatus = res.status || (res.metaResponse?.status) || 'PENDING';
-        const createdTpl: Template = {
-          id: res.id || `tpl_${Date.now()}`,
-          name: res.name || newTpl.name || 'new_template',
-          language: res.language || newTpl.language || 'en_US',
-          category: res.category || newTpl.category || 'MARKETING',
-          status: returnedStatus as any,
-          metaTemplateId: res.metaTemplateId || res.metaResponse?.id || null,
-          bodyJson: newTpl.bodyJson || { body: '' },
-          sampleVariables: newTpl.sampleVariables,
-          createdAt: new Date().toISOString(),
-          warning: res.warning || newTpl.warning,
-        };
-        setTemplates(prev => [createdTpl, ...prev]);
+      const returnedStatus = res.status || res.metaResponse?.status || 'PENDING';
+      const createdTpl: Template = {
+        id: res.id || `tpl_${Date.now()}`,
+        name: res.name || newTpl.name || 'new_template',
+        language: res.language || newTpl.language || 'en_US',
+        category: res.category || newTpl.category || 'MARKETING',
+        status: returnedStatus as any,
+        metaTemplateId: res.metaTemplateId || res.metaResponse?.id || null,
+        bodyJson: newTpl.bodyJson || { body: '' },
+        sampleVariables: newTpl.sampleVariables,
+        createdAt: new Date().toISOString(),
+        warning: res.warning || newTpl.warning || (res.metaResponse?.error ? `Meta Notice: ${res.metaResponse.error}` : undefined),
+      };
+
+      setTemplates(prev => {
+        const filtered = prev.filter(t => !(t.name === createdTpl.name && t.language === createdTpl.language));
+        return [createdTpl, ...filtered];
+      });
+
+      // Also trigger a background sync with Meta
+      apiFetch<Template[]>('/templates')
+        .then(liveList => {
+          if (liveList && Array.isArray(liveList) && liveList.length > 0) {
+            setTemplates(liveList);
+          }
+        })
+        .catch(() => null);
+
+      if (res.metaResponse?.error) {
+        return { success: false, message: res.metaResponse.error };
       }
+      return { success: true };
     } catch (e: any) {
       console.warn('Backend template create error:', e);
+      const fallbackTpl: Template = {
+        id: `tpl_${Date.now()}`,
+        name: newTpl.name || 'new_template',
+        language: newTpl.language || 'en_US',
+        category: newTpl.category || 'MARKETING',
+        status: 'PENDING',
+        metaTemplateId: null,
+        bodyJson: newTpl.bodyJson || { body: '' },
+        sampleVariables: newTpl.sampleVariables,
+        createdAt: new Date().toISOString(),
+        warning: newTpl.warning,
+      };
+      setTemplates(prev => [fallbackTpl, ...prev]);
+      return { success: false, message: e.message || 'Error submitting template' };
     }
   };
 

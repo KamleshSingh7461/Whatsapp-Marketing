@@ -8,7 +8,7 @@ interface TemplatesViewProps {
   wabaAccountName?: string;
   displayPhoneNumber?: string;
   currentUser?: User | null;
-  onCreateTemplate: (template: Partial<Template>) => void;
+  onCreateTemplate: (template: Partial<Template>) => Promise<{ success?: boolean; message?: string } | void> | void;
 }
 
 const PROMOTIONAL_KEYWORDS = ['sale', 'discount', 'offer', 'deal', 'buy now', 'coupon', '% off', 'special price', 'clearance'];
@@ -16,7 +16,7 @@ const PROMOTIONAL_KEYWORDS = ['sale', 'discount', 'offer', 'deal', 'buy now', 'c
 export const TemplatesView: React.FC<TemplatesViewProps> = ({
   templates,
   wabaAccountName = 'Freedom Global Sports Network',
-  displayPhoneNumber = '+91 86558 51946',
+  displayPhoneNumber = '+91 86558 51749',
   currentUser,
   onCreateTemplate,
 }) => {
@@ -33,13 +33,16 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
   const [buttonType, setButtonType] = useState<'NONE' | 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER'>('QUICK_REPLY');
   const [buttonText, setButtonText] = useState('Shop Now');
   const [buttonUrl, setButtonUrl] = useState('https://fgsnlive.com/shop');
-  const [buttonPhone, setButtonPhone] = useState('+918655851946');
+  const [buttonPhone, setButtonPhone] = useState('+918655851749');
 
   // Sample variable values
   const [varValues, setVarValues] = useState<Record<string, string>>({
     '1': 'Elena',
     '2': 'FGSN20',
   });
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Category Change Handler - Automatically populates Meta compliant presets
   const handleCategoryChange = (newCategory: TemplateCategory) => {
@@ -102,9 +105,12 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
 
   const warning = checkMiscategorization(category, bodyText, headerType === 'TEXT' ? headerText : '');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !bodyText.trim()) return;
+
+    setIsSubmitting(true);
+    setFeedback(null);
 
     // Strict Meta snake_case name formatting
     const formattedName = name.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
@@ -124,25 +130,45 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
     } else if (buttonType === 'URL' && buttonText.trim()) {
       buttonsObj = [{ type: 'URL', text: buttonText.trim(), url: buttonUrl.trim() || 'https://fgsnlive.com' }];
     } else if (buttonType === 'PHONE_NUMBER' && buttonText.trim()) {
-      buttonsObj = [{ type: 'PHONE_NUMBER', text: buttonText.trim(), phone: buttonPhone.trim() || '+918655851946' }];
+      buttonsObj = [{ type: 'PHONE_NUMBER', text: buttonText.trim(), phone: buttonPhone.trim() || '+918655851749' }];
     }
 
-    onCreateTemplate({
-      name: formattedName,
-      language,
-      category,
-      status: 'PENDING',
-      bodyJson: {
-        header: headerObj,
-        body: bodyText,
-        footer: footerText.trim() || undefined,
-        buttons: buttonsObj.length > 0 ? buttonsObj : undefined,
-      },
-      sampleVariables: varValues,
-      warning: warning || undefined,
-    });
+    try {
+      const result = await onCreateTemplate({
+        name: formattedName,
+        language,
+        category,
+        status: 'PENDING',
+        bodyJson: {
+          header: headerObj,
+          body: bodyText,
+          footer: footerText.trim() || undefined,
+          buttons: buttonsObj.length > 0 ? buttonsObj : undefined,
+        },
+        sampleVariables: varValues,
+        warning: warning || undefined,
+      });
 
-    setName('');
+      if (result && (result as any).success === false) {
+        setFeedback({
+          type: 'error',
+          message: (result as any).message || 'Meta API rejected this template. Saved as local draft.',
+        });
+      } else {
+        setFeedback({
+          type: 'success',
+          message: `Template "${formattedName}" successfully saved and submitted to Meta Cloud API! Status: PENDING / REVIEW.`,
+        });
+        setName('');
+      }
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        message: err.message || 'Failed to submit template to Meta API',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -338,7 +364,7 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
                       <input
                         type="tel"
                         required
-                        placeholder="+918655851946"
+                        placeholder="+918655851749"
                         value={buttonPhone}
                         onChange={(e) => setButtonPhone(e.target.value)}
                         className="form-input"
@@ -356,9 +382,33 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
               </div>
             )}
 
+            {/* Status Feedback Banner */}
+            {feedback && (
+              <div
+                style={{
+                  marginTop: 12,
+                  padding: '10px 14px',
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  background: feedback.type === 'success' ? '#ECFDF5' : '#FEF2F2',
+                  border: `1px solid ${feedback.type === 'success' ? '#A7F3D0' : '#FECACA'}`,
+                  color: feedback.type === 'success' ? '#047857' : '#DC2626',
+                }}
+              >
+                {feedback.type === 'success' ? '✓ ' : '⚠️ '}
+                {feedback.message}
+              </div>
+            )}
+
             {canCreateTemplates(currentUser?.role) ? (
-              <button type="submit" className="btn-primary" style={{ marginTop: 12 }}>
-                Save & Submit to Meta Cloud API
+              <button
+                type="submit"
+                className="btn-primary"
+                disabled={isSubmitting}
+                style={{ marginTop: 12 }}
+              >
+                {isSubmitting ? '⏳ Submitting to Meta Graph API...' : '🚀 Save & Submit to Meta Cloud API'}
               </button>
             ) : (
               <div style={{ marginTop: 12, padding: '10px 14px', background: '#F1F5F9', borderRadius: 8, color: '#64748B', fontSize: 13, textAlign: 'center', fontWeight: 600 }}>
