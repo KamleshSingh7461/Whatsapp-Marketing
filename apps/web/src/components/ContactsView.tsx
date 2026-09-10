@@ -1,16 +1,19 @@
 import React, { useState } from 'react';
-import { Contact, RFMSegment } from '../types';
+import { Contact, RFMSegment, User } from '../types';
 import { CurrencyCode, formatCurrency } from '../lib/currency';
+import { canManageContacts } from '../lib/permissions';
 
 interface ContactsViewProps {
   contacts: Contact[];
   currency?: CurrencyCode;
+  currentUser?: User | null;
   onAddContact: (contact: Contact) => void;
 }
 
 export const ContactsView: React.FC<ContactsViewProps> = ({
   contacts,
   currency = 'INR',
+  currentUser,
   onAddContact,
 }) => {
   const [search, setSearch] = useState('');
@@ -95,14 +98,16 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
           </p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
-          <button className="btn-secondary" onClick={() => alert('Exporting contacts CSV...')}>
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6 }}>
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
-            Export CSV
-          </button>
+          {canManageContacts(currentUser?.role) && (
+            <button className="btn-secondary" onClick={() => alert('Exporting contacts CSV...')}>
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6 }}>
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              Export CSV
+            </button>
+          )}
           <button className="btn-primary" onClick={() => setIsModalOpen(true)}>
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6 }}>
               <line x1="12" y1="5" x2="12" y2="19" />

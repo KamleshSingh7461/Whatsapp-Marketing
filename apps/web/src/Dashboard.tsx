@@ -12,6 +12,7 @@ import { SettingsView } from './components/SettingsView';
 import { AuthModal } from './components/AuthModal';
 import { AcceptInviteModal } from './components/AcceptInviteModal';
 import { CurrencyCode } from './lib/currency';
+import { canAccessTab, getDefaultTabForRole } from './lib/permissions';
 import {
   AutomationFlow,
   Campaign,
@@ -213,6 +214,16 @@ export function Dashboard() {
 
     verifySession();
   }, []);
+
+  // RBAC Tab Protection: Automatically redirect if active tab is forbidden for user's role
+  useEffect(() => {
+    if (user && !canAccessTab(user.role, activeTab)) {
+      const defaultTab = getDefaultTabForRole(user.role);
+      setActiveTabState(defaultTab);
+      localStorage.setItem('fgsn_active_tab', defaultTab);
+      window.location.hash = defaultTab;
+    }
+  }, [user, activeTab]);
 
   // Save state changes to localStorage for offline / page reload persistence
   useEffect(() => {
@@ -823,6 +834,7 @@ export function Dashboard() {
         setActiveTab={setActiveTab}
         status={status}
         unreadCount={totalUnread}
+        user={user}
         isOpenMobile={isMobileSidebarOpen}
         onCloseMobile={() => setIsMobileSidebarOpen(false)}
       />
@@ -841,19 +853,20 @@ export function Dashboard() {
         />
 
         <div className="view-body">
-          {activeTab === 'analytics' && (
+          {activeTab === 'analytics' && canAccessTab(user.role, 'analytics') && (
             <AnalyticsView
               analytics={currentAnalytics}
               currency={currency}
               onCurrencyChange={setCurrency}
             />
           )}
-          {activeTab === 'inbox' && (
+          {activeTab === 'inbox' && canAccessTab(user.role, 'inbox') && (
             <InboxView
               conversations={conversations}
               messagesByConvId={messagesByConvId}
               templates={templates}
               currency={currency}
+              currentUser={user}
               onSendMessage={handleSendMessage}
               onSendTemplateMessage={handleSendTemplateMessage}
               onSimulateInbound={handleSimulateInbound}
@@ -862,37 +875,40 @@ export function Dashboard() {
               onStartNewChat={handleStartNewChat}
             />
           )}
-          {activeTab === 'automations' && (
+          {activeTab === 'automations' && canAccessTab(user.role, 'automations') && (
             <AutomationsView
               flows={flows}
               currency={currency}
               onToggleStatus={handleToggleFlowStatus}
             />
           )}
-          {activeTab === 'campaigns' && (
+          {activeTab === 'campaigns' && canAccessTab(user.role, 'campaigns') && (
             <CampaignsView
               campaigns={campaigns}
               templates={templates}
               currency={currency}
+              currentUser={user}
               onLaunchCampaign={handleLaunchCampaign}
             />
           )}
-          {activeTab === 'templates' && (
+          {activeTab === 'templates' && canAccessTab(user.role, 'templates') && (
             <TemplatesView
               templates={templates}
               wabaAccountName="Freedom Global Sports Network"
               displayPhoneNumber={status?.displayPhoneNumber || '+91 86558 51946'}
+              currentUser={user}
               onCreateTemplate={handleCreateTemplate}
             />
           )}
-          {activeTab === 'contacts' && (
+          {activeTab === 'contacts' && canAccessTab(user.role, 'contacts') && (
             <ContactsView
               contacts={contacts}
               currency={currency}
+              currentUser={user}
               onAddContact={handleAddContact}
             />
           )}
-          {activeTab === 'settings' && (
+          {activeTab === 'settings' && canAccessTab(user.role, 'settings') && (
             <SettingsView
               status={status}
               currentUser={user}

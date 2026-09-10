@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { Campaign, Template } from '../types';
+import { Campaign, Template, User } from '../types';
 import { CurrencyCode, formatCurrency } from '../lib/currency';
+import { canCreateCampaigns } from '../lib/permissions';
 
 interface CampaignsViewProps {
   campaigns: Campaign[];
   templates: Template[];
   currency?: CurrencyCode;
+  currentUser?: User | null;
   onLaunchCampaign: (campaign: Campaign) => void;
 }
 
@@ -13,6 +15,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
   campaigns,
   templates,
   currency = 'INR',
+  currentUser,
   onLaunchCampaign,
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -73,13 +76,15 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
           <h2 className="view-title">Broadcast Campaigns</h2>
           <p className="view-subtitle">Manage high-throughput outbound WhatsApp marketing and announcement broadcasts</p>
         </div>
-        <button className="btn-primary" onClick={() => setIsModalOpen(true)}>
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6 }}>
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
-          Create Broadcast
-        </button>
+        {canCreateCampaigns(currentUser?.role) && (
+          <button className="btn-primary" onClick={() => setIsModalOpen(true)}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6 }}>
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            Create Broadcast
+          </button>
+        )}
       </div>
 
       {/* Campaign Highlights Grid */}

@@ -216,6 +216,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
+  if (currentUser && currentUser.role !== 'ADMIN') {
+    return (
+      <div className="view-container">
+        <div className="card" style={{ textAlign: 'center', padding: '60px 24px', maxWidth: 540, margin: '40px auto' }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
+          <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8, color: 'var(--text-main)' }}>Admin Privileges Required</h2>
+          <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 20 }}>
+            Your account ({currentUser.email}) is assigned the <strong>{currentUser.role}</strong> role. Access to WABA Credentials, Team Management, Payment Methods, and Webhook configuration is restricted to Administrators.
+          </p>
+          <span className="status-chip warning" style={{ display: 'inline-block', padding: '6px 14px' }}>
+            Current Role: {currentUser.role}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="view-container">
       <div className="page-header-row" style={{ marginBottom: 16 }}>

@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { Template, TemplateCategory } from '../types';
+import { Template, TemplateCategory, User } from '../types';
+import { canCreateTemplates } from '../lib/permissions';
 import fgsnLogo from '../assets/logo.png';
 
 interface TemplatesViewProps {
   templates: Template[];
   wabaAccountName?: string;
   displayPhoneNumber?: string;
+  currentUser?: User | null;
   onCreateTemplate: (template: Partial<Template>) => void;
 }
 
@@ -15,6 +17,7 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
   templates,
   wabaAccountName = 'Freedom Global Sports Network',
   displayPhoneNumber = '+91 86558 51946',
+  currentUser,
   onCreateTemplate,
 }) => {
   const [name, setName] = useState('');
@@ -353,9 +356,15 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
               </div>
             )}
 
-            <button type="submit" className="btn-primary" style={{ marginTop: 12 }}>
-              Save & Submit to Meta Cloud API
-            </button>
+            {canCreateTemplates(currentUser?.role) ? (
+              <button type="submit" className="btn-primary" style={{ marginTop: 12 }}>
+                Save & Submit to Meta Cloud API
+              </button>
+            ) : (
+              <div style={{ marginTop: 12, padding: '10px 14px', background: '#F1F5F9', borderRadius: 8, color: '#64748B', fontSize: 13, textAlign: 'center', fontWeight: 600 }}>
+                🔒 Template Submission Restricted (Admin / Marketer Role Required)
+              </div>
+            )}
           </form>
         </div>
 

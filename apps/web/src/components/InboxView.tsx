@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { Conversation, Message, Template } from '../types';
+import { Conversation, Message, Template, User } from '../types';
 import { CurrencyCode, formatCurrency } from '../lib/currency';
+import { canSendMessages } from '../lib/permissions';
 
 interface InboxViewProps {
   conversations: Conversation[];
   messagesByConvId: Record<string, Message[]>;
   templates?: Template[];
   currency?: CurrencyCode;
+  currentUser?: User | null;
   onSendMessage: (convId: string, text: string, isInternalNote?: boolean) => void;
   onSendTemplateMessage?: (convId: string, template: Template, renderedText: string) => void;
   onSimulateInbound: (convId: string, text: string) => void;
@@ -36,6 +38,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
   messagesByConvId,
   templates = [],
   currency = 'INR',
+  currentUser,
   onSendMessage,
   onSendTemplateMessage,
   onSimulateInbound,
