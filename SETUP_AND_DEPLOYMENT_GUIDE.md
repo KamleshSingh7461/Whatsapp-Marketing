@@ -192,7 +192,45 @@ Both commands will exit with code `0`.
 
 ---
 
-## 5. Pre-Seeded Default Super Admin Credentials
+---
+
+## 5. Meta Business Portfolio & Permanent System User Token Setup
+
+To generate a permanent, non-expiring Meta Cloud API token for production messaging:
+
+### Step A: Link your Meta App to your Business Portfolio
+In Meta Business Settings (**FGSN Learning Business Portfolio**):
+1. In the left sidebar, navigate to **Accounts** $\rightarrow$ **Apps** (under *Business asset groups*).
+2. Click **"Add"**:
+   - If you already created an app in [developers.facebook.com](https://developers.facebook.com/apps): Choose **"Connect an app ID"** $\rightarrow$ Paste your **App ID** $\rightarrow$ Click **Connect**.
+   - If you need to create a new app: Choose **"Create a new app"** $\rightarrow$ Select **Other** $\rightarrow$ **Business** $\rightarrow$ Name it `FGSN WhatsApp ERP` $\rightarrow$ Complete creation.
+
+### Step B: Create an Admin System User
+1. In the left sidebar, navigate to **Users** $\rightarrow$ **System users**.
+2. Click the **"+ Add"** button (which is now active after linking your App).
+3. Enter:
+   - **System username**: `FGSN Admin Bot` (or `FGSN WABA Admin`)
+   - **System user role**: Select **Admin**
+4. Click **Create system user**.
+
+### Step C: Assign App Assets & Full Control
+1. With the newly created System User selected, click **Add assets**.
+2. Under **Select asset type**, select **Apps** $\rightarrow$ Check your `FGSN WhatsApp ERP` app.
+3. In the right pane under permissions, toggle **Full control (Manage app)** to **ON**.
+4. Click **Save changes**.
+
+### Step D: Generate the Never-Expiring Token
+1. Click **Generate new token**.
+2. Select your `FGSN WhatsApp ERP` app.
+3. Token expiration: Select **Never**.
+4. Under Permissions, check these 2 critical scopes:
+   - `whatsapp_business_messaging`
+   - `whatsapp_business_management`
+5. Click **Generate token** and copy the resulting string (`EAAB...`).
+
+---
+
+## 6. Pre-Seeded Default Super Admin Credentials
 
 When running with the backend database, the initial seeded administrator account is:
 
@@ -202,14 +240,15 @@ When running with the backend database, the initial seeded administrator account
 
 ---
 
-## 6. Git Commit & Push Instructions
+## 7. Git Commit & Push Instructions
 
-Before leaving this PC, run:
+To pull this on any new PC:
 
 ```bash
-git add .
-git commit -m "feat: complete enterprise WhatsApp ERP for FGSN with responsive UI, iPhone 16 Pro preview, and setup guide"
-git push origin master
+git clone https://github.com/KamleshSingh7461/Whatsapp-Marketing.git
+cd Whatsapp-Marketing
+npm install
+npm run dev:web
 ```
 
 ---
