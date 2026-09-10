@@ -71,7 +71,10 @@ export class WhatsappIntegrationService {
     const systemToken = this.config.get<string>('META_SYSTEM_USER_TOKEN');
     const apiVersion = this.config.get<string>('META_GRAPH_API_VERSION') || 'v21.0';
 
-    const formattedTo = dto.to.replace(/[^\d]/g, '');
+    let formattedTo = dto.to.replace(/[^\d]/g, '');
+    if (formattedTo.length === 10) {
+      formattedTo = '91' + formattedTo;
+    }
     const initialLang = dto.language || 'en_US';
 
     const executeCall = async (langCode: string, comps?: any[]) => {
@@ -163,7 +166,10 @@ export class WhatsappIntegrationService {
     const systemToken = this.config.get<string>('META_SYSTEM_USER_TOKEN');
     const apiVersion = this.config.get<string>('META_GRAPH_API_VERSION') || 'v21.0';
 
-    const formattedTo = dto.to.replace(/[^\d]/g, '');
+    let formattedTo = dto.to.replace(/[^\d]/g, '');
+    if (formattedTo.length === 10) {
+      formattedTo = '91' + formattedTo;
+    }
 
     const payload = {
       messaging_product: 'whatsapp',

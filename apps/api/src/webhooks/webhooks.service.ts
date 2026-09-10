@@ -123,14 +123,26 @@ export class WebhooksService {
       failed: MessageStatus.FAILED,
     };
     const mapped = statusMap[status.status];
+    
+    if (status.errors && status.errors.length > 0) {
+      const err = status.errors[0];
+      this.logger.error(`Meta Webhook Delivery Failure for WAMID ${status.id} to recipient ${status.recipient_id}: Code ${err.code} - ${err.title} (${err.message || err.error_data?.details || 'Unknown error'})`);
+    } else {
+      this.logger.log(`Meta Webhook Status Update: WAMID ${status.id} is '${status.status}' for recipient ${status.recipient_id}`);
+    }
+
     if (!mapped) return;
 
-    await this.prisma.message.updateMany({
-      where: { metaMessageId: status.id },
-      data: {
-        status: mapped,
-        errorCode: status.errors?.[0]?.code ? String(status.errors[0].code) : undefined,
-      },
-    });
+    try {
+      await this.prisma.message.updateMany({
+        where: { metaMessageId: status.id },
+        data: {
+          status: mapped,
+          errorCode: status.errors?.[0]?.code ? String(status.errors[0].code) : undefined,
+        },
+      });
+    } catch (e) {
+      // ignore
+    }
   }
 }
