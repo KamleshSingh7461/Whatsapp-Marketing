@@ -209,10 +209,13 @@ export class TemplatesService {
     }
 
     if (bodyObj.footer) {
-      components.push({
-        type: 'FOOTER',
-        text: bodyObj.footer,
-      });
+      const footerClean = typeof bodyObj.footer === 'string' ? bodyObj.footer.trim().slice(0, 60) : '';
+      if (footerClean) {
+        components.push({
+          type: 'FOOTER',
+          text: footerClean,
+        });
+      }
     }
 
     if (Array.isArray(bodyObj.buttons) && bodyObj.buttons.length > 0) {
