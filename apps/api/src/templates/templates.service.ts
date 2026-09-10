@@ -159,17 +159,34 @@ export class TemplatesService {
     const bodyObj: any = dto.bodyJson || {};
     const components: any[] = [];
 
-    if (bodyObj.header?.text) {
-      const headerComp: any = {
-        type: 'HEADER',
-        format: bodyObj.header.type || 'TEXT',
-        text: bodyObj.header.text,
-      };
-      const headerMatches = bodyObj.header.text.match(/\{\{\d+\}\}/g);
-      if (headerMatches && headerMatches.length > 0) {
-        headerComp.example = { header_text: ['header_sample'] };
+    if (bodyObj.header) {
+      const hType = (bodyObj.header.type || 'TEXT').toUpperCase();
+      if (hType === 'TEXT' && bodyObj.header.text) {
+        const headerComp: any = {
+          type: 'HEADER',
+          format: 'TEXT',
+          text: bodyObj.header.text,
+        };
+        const headerMatches = bodyObj.header.text.match(/\{\{\d+\}\}/g);
+        if (headerMatches && headerMatches.length > 0) {
+          const headerSamples = headerMatches.map((m: string) => {
+            const num = m.replace(/\D/g, '');
+            return dto.sampleVariables?.[`h_${num}`] || dto.sampleVariables?.[num] || 'VIP Pass';
+          });
+          headerComp.example = { header_text: headerSamples };
+        }
+        components.push(headerComp);
+      } else if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(hType)) {
+        const headerComp: any = {
+          type: 'HEADER',
+          format: hType,
+        };
+        const mediaUrl = bodyObj.header.url || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600';
+        headerComp.example = {
+          header_handle: [mediaUrl],
+        };
+        components.push(headerComp);
       }
-      components.push(headerComp);
     }
 
     if (bodyObj.body) {
@@ -180,7 +197,10 @@ export class TemplatesService {
       const bodyMatches = bodyObj.body.match(/\{\{\d+\}\}/g);
       if (bodyMatches && bodyMatches.length > 0) {
         // Meta REQUIRES example sample variables for {{1}}, {{2}} in BODY component
-        const sampleValues = bodyMatches.map((_: any, idx: number) => `val_${idx + 1}`);
+        const sampleValues = bodyMatches.map((m: string, idx: number) => {
+          const num = m.replace(/\D/g, '');
+          return dto.sampleVariables?.[num] || dto.sampleVariables?.[`${idx + 1}`] || `sample_${idx + 1}`;
+        });
         bodyComp.example = {
           body_text: [sampleValues],
         };
@@ -196,17 +216,49 @@ export class TemplatesService {
     }
 
     if (Array.isArray(bodyObj.buttons) && bodyObj.buttons.length > 0) {
-      components.push({
-        type: 'BUTTONS',
-        buttons: bodyObj.buttons.map((b: any) => ({
-          type: b.type || 'QUICK_REPLY',
-          text: b.text,
-        })),
-      });
+      const formattedButtons: any[] = [];
+      for (const b of bodyObj.buttons) {
+        if (!b.text && b.type !== 'OTP') continue;
+        const bType = (b.type || 'QUICK_REPLY').toUpperCase();
+        if (bType === 'QUICK_REPLY') {
+          formattedButtons.push({
+            type: 'QUICK_REPLY',
+            text: b.text.slice(0, 25),
+          });
+        } else if (bType === 'URL') {
+          const urlComp: any = {
+            type: 'URL',
+            text: b.text.slice(0, 25),
+            url: b.url || 'https://fgsnlive.com',
+          };
+          if (b.url && b.url.includes('{{1}}')) {
+            urlComp.example = ['https://fgsnlive.com/track/12345'];
+          }
+          formattedButtons.push(urlComp);
+        } else if (bType === 'PHONE_NUMBER') {
+          formattedButtons.push({
+            type: 'PHONE_NUMBER',
+            text: b.text.slice(0, 25),
+            phone_number: b.phone || b.phone_number || '+918655851749',
+          });
+        } else if (bType === 'COPY_CODE') {
+          formattedButtons.push({
+            type: 'COPY_CODE',
+            example: b.code || 'FGSN20',
+          });
+        }
+      }
+
+      if (formattedButtons.length > 0) {
+        components.push({
+          type: 'BUTTONS',
+          buttons: formattedButtons,
+        });
+      }
     }
 
     const payload = {
-      name: dto.name.toLowerCase().replace(/\s+/g, '_'),
+      name: dto.name.toLowerCase().replace(/[^a-z0-9_]/g, '_'),
       language: dto.language || 'en_US',
       category: dto.category,
       components,

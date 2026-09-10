@@ -42,7 +42,7 @@ export interface Template {
     header?: { type: 'TEXT' | 'IMAGE' | 'VIDEO' | 'DOCUMENT'; text?: string; url?: string };
     body: string;
     footer?: string;
-    buttons?: Array<{ type: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER'; text: string; url?: string; phone?: string }>;
+    buttons?: Array<{ type: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER' | 'COPY_CODE'; text: string; url?: string; phone?: string; code?: string }>;
   };
   sampleVariables?: Record<string, string>;
   createdAt: string;

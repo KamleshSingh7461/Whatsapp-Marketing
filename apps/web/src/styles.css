@@ -4352,4 +4352,908 @@ body {
   }
 }
 
+/* ==========================================================================
+   TEMPLATE STUDIO & META WHATSAPP IPHONE SIMULATOR STYLES
+   ========================================================================== */
+.template-grid-split {
+  display: grid;
+  grid-template-columns: 1fr 440px;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 1080px) {
+  .template-grid-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+.template-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.template-toolbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.template-toolbar-btns {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tpl-tool-btn {
+  background: var(--bg-hover, #F1F5F9);
+  border: 1px solid var(--border-subtle, #E2E8F0);
+  color: var(--text-primary, #1E293B);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tpl-tool-btn:hover {
+  background: var(--brand-light, #EFF6FF);
+  border-color: var(--brand-primary, #2563EB);
+  color: var(--brand-primary, #2563EB);
+}
+
+.tpl-tool-btn.add-var-btn {
+  background: #ECFDF5;
+  border-color: #A7F3D0;
+  color: #047857;
+  font-weight: 700;
+}
+
+.tpl-tool-btn.add-var-btn:hover {
+  background: #D1FAE5;
+  border-color: #34D399;
+}
+
+.char-counter {
+  font-size: 11px;
+  color: var(--text-muted, #94A3B8);
+  font-family: monospace;
+}
+
+.variable-test-container {
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-top: 4px;
+}
+
+.var-test-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.var-inputs-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.var-input-group label {
+  font-size: 11px;
+  color: #64748B;
+  display: block;
+  margin-bottom: 2px;
+}
+
+.button-builder-card {
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.button-builder-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+/* ==========================================================================
+   REALISTIC IPHONE 16 PRO SIMULATOR
+   ========================================================================== */
+.phone-simulator-panel {
+  position: sticky;
+  top: 1.5rem;
+  background: #FFFFFF;
+  border: 1px solid var(--border-subtle, #E2E8F0);
+  border-radius: 16px;
+  padding: 1.25rem;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+}
+
+.simulator-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.simulator-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.live-preview-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #047857;
+  background: #ECFDF5;
+  padding: 3px 8px;
+  border-radius: 12px;
+}
+
+.live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10B981;
+  animation: livePulse 1.8s infinite;
+}
+
+@keyframes livePulse {
+  0% { transform: scale(0.95); opacity: 0.7; }
+  50% { transform: scale(1.2); opacity: 1; }
+  100% { transform: scale(0.95); opacity: 0.7; }
+}
+
+.device-tag {
+  font-size: 11px;
+  color: #64748B;
+  background: #F1F5F9;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+.preview-subtext {
+  font-size: 11px;
+  color: #94A3B8;
+}
+
+/* iPhone Chassis */
+.iphone-chassis {
+  width: 100%;
+  max-width: 360px;
+  height: 660px;
+  margin: 0 auto;
+  background: #1E293B;
+  border: 4px solid #334155;
+  border-radius: 46px;
+  padding: 10px;
+  box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(0, 0, 0, 0.1);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.iphone-dynamic-island {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 90px;
+  height: 22px;
+  background: #0F172A;
+  border-radius: 12px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 8px;
+}
+
+.camera-lens {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #1E293B;
+  border: 1px solid #334155;
+}
+
+.iphone-screen {
+  background: #ECE5DD;
+  background-image: 
+    radial-gradient(#D6CDBC 1px, transparent 1px),
+    radial-gradient(#D6CDBC 1px, #ECE5DD 1px);
+  background-size: 20px 20px;
+  background-position: 0 0, 10px 10px;
+  border-radius: 36px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.ios-status-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 18px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #0F172A;
+  z-index: 40;
+  flex-shrink: 0;
+}
+
+.ios-status-icons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ios-battery {
+  width: 18px;
+  height: 9px;
+  border: 1.5px solid #0F172A;
+  border-radius: 3px;
+  padding: 1px;
+  position: relative;
+}
+
+.ios-battery-fill {
+  width: 12px;
+  height: 100%;
+  background: #0F172A;
+  border-radius: 1px;
+}
+
+.wa-ios-nav-header {
+  background: #F8F9FA;
+  border-bottom: 1px solid #E2E8F0;
+  padding: 6px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 30;
+  flex-shrink: 0;
+}
+
+.wa-nav-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.wa-back-chevron {
+  display: flex;
+  align-items: center;
+  color: #007AFF;
+  cursor: pointer;
+}
+
+.wa-unread-badge {
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: -2px;
+}
+
+.wa-partner-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #000;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.wa-avatar-img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: contain;
+}
+
+.wa-partner-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.wa-partner-name-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.wa-partner-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #0F172A;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+
+.wa-partner-desc {
+  font-size: 10px;
+  color: #64748B;
+  white-space: nowrap;
+}
+
+.wa-nav-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wa-nav-icon-btn {
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+}
+
+/* Chat Viewport with Smooth Scroll */
+.wa-chat-viewport {
+  flex: 1;
+  min-height: 0;
+  padding: 10px 10px 20px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+}
+
+.wa-chat-viewport::-webkit-scrollbar {
+  width: 4px;
+}
+
+.wa-chat-viewport::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.wa-date-pill {
+  align-self: center;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 6px;
+  padding: 2px 10px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #64748B;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.wa-encryption-bubble {
+  background: rgba(254, 243, 199, 0.9);
+  border: 1px solid #FDE68A;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 10px;
+  color: #92400E;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+  line-height: 1.3;
+}
+
+/* WhatsApp Message Bubble */
+.wa-bubble-card {
+  align-self: flex-start;
+  width: 100%;
+  max-width: 95%;
+  background: #FFFFFF;
+  border-radius: 10px 10px 10px 2px;
+  padding: 8px 10px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  position: relative;
+  word-break: break-word;
+}
+
+.wa-bubble-header-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0F172A;
+  margin-bottom: 4px;
+}
+
+.wa-bubble-media-header {
+  margin: -8px -10px 8px -10px;
+  border-radius: 10px 10px 0 0;
+  overflow: hidden;
+  max-height: 160px;
+  background: #E2E8F0;
+}
+
+.wa-bubble-img {
+  width: 100%;
+  height: 100%;
+  max-height: 160px;
+  object-fit: cover;
+  display: block;
+}
+
+.wa-media-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: #64748B;
+  font-size: 11px;
+  gap: 4px;
+}
+
+.wa-video-placeholder {
+  height: 110px;
+  background: #0F172A;
+  color: #FFFFFF;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.play-icon-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+
+.wa-doc-header-card {
+  background: #F1F5F9;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.doc-icon {
+  font-size: 20px;
+}
+
+.doc-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.doc-name {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #1E293B;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.doc-size {
+  font-size: 9.5px;
+  color: #64748B;
+}
+
+.wa-bubble-body-content {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: #1E293B;
+  white-space: pre-wrap;
+}
+
+.wa-bubble-body-content strong {
+  color: #0F172A;
+  font-weight: 700;
+}
+
+.wa-var-highlight {
+  display: inline-block;
+  background: #FEF3C7;
+  color: #92400E;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 11.5px;
+  border: 1px dashed #F59E0B;
+  margin: 0 1px;
+}
+
+.wa-inline-code {
+  background: #F1F5F9;
+  color: #0F172A;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 11px;
+}
+
+.wa-bubble-footer-text {
+  font-size: 10.5px;
+  color: #64748B;
+  margin-top: 6px;
+  font-style: italic;
+}
+
+.wa-bubble-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.wa-bubble-time {
+  font-size: 10px;
+  color: #94A3B8;
+}
+
+.wa-double-check {
+  font-size: 11px;
+  font-weight: 700;
+  color: #38BDF8;
+}
+
+/* Button Stack in WhatsApp */
+.wa-bubble-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 8px -10px -8px -10px;
+  border-top: 1px solid #E2E8F0;
+  background: #F8FAFC;
+  border-radius: 0 0 10px 2px;
+  overflow: hidden;
+}
+
+.wa-action-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 9px 12px;
+  background: #FFFFFF;
+  border: none;
+  border-top: 1px solid #F1F5F9;
+  font-size: 12px;
+  font-weight: 600;
+  color: #007AFF;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.wa-action-button:hover {
+  background: #F1F5F9;
+}
+
+.wa-ios-composer {
+  background: #F8F9FA;
+  border-top: 1px solid #E2E8F0;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.wa-composer-plus {
+  font-size: 18px;
+  color: #007AFF;
+  font-weight: 600;
+}
+
+.wa-composer-input-pill {
+  flex: 1;
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 16px;
+  padding: 5px 12px;
+  font-size: 11px;
+  color: #94A3B8;
+}
+
+.wa-composer-icons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ios-home-bar {
+  width: 120px;
+  height: 4px;
+  background: #0F172A;
+  border-radius: 2px;
+  margin: 6px auto 4px;
+  flex-shrink: 0;
+}
+
+/* Template Studio Toolbar & Multi-Button Builder */
+.template-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #E2E8F0;
+}
+
+.badge-meta-spec {
+  font-size: 11px;
+  font-weight: 700;
+  background: #EEF2FF;
+  color: #4F46E5;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid #C7D2FE;
+}
+
+.meta-wa-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  flex-wrap: wrap;
+}
+
+.meta-tool-btn {
+  background: #FFFFFF;
+  border: 1px solid #CBD5E1;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  color: #334155;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.meta-tool-btn:hover {
+  background: #F1F5F9;
+  border-color: #94A3B8;
+  color: #0F172A;
+}
+
+.meta-tool-btn.add-var-pill {
+  background: #ECFDF5;
+  border-color: #A7F3D0;
+  color: #047857;
+  font-weight: 600;
+  gap: 4px;
+}
+
+.meta-tool-btn.add-var-pill:hover {
+  background: #D1FAE5;
+  border-color: #6EE7B7;
+}
+
+.meta-tool-divider {
+  width: 1px;
+  height: 18px;
+  background: #CBD5E1;
+  margin: 0 4px;
+}
+
+.meta-emoji-strip {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.meta-emoji-btn {
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.meta-emoji-btn:hover {
+  background: #E2E8F0;
+}
+
+/* Multi Buttons Studio */
+.btn-add-meta-button {
+  background: #EFF6FF;
+  border: 1px solid #BFDBFE;
+  color: #1D4ED8;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-add-meta-button:hover {
+  background: #DBEAFE;
+}
+
+.empty-buttons-hint {
+  padding: 12px;
+  background: #F8FAFC;
+  border: 1px dashed #CBD5E1;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #64748B;
+  text-align: center;
+}
+
+.meta-buttons-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.meta-button-item-card {
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.meta-button-header-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.meta-button-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+  background: #E2E8F0;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.meta-button-type-select {
+  flex: 1;
+}
+
+.sm-select {
+  padding: 4px 8px !important;
+  font-size: 12px !important;
+  height: 28px !important;
+}
+
+.btn-remove-btn {
+  background: #FEE2E2;
+  border: 1px solid #FECACA;
+  color: #DC2626;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+}
+
+.btn-remove-btn:hover {
+  background: #FCA5A5;
+}
+
+.meta-button-fields-row {
+  display: flex;
+  gap: 8px;
+}
+
+.sm-label {
+  font-size: 11px;
+  color: #64748B;
+  margin-bottom: 2px;
+  display: block;
+}
+
+/* Mode Toggle & Expanded View */
+.preview-mode-toggle {
+  display: flex;
+  background: #F1F5F9;
+  padding: 2px;
+  border-radius: 6px;
+  border: 1px solid #E2E8F0;
+}
+
+.mode-btn {
+  background: none;
+  border: none;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748B;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mode-btn.active {
+  background: #FFFFFF;
+  color: #0F172A;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.expanded-preview-canvas {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.expanded-preview-header {
+  padding: 10px 14px;
+  border-bottom: 1px solid #E2E8F0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #F8FAFC;
+}
+
+.full-view-badge {
+  font-size: 10px;
+  font-weight: 700;
+  color: #059669;
+  background: #ECFDF5;
+  border: 1px solid #A7F3D0;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.expanded-chat-bg {
+  background-color: #ECE5DD;
+  background-image: 
+    radial-gradient(#D6CDBC 1px, transparent 1px),
+    radial-gradient(#D6CDBC 1px, #ECE5DD 1px);
+  background-size: 20px 20px;
+  background-position: 0 0, 10px 10px;
+  padding: 24px;
+  min-height: 480px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.expanded-bubble {
+  max-width: 480px;
+  width: 100%;
+}
 
