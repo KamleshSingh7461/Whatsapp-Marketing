@@ -558,6 +558,76 @@ export function Dashboard() {
     );
   };
 
+  const handleStartNewChat = async (phone: string, name?: string, text?: string, templateName?: string): Promise<string> => {
+    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    const convId = `conv_${cleanPhone}`;
+
+    const contactName = name?.trim() || `+${cleanPhone}`;
+    const newContact: Contact = {
+      id: `cnt_${cleanPhone}`,
+      phone: cleanPhone,
+      displayName: contactName,
+      avatarUrl: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80`,
+      optedIn: true,
+      tags: ['New Lead'],
+    };
+
+    const initialText = text || `[Template: ${templateName || 'fgsn_account_welcome_notice'}]`;
+    const newMsg: Message = {
+      id: `msg_${Date.now()}`,
+      conversationId: convId,
+      direction: 'OUTBOUND',
+      status: 'SENT',
+      timestamp: new Date().toISOString(),
+      content: initialText,
+    };
+
+    const newConv: Conversation = {
+      id: convId,
+      contact: newContact,
+      lastMessage: newMsg,
+      unreadCount: 0,
+      status: 'OPEN',
+      windowExpiresAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+    };
+
+    setContacts(prev => {
+      const exists = prev.some(c => c.phone === cleanPhone);
+      return exists ? prev : [newContact, ...prev];
+    });
+
+    setConversations(prev => {
+      const exists = prev.some(c => c.id === convId);
+      return exists ? prev.map(c => (c.id === convId ? { ...c, lastMessage: newMsg } : c)) : [newConv, ...prev];
+    });
+
+    setMessagesByConvId(prev => ({
+      ...prev,
+      [convId]: [...(prev[convId] || []), newMsg],
+    }));
+
+    if (templateName) {
+      await apiFetch('/whatsapp/send-template', {
+        method: 'POST',
+        body: JSON.stringify({
+          to: cleanPhone,
+          templateName: templateName,
+          language: 'en_US',
+        }),
+      });
+    } else if (text) {
+      await apiFetch('/whatsapp/send-text', {
+        method: 'POST',
+        body: JSON.stringify({
+          to: cleanPhone,
+          text: text,
+        }),
+      });
+    }
+
+    return convId;
+  };
+
   const handleToggleResolve = (convId: string) => {
     setConversations(prev =>
       prev.map(c =>
@@ -776,6 +846,7 @@ export function Dashboard() {
               onSimulateInbound={handleSimulateInbound}
               onToggleResolve={handleToggleResolve}
               onAssignAgent={handleAssignAgent}
+              onStartNewChat={handleStartNewChat}
             />
           )}
           {activeTab === 'automations' && (

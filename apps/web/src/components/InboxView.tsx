@@ -12,6 +12,7 @@ interface InboxViewProps {
   onSimulateInbound: (convId: string, text: string) => void;
   onToggleResolve?: (convId: string) => void;
   onAssignAgent?: (convId: string, agent: string) => void;
+  onStartNewChat?: (phone: string, name?: string, text?: string, templateName?: string) => Promise<string | void>;
 }
 
 const CANNED_RESPONSES = [
@@ -40,6 +41,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
   onSimulateInbound,
   onToggleResolve,
   onAssignAgent,
+  onStartNewChat,
 }) => {
   const [mobileView, setMobileView] = useState<'list' | 'chat' | 'crm'>('list');
   const [selectedConvId, setSelectedConvId] = useState<string>(conversations[0]?.id || '');
@@ -52,6 +54,44 @@ export const InboxView: React.FC<InboxViewProps> = ({
   const [selectedTemplateForModal, setSelectedTemplateForModal] = useState<Template | null>(null);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'ALL' | 'OPEN' | 'RESOLVED' | 'VIP'>('ALL');
+
+  // Start New Chat Modal States
+  const [showNewChatModal, setShowNewChatModal] = useState(false);
+  const [newChatPhone, setNewChatPhone] = useState('');
+  const [newChatName, setNewChatName] = useState('');
+  const [newChatMsgType, setNewChatMsgType] = useState<'TEMPLATE' | 'TEXT'>('TEMPLATE');
+  const [newSelectedTemplateName, setNewSelectedTemplateName] = useState(templates[0]?.name || 'fgsn_account_welcome_notice');
+  const [newChatText, setNewChatText] = useState('');
+  const [newChatLoading, setNewChatLoading] = useState(false);
+
+  const handleStartNewChatSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newChatPhone.trim()) return;
+
+    setNewChatLoading(true);
+    try {
+      if (onStartNewChat) {
+        const createdConvId = await onStartNewChat(
+          newChatPhone.trim(),
+          newChatName.trim() || undefined,
+          newChatMsgType === 'TEXT' ? newChatText.trim() : undefined,
+          newChatMsgType === 'TEMPLATE' ? newSelectedTemplateName : undefined,
+        );
+        if (createdConvId) {
+          setSelectedConvId(createdConvId);
+          setMobileView('chat');
+        }
+      }
+      setShowNewChatModal(false);
+      setNewChatPhone('');
+      setNewChatName('');
+      setNewChatText('');
+    } catch (err: any) {
+      alert(err.message || 'Failed to send WhatsApp message');
+    } finally {
+      setNewChatLoading(false);
+    }
+  };
 
   const activeConversation = conversations.find(c => c.id === selectedConvId) || conversations[0];
   const messages = (selectedConvId && messagesByConvId[selectedConvId]) || [];
@@ -146,18 +186,27 @@ export const InboxView: React.FC<InboxViewProps> = ({
       {/* Left Column: Conversation Queue */}
       <div className="inbox-list-col">
         <div className="inbox-list-header">
-          <div className="search-bar-wrap">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-            <input
-              type="text"
-              placeholder="Search by name, phone or message..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="chat-search-input"
-            />
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            <div className="search-bar-wrap" style={{ flex: 1 }}>
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+              <input
+                type="text"
+                placeholder="Search by name, phone..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="chat-search-input"
+              />
+            </div>
+            <button
+              className="btn-primary"
+              onClick={() => setShowNewChatModal(true)}
+              style={{ padding: '8px 12px', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', borderRadius: 8 }}
+            >
+              + New Chat
+            </button>
           </div>
 
           <div className="inbox-filter-tabs">
@@ -178,8 +227,11 @@ export const InboxView: React.FC<InboxViewProps> = ({
 
         <div className="conversation-scroll-list">
           {filteredConversations.length === 0 ? (
-            <div className="empty-search-state">
-              <p>No conversations found matching filters.</p>
+            <div className="empty-search-state" style={{ padding: 24, textAlign: 'center' }}>
+              <p style={{ color: 'var(--text-muted)', marginBottom: 14 }}>No active conversations found.</p>
+              <button className="btn-primary" onClick={() => setShowNewChatModal(true)} style={{ padding: '10px 16px', fontSize: 13 }}>
+                + Start New WhatsApp Conversation
+              </button>
             </div>
           ) : (
             filteredConversations.map((conv) => {
@@ -733,6 +785,102 @@ export const InboxView: React.FC<InboxViewProps> = ({
                 Dispatch Template to {activeConversation.contact.displayName}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Start New Conversation Modal */}
+      {showNewChatModal && (
+        <div className="modal-overlay" style={{ zIndex: 9999 }}>
+          <div className="modal-card" style={{ maxWidth: 480, width: '90%' }}>
+            <div className="modal-header">
+              <div>
+                <h3 className="modal-title">Start New WhatsApp Conversation</h3>
+                <p className="modal-subtitle">Send a direct message or template via live Meta WABA</p>
+              </div>
+              <button className="close-btn" onClick={() => setShowNewChatModal(false)}>✕</button>
+            </div>
+
+            <form onSubmit={handleStartNewChatSubmit}>
+              <div className="form-group" style={{ marginBottom: 14 }}>
+                <label>Recipient WhatsApp Phone Number</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. 917461913495 (with country code)"
+                  className="form-input"
+                  value={newChatPhone}
+                  onChange={(e) => setNewChatPhone(e.target.value)}
+                />
+                <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
+                  Include country code (e.g. 91 for India, 1 for US) without + or spaces.
+                </span>
+              </div>
+
+              <div className="form-group" style={{ marginBottom: 14 }}>
+                <label>Contact Display Name (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Kamlesh Singh"
+                  className="form-input"
+                  value={newChatName}
+                  onChange={(e) => setNewChatName(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: 14 }}>
+                <label>Message Type</label>
+                <select
+                  className="form-input"
+                  value={newChatMsgType}
+                  onChange={(e) => setNewChatMsgType(e.target.value as any)}
+                >
+                  <option value="TEMPLATE">Approved Meta Template Message (Recommended for 1st message)</option>
+                  <option value="TEXT">Plain Text Message (Requires active 24h session window)</option>
+                </select>
+              </div>
+
+              {newChatMsgType === 'TEMPLATE' ? (
+                <div className="form-group" style={{ marginBottom: 20 }}>
+                  <label>Select Meta Template</label>
+                  <select
+                    className="form-input"
+                    value={newSelectedTemplateName}
+                    onChange={(e) => setNewSelectedTemplateName(e.target.value)}
+                  >
+                    {templates.length > 0 ? (
+                      templates.map(t => (
+                        <option key={t.id} value={t.name}>{t.name} ({t.category} - {t.language})</option>
+                      ))
+                    ) : (
+                      <>
+                        <option value="fgsn_account_welcome_notice">fgsn_account_welcome_notice (UTILITY)</option>
+                        <option value="hello_world">hello_world (UTILITY)</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+              ) : (
+                <div className="form-group" style={{ marginBottom: 20 }}>
+                  <label>Direct Message Text</label>
+                  <textarea
+                    required
+                    rows={3}
+                    placeholder="Type your WhatsApp message..."
+                    className="form-input"
+                    value={newChatText}
+                    onChange={(e) => setNewChatText(e.target.value)}
+                  />
+                </div>
+              )}
+
+              <div className="modal-actions">
+                <button type="button" className="btn-secondary" onClick={() => setShowNewChatModal(false)}>Cancel</button>
+                <button type="submit" className="btn-primary" disabled={newChatLoading || !newChatPhone.trim()}>
+                  {newChatLoading ? 'Sending via WABA...' : '🚀 Send & Start Conversation'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
