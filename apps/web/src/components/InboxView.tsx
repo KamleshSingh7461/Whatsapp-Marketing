@@ -18,19 +18,20 @@ interface InboxViewProps {
 }
 
 const CANNED_RESPONSES = [
-  { label: 'Order Status Inquiry', text: 'Hello, your shipment is in transit and can be tracked in real time here: https://tracking.example.com/order' },
-  { label: 'Promotion Code (VIP 20%)', text: 'Here is your 20% promotional code: VIP20. Valid on all catalog items through end of week.' },
-  { label: 'Return & Exchange Policy', text: 'We offer standard 30-day returns and exchanges. Would you like me to generate a prepaid return label for you?' },
-  { label: 'Payment Link Assistance', text: 'You can securely complete your checkout using this direct encrypted link: https://pay.example.com/checkout/vip' },
-  { label: 'Support Desk Hours', text: 'Our dedicated WhatsApp support desk is active 24/7. Please let us know if you have any further questions!' },
+  { label: 'Welcome & Support Greeting', text: 'Welcome to Freedom Global Sports Network! 🏆 How can our team assist you with our tournament passes, official merchandise, or membership today?' },
+  { label: 'Order Status & Tracking', text: 'Hello! Your FGSN sports order is packed and dispatched. 📦 Track your shipment live here: https://fgsnlive.com/track' },
+  { label: 'VIP Promo Voucher (FGSN20)', text: 'Here is your exclusive VIP code: *FGSN20*. Enjoy 20% off all official sportswear and event tickets at checkout: https://fgsnlive.com' },
+  { label: 'Live Tournament Stream Pass', text: 'Access the official live HD match broadcast and match replays with your FGSN Pass: https://fgsnlive.com/live' },
+  { label: 'Secure UPI & Card Payment Link', text: 'You can securely complete your checkout via this encrypted payment gateway: https://pay.fgsnlive.com/checkout' },
+  { label: 'Helpdesk Hours & Contact', text: 'Our dedicated FGSN WhatsApp desk is active 24/7. Please let us know if you need assistance with anything else!' },
 ];
 
 const INBOUND_SIMULATION_PRESETS = [
-  'Can you confirm if the silk blazer is available in midnight blue?',
-  'Does the 20% discount code apply to audio accessories as well?',
-  'Where can I track my order #ORD-98214 shipped yesterday?',
-  'I left some items in my cart, can you send me the checkout link?',
-  'What is your return policy for international shipments?',
+  'When is the next live tournament match schedule?',
+  'Where can I track my official FGSN sports jersey order?',
+  'Does the FGSN20 discount code apply to match tickets?',
+  'Can I upgrade my FGSN membership pass to VIP access?',
+  'Can you send me the payment link to complete my booking?',
 ];
 
 export const InboxView: React.FC<InboxViewProps> = ({
@@ -690,23 +691,44 @@ export const InboxView: React.FC<InboxViewProps> = ({
             <div className="crm-actions-vertical">
               <button
                 className="crm-action-btn"
-                onClick={() => onSendMessage(activeConversation.id, `Hello ${activeConversation.contact.displayName}, here is your VIP express tracking link: https://tracking.example.com/ORD-98214`, false)}
+                onClick={() => onSendMessage(activeConversation.id, `Hello ${activeConversation.contact.displayName}, here is your FGSN shipment tracking link: https://fgsnlive.com/track`, false)}
               >
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
                   <circle cx="12" cy="12" r="3"/>
                 </svg>
-                Send Order Tracking Link
+                Send Order & Match Tracking
               </button>
 
               <button
                 className="crm-action-btn"
-                onClick={() => onSendMessage(activeConversation.id, `Special VIP offer for you ${activeConversation.contact.displayName}: Use code VIP20 at checkout for 20% off your entire order today!`, false)}
+                onClick={() => onSendMessage(activeConversation.id, `Special VIP offer for you ${activeConversation.contact.displayName}: Use code *FGSN20* at checkout for 20% off official sportswear and event passes today! https://fgsnlive.com`, false)}
               >
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
                 </svg>
-                Send VIP 20% Promo Code
+                Send FGSN20 Promo Code (20% Off)
+              </button>
+
+              <button
+                className="crm-action-btn"
+                onClick={() => onSendMessage(activeConversation.id, `Hi ${activeConversation.contact.displayName}, here is your direct access pass to stream live FGSN tournament matches in HD: https://fgsnlive.com/live-pass`, false)}
+              >
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+                Send Live Stream HD Match Pass
+              </button>
+
+              <button
+                className="crm-action-btn"
+                onClick={() => onSendMessage(activeConversation.id, `Hello ${activeConversation.contact.displayName}, you can complete your payment securely via UPI, Card, or Net Banking here: https://pay.fgsnlive.com/checkout`, false)}
+              >
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/>
+                  <line x1="1" y1="10" x2="23" y2="10"/>
+                </svg>
+                Send Direct UPI / Payment Link
               </button>
             </div>
           </div>

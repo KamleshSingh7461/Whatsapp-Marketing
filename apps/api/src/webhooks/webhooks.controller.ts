@@ -6,6 +6,7 @@ import {
   HttpCode,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -36,8 +37,9 @@ export class WebhooksController {
   @Post()
   @HttpCode(200)
   @UseGuards(WebhookSignatureGuard)
-  async receive(@Body() body: any) {
-    await this.webhooks.handleIncoming(body);
+  async receive(@Req() req: any, @Body() body: any) {
+    const payload = (req && req.body && Object.keys(req.body).length > 0) ? req.body : body;
+    await this.webhooks.handleIncoming(payload);
     return { received: true };
   }
 
