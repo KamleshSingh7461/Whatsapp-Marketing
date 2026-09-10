@@ -6,6 +6,7 @@ import { AuthModule } from './auth/auth.module';
 import { WhatsappIntegrationModule } from './whatsapp-integration/whatsapp-integration.module';
 import { TemplatesModule } from './templates/templates.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
+import { BillingModule } from './billing/billing.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     WhatsappIntegrationModule,
     TemplatesModule,
     WebhooksModule,
+    BillingModule,
   ],
   controllers: [HealthController],
 })

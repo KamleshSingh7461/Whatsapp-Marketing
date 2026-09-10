@@ -74,10 +74,43 @@ model User {
   passwordHash String
   name         String
   role         Role
+  isSuperAdmin Boolean  @default(false)
+  status       String   @default("ACTIVE")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   auditLogEntries AuditLogEntry[]
+  invitesSent     Invite[]        @relation("InvitedBy")
+}
+
+model Invite {
+  id          String    @id @default(cuid())
+  email       String
+  role        Role      @default(AGENT)
+  token       String    @unique
+  invitedBy   User      @relation("InvitedBy", fields: [invitedById], references: [id])
+  invitedById String
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([token])
+  @@index([email])
+}
+
+model PaymentMethod {
+  id                   String   @id @default(cuid())
+  type                 String   // CREDIT_CARD, DEBIT_CARD, UPI, META_BILLING
+  name                 String
+  provider             String   // VISA, MASTERCARD, RAZORPAY, META
+  last4                String?
+  expiry               String?
+  billingEmail         String?
+  isDefault            Boolean  @default(false)
+  status               String   @default("ACTIVE")
+  metaBillingAccountId String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 }
 
 // Singleton — exactly one row, the app's own WABA. Enforced in code

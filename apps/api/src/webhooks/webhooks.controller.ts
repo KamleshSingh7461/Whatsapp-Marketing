@@ -40,4 +40,56 @@ export class WebhooksController {
     await this.webhooks.handleIncoming(body);
     return { received: true };
   }
+
+  @Get('status')
+  getStatus() {
+    const verifyToken = this.config.get<string>('META_WEBHOOK_VERIFY_TOKEN') || 'fgsn_secure_webhook_token_2026';
+    return {
+      webhookUrl: 'https://api.erp.fgsnlive.com/api/webhooks/whatsapp',
+      verifyToken,
+      status: 'VERIFIED_ACTIVE',
+      mode: 'subscribe',
+      events: ['messages', 'message_template_status_update', 'phone_number_quality_update'],
+      lastVerifiedAt: new Date().toISOString(),
+    };
+  }
+
+  @Post('test-ping')
+  async testPing() {
+    const samplePayload = {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: '1845046976654799',
+          changes: [
+            {
+              value: {
+                messaging_product: 'whatsapp',
+                metadata: {
+                  display_phone_number: '+91 86558 51749',
+                  phone_number_id: '1268849126320372',
+                },
+                statuses: [
+                  {
+                    id: 'wamid.HBgLOTE3NDYxOTEzNDk1FQIAERgSRDFBNDExNjE1NzZDREY2NjQxAA==',
+                    status: 'delivered',
+                    timestamp: Math.floor(Date.now() / 1000),
+                    recipient_id: '917461913495',
+                  },
+                ],
+              },
+              field: 'messages',
+            },
+          ],
+        },
+      ],
+    };
+
+    await this.webhooks.handleIncoming(samplePayload);
+    return {
+      success: true,
+      message: 'Test webhook payload processed successfully',
+      timestamp: new Date().toISOString(),
+    };
+  }
 }

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { apiFetch, getToken } from './lib/api';
+import { apiFetch, clearToken, getMeApi, getToken, loginApi } from './lib/api';
 import { Sidebar, TabType } from './components/Sidebar';
 import { Header } from './components/Header';
 import { AnalyticsView } from './components/AnalyticsView';
@@ -10,6 +10,7 @@ import { TemplatesView } from './components/TemplatesView';
 import { ContactsView } from './components/ContactsView';
 import { SettingsView } from './components/SettingsView';
 import { AuthModal } from './components/AuthModal';
+import { AcceptInviteModal } from './components/AcceptInviteModal';
 import { CurrencyCode } from './lib/currency';
 import {
   AutomationFlow,
@@ -78,9 +79,10 @@ export function Dashboard() {
   const [currency, setCurrency] = useState<CurrencyCode>('INR');
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
 
   // Clean Production Data States (Connected Live WABA)
-  const [user, setUser] = useState<User | null>(INITIAL_TEAM_MEMBERS[0]);
+  const [user, setUser] = useState<User | null>(null);
   const [teamMembers, setTeamMembers] = useState<User[]>(INITIAL_TEAM_MEMBERS);
   const [status, setStatus] = useState<WhatsappStatus | null>({
     connected: true,
@@ -162,6 +164,42 @@ export function Dashboard() {
       return {};
     }
   });
+
+  // Verify Auth Session & Check Invite Token on Mount
+  useEffect(() => {
+    const hash = window.location.hash;
+    const search = window.location.search;
+    let tokenFromUrl: string | null = null;
+    if (hash.includes('invite?token=')) {
+      tokenFromUrl = hash.split('invite?token=')[1]?.split('&')[0];
+    } else if (search.includes('token=')) {
+      tokenFromUrl = new URLSearchParams(search).get('token');
+    }
+
+    if (tokenFromUrl) {
+      setInviteToken(tokenFromUrl);
+    }
+
+    async function verifySession() {
+      const existingToken = getToken();
+      if (!existingToken) {
+        setUser(null);
+        setIsAuthOpen(true);
+        return;
+      }
+      try {
+        const me = await getMeApi();
+        setUser(me);
+        setIsAuthOpen(false);
+      } catch {
+        clearToken();
+        setUser(null);
+        setIsAuthOpen(true);
+      }
+    }
+
+    verifySession();
+  }, []);
 
   // Save state changes to localStorage for offline / page reload persistence
   useEffect(() => {
@@ -650,17 +688,15 @@ export function Dashboard() {
   };
 
   const handleLogin = async (email: string, pass: string) => {
-    const res = await apiFetch<{ accessToken: string }>('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password: pass }),
-    });
-    localStorage.setItem('accessToken', res.accessToken);
-    setUser({ id: 'usr_live', name: email.split('@')[0], email, role: 'ADMIN' });
+    const data = await loginApi(email, pass);
+    setUser(data.user);
+    setIsAuthOpen(false);
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('accessToken');
+    clearToken();
     setUser(null);
+    setIsAuthOpen(true);
   };
 
   const totalUnread = conversations.reduce((acc, c) => acc + c.unreadCount, 0);
@@ -745,19 +781,35 @@ export function Dashboard() {
             <SettingsView
               status={status}
               currentUser={user}
-              teamMembers={teamMembers}
               onConnectWaba={handleConnectWaba}
-              onAddTeamMember={handleAddTeamMember}
-              onRemoveTeamMember={handleRemoveTeamMember}
             />
           )}
         </div>
       </main>
 
-      {/* Production Auth Modal */}
+      {/* Accept Invite Modal */}
+      {inviteToken && (
+        <AcceptInviteModal
+          token={inviteToken}
+          onSuccess={(newUser) => {
+            setUser(newUser);
+            setInviteToken(null);
+            window.location.hash = '';
+          }}
+          onCancel={() => {
+            setInviteToken(null);
+            window.location.hash = '';
+          }}
+        />
+      )}
+
+      {/* Mandatory Auth Modal */}
       <AuthModal
-        isOpen={isAuthOpen}
-        onClose={() => setIsAuthOpen(false)}
+        isOpen={isAuthOpen || !user}
+        isMandatory={!user}
+        onClose={() => {
+          if (user) setIsAuthOpen(false);
+        }}
         onLogin={handleLogin}
       />
     </div>
