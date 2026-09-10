@@ -45,7 +45,7 @@ export class WebhooksController {
   getStatus() {
     const verifyToken = this.config.get<string>('META_WEBHOOK_VERIFY_TOKEN') || 'fgsn_secure_webhook_token_2026';
     return {
-      webhookUrl: 'https://api.erp.fgsnlive.com/api/webhooks/whatsapp',
+      webhookUrl: 'https://erp.fgsnlive.com/api/webhooks/whatsapp',
       verifyToken,
       status: 'VERIFIED_ACTIVE',
       mode: 'subscribe',

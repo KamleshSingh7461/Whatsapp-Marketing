@@ -21,21 +21,18 @@ export class WebhooksService {
     for (const entry of entries) {
       for (const change of entry.changes ?? []) {
         const value = change.value;
-        if (!value?.metadata?.phone_number_id) continue;
+        if (!value) continue;
 
-        const waba = await this.prisma.wabaConnection.findUnique({
-          where: { phoneNumberId: value.metadata.phone_number_id },
-        });
-        if (!waba) {
-          this.logger.warn(`Webhook for unrecognized phone_number_id=${value.metadata.phone_number_id} (connected WABA is ${await this.currentPhoneNumberId()})`);
-          continue;
+        if (value.messages && Array.isArray(value.messages)) {
+          for (const message of value.messages) {
+            await this.recordInboundMessage(message);
+          }
         }
 
-        for (const message of value.messages ?? []) {
-          await this.recordInboundMessage(message);
-        }
-        for (const status of value.statuses ?? []) {
-          await this.recordStatusUpdate(status);
+        if (value.statuses && Array.isArray(value.statuses)) {
+          for (const status of value.statuses) {
+            await this.recordStatusUpdate(status);
+          }
         }
       }
     }
@@ -47,16 +44,60 @@ export class WebhooksService {
   }
 
   private async recordInboundMessage(message: any) {
+    const phone = String(message.from || '').replace(/[^0-9]/g, '');
+    if (!phone) return;
+
     const contact = await this.prisma.contact.upsert({
-      where: { phone: message.from },
-      update: {},
-      create: { phone: message.from },
+      where: { phone },
+      update: {
+        optedIn: true,
+        optedInAt: new Date(),
+        displayName: message.profile?.name || undefined,
+      },
+      create: {
+        phone,
+        displayName: message.profile?.name || `+${phone}`,
+        optedIn: true,
+        optedInAt: new Date(),
+        tags: ['WhatsApp Inbound'],
+      },
     });
 
     const windowExpiresAt = new Date(Date.now() + SESSION_WINDOW_HOURS * 60 * 60 * 1000);
-    const conversation = await this.prisma.conversation.create({
-      data: { contactId: contact.id, windowExpiresAt },
+    const convId = `conv_${phone}`;
+    
+    let conversation = await this.prisma.conversation.findFirst({
+      where: {
+        OR: [
+          { id: convId },
+          { contactId: contact.id },
+        ],
+      },
+      orderBy: { updatedAt: 'desc' },
     });
+
+    if (!conversation) {
+      conversation = await this.prisma.conversation.create({
+        data: {
+          id: convId,
+          contactId: contact.id,
+          windowExpiresAt,
+        },
+      });
+    } else {
+      await this.prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { windowExpiresAt, updatedAt: new Date() },
+      });
+    }
+
+    const textContent = 
+      message.text?.body ||
+      message.button?.text ||
+      message.interactive?.button_reply?.title ||
+      message.interactive?.list_reply?.title ||
+      message.caption ||
+      (message.type ? `[${message.type.toUpperCase()} Message]` : 'Inbound WhatsApp message');
 
     await this.prisma.message.create({
       data: {
@@ -64,9 +105,14 @@ export class WebhooksService {
         direction: MessageDirection.INBOUND,
         status: MessageStatus.DELIVERED,
         metaMessageId: message.id,
-        payloadJson: message,
+        payloadJson: {
+          body: textContent,
+          raw: message,
+        },
       },
     });
+
+    this.logger.log(`Inbound message recorded from +${phone}: "${textContent}"`);
   }
 
   private async recordStatusUpdate(status: any) {

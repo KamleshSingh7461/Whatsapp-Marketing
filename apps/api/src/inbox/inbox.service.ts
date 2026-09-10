@@ -26,9 +26,9 @@ export class InboxService {
         contact: {
           id: c.contact.id,
           phone: c.contact.phone,
-          displayName: c.contact.displayName || c.contact.phone,
+          displayName: c.contact.displayName || `+${c.contact.phone}`,
           optedIn: c.contact.optedIn,
-          tags: c.contact.tags,
+          tags: c.contact.tags || ['New Lead'],
         },
         windowExpiresAt: c.windowExpiresAt ? c.windowExpiresAt.toISOString() : new Date(Date.now() + 24 * 3600000).toISOString(),
         unreadCount: 0,
@@ -40,6 +40,8 @@ export class InboxService {
           status: c.messages[0].status,
           content: (c.messages[0].payloadJson as any)?.body || (c.messages[0].payloadJson as any)?.text || 'Message',
           timestamp: c.messages[0].createdAt.toISOString(),
+          authorName: (c.messages[0].payloadJson as any)?.authorName,
+          isInternalNote: (c.messages[0].payloadJson as any)?.isInternalNote,
         } : null,
       }));
     } catch (e: any) {
@@ -50,14 +52,32 @@ export class InboxService {
 
   async getMessages(conversationId: string) {
     try {
-      const messages = await this.prisma.message.findMany({
+      let messages = await this.prisma.message.findMany({
         where: { conversationId },
         orderBy: { createdAt: 'asc' },
       });
 
+      // If no messages found directly and conversationId has conv_ prefix, search via Contact
+      if (messages.length === 0 && conversationId.startsWith('conv_')) {
+        const phone = conversationId.replace('conv_', '').replace(/[^0-9]/g, '');
+        if (phone) {
+          const contact = await this.prisma.contact.findUnique({
+            where: { phone },
+            include: { conversations: true },
+          });
+          if (contact && contact.conversations.length > 0) {
+            const convIds = contact.conversations.map((c) => c.id);
+            messages = await this.prisma.message.findMany({
+              where: { conversationId: { in: convIds } },
+              orderBy: { createdAt: 'asc' },
+            });
+          }
+        }
+      }
+
       return messages.map((m) => ({
         id: m.id,
-        conversationId: m.conversationId,
+        conversationId: conversationId,
         direction: m.direction,
         status: m.status,
         content: (m.payloadJson as any)?.body || (m.payloadJson as any)?.text || '',
@@ -79,11 +99,70 @@ export class InboxService {
     authorName?: string;
     metaMessageId?: string;
     templateId?: string;
+    phone?: string;
+    name?: string;
   }) {
     try {
+      let conv = await this.prisma.conversation.findUnique({
+        where: { id: dto.conversationId },
+      });
+
+      if (!conv) {
+        let phone = dto.phone;
+        if (!phone && dto.conversationId.startsWith('conv_')) {
+          phone = dto.conversationId.replace('conv_', '').replace(/[^0-9]/g, '');
+        }
+
+        if (phone) {
+          const contact = await this.prisma.contact.upsert({
+            where: { phone },
+            update: {
+              optedIn: true,
+              displayName: dto.name || undefined,
+            },
+            create: {
+              phone,
+              displayName: dto.name || `+${phone}`,
+              optedIn: true,
+              tags: ['New Lead'],
+            },
+          });
+
+          const existingConv = await this.prisma.conversation.findFirst({
+            where: {
+              OR: [{ contactId: contact.id }, { id: dto.conversationId }],
+            },
+          });
+
+          if (existingConv) {
+            conv = existingConv;
+          } else {
+            conv = await this.prisma.conversation.create({
+              data: {
+                id: dto.conversationId,
+                contactId: contact.id,
+                windowExpiresAt: new Date(Date.now() + 24 * 3600000),
+              },
+            });
+          }
+        }
+      }
+
+      if (!conv) {
+        this.logger.warn(`Could not find or create conversation for ID: ${dto.conversationId}`);
+        return {
+          id: `msg_${Date.now()}`,
+          conversationId: dto.conversationId,
+          direction: dto.direction,
+          status: 'DELIVERED',
+          content: dto.text,
+          timestamp: new Date().toISOString(),
+        };
+      }
+
       const msg = await this.prisma.message.create({
         data: {
-          conversationId: dto.conversationId,
+          conversationId: conv.id,
           direction: dto.direction === 'INBOUND' ? MessageDirection.INBOUND : MessageDirection.OUTBOUND,
           status: MessageStatus.DELIVERED,
           metaMessageId: dto.metaMessageId,
@@ -97,20 +176,25 @@ export class InboxService {
       });
 
       await this.prisma.conversation.update({
-        where: { id: dto.conversationId },
-        data: { updatedAt: new Date() },
+        where: { id: conv.id },
+        data: {
+          updatedAt: new Date(),
+          windowExpiresAt: new Date(Date.now() + 24 * 3600000),
+        },
       }).catch(() => null);
 
       return {
         id: msg.id,
-        conversationId: msg.conversationId,
+        conversationId: conv.id,
         direction: msg.direction,
         status: msg.status,
         content: dto.text,
         timestamp: msg.createdAt.toISOString(),
+        authorName: dto.authorName,
+        isInternalNote: dto.isInternalNote,
       };
     } catch (e: any) {
-      this.logger.warn(`Could not persist message to database: ${e.message}`);
+      this.logger.error(`Could not persist message to database: ${e.message}`);
       return {
         id: `msg_${Date.now()}`,
         conversationId: dto.conversationId,

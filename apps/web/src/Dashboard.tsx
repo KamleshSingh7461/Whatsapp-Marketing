@@ -401,38 +401,66 @@ export function Dashboard() {
     return () => window.removeEventListener('storage', handleStorage);
   }, []);
 
-  // Sync conversations & messages from Backend Database on Login
+  // Real-time 2.5-second background synchronization for Shared Inbox (Conversations & Inbound/Outbound Messages)
   useEffect(() => {
-    if (!user || !getToken()) return;
+    if (!getToken()) return;
 
-    apiFetch<any[]>('/inbox/conversations')
-      .then(async (serverConvs) => {
-        if (serverConvs && Array.isArray(serverConvs) && serverConvs.length > 0) {
+    const fetchInbox = async () => {
+      try {
+        const serverConvs = await apiFetch<Conversation[]>('/inbox/conversations');
+        if (Array.isArray(serverConvs)) {
           setConversations(prev => {
-            const merged = [...serverConvs];
+            const map = new Map<string, Conversation>();
+            // Retain existing local conversations
             prev.forEach(p => {
-              if (!merged.some(m => m.id === p.id || m.contact?.phone === p.contact?.phone)) {
-                merged.push(p);
-              }
+              const key = p.contact?.phone || p.id;
+              map.set(key, p);
             });
-            return merged;
+            // Merge/update with server conversations
+            serverConvs.forEach(sc => {
+              const key = sc.contact?.phone || sc.id;
+              const existing = map.get(key);
+              map.set(key, {
+                ...(existing || {}),
+                ...sc,
+                lastMessage: sc.lastMessage || existing?.lastMessage,
+              });
+            });
+            return Array.from(map.values());
           });
 
-          serverConvs.forEach(sc => {
-            apiFetch<any[]>(`/inbox/messages/${sc.id}`)
+          // Fetch messages for all active conversations in parallel
+          for (const sc of serverConvs) {
+            apiFetch<Message[]>(`/inbox/messages/${sc.id}`)
               .then(sMsgs => {
-                if (sMsgs && sMsgs.length > 0) {
-                  setMessagesByConvId(prev => ({
-                    ...prev,
-                    [sc.id]: sMsgs,
-                  }));
+                if (Array.isArray(sMsgs) && sMsgs.length > 0) {
+                  setMessagesByConvId(prev => {
+                    const existing = prev[sc.id] || prev[`conv_${sc.contact?.phone}`] || [];
+                    const msgMap = new Map<string, Message>();
+                    existing.forEach(m => msgMap.set(m.id, m));
+                    sMsgs.forEach(m => msgMap.set(m.id, m));
+                    const merged = Array.from(msgMap.values()).sort(
+                      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+                    );
+                    return {
+                      ...prev,
+                      [sc.id]: merged,
+                      [`conv_${sc.contact?.phone}`]: merged,
+                    };
+                  });
                 }
               })
               .catch(() => null);
-          });
+          }
         }
-      })
-      .catch(() => null);
+      } catch (err) {
+        // Quiet catch background polling errors
+      }
+    };
+
+    fetchInbox();
+    const interval = setInterval(fetchInbox, 2500);
+    return () => clearInterval(interval);
   }, [user]);
 
   // 4. Automatically provision Live Shared Inbox conversations for CRM contacts
@@ -489,6 +517,7 @@ export function Dashboard() {
   // Handlers
   const handleSendMessage = async (convId: string, text: string, isInternalNote?: boolean) => {
     const conv = conversations.find(c => c.id === convId);
+    const phone = conv?.contact?.phone;
 
     const newMsg: Message = {
       id: `msg_${Date.now()}`,
@@ -515,6 +544,8 @@ export function Dashboard() {
           text,
           isInternalNote: !!isInternalNote,
           authorName: user?.name || 'Agent',
+          phone,
+          name: conv?.contact?.displayName,
         }),
       }).catch(() => null);
     }
@@ -532,12 +563,12 @@ export function Dashboard() {
         )
       );
 
-      if (conv?.contact?.phone) {
+      if (phone) {
         try {
           await apiFetch('/whatsapp/send-text', {
             method: 'POST',
             body: JSON.stringify({
-              to: conv.contact.phone,
+              to: phone,
               text,
             }),
           });
@@ -550,6 +581,7 @@ export function Dashboard() {
 
   const handleSendTemplateMessage = async (convId: string, template: Template, renderedText: string) => {
     const conv = conversations.find(c => c.id === convId);
+    const phone = conv?.contact?.phone;
 
     const newMsg: Message = {
       id: `msg_tpl_${Date.now()}`,
@@ -576,6 +608,8 @@ export function Dashboard() {
           text: renderedText,
           templateId: template.id,
           authorName: user?.name || 'Agent',
+          phone,
+          name: conv?.contact?.displayName,
         }),
       }).catch(() => null);
     }
@@ -593,12 +627,12 @@ export function Dashboard() {
       )
     );
 
-    if (conv?.contact?.phone) {
+    if (phone) {
       try {
         await apiFetch('/whatsapp/send-template', {
           method: 'POST',
           body: JSON.stringify({
-            to: conv.contact.phone,
+            to: phone,
             templateName: template.name,
             language: template.language || 'en_US',
           }),
@@ -657,7 +691,7 @@ export function Dashboard() {
       tags: ['New Lead'],
     };
 
-    const initialText = text || `[Template: ${templateName || 'fgsn_account_welcome_notice'}]`;
+    const initialText = text || (templateName ? `[Template: ${templateName}]` : 'Hello! How can we assist you today?');
     const newMsg: Message = {
       id: `msg_${Date.now()}`,
       conversationId: convId,
@@ -665,6 +699,7 @@ export function Dashboard() {
       status: 'SENT',
       timestamp: new Date().toISOString(),
       content: initialText,
+      authorName: user?.name || 'Agent',
     };
 
     const newConv: Conversation = {
@@ -682,14 +717,36 @@ export function Dashboard() {
     });
 
     setConversations(prev => {
-      const exists = prev.some(c => c.id === convId);
-      return exists ? prev.map(c => (c.id === convId ? { ...c, lastMessage: newMsg } : c)) : [newConv, ...prev];
+      const exists = prev.some(c => c.id === convId || c.contact?.phone === cleanPhone);
+      return exists
+        ? prev.map(c => (c.id === convId || c.contact?.phone === cleanPhone ? { ...c, lastMessage: newMsg } : c))
+        : [newConv, ...prev];
     });
 
     setMessagesByConvId(prev => ({
       ...prev,
       [convId]: [...(prev[convId] || []), newMsg],
     }));
+
+    // Persist conversation & initial message to backend database so Admin & other Agents receive it live
+    if (getToken()) {
+      try {
+        await apiFetch('/inbox/messages', {
+          method: 'POST',
+          body: JSON.stringify({
+            conversationId: convId,
+            direction: 'OUTBOUND',
+            text: initialText,
+            authorName: user?.name || 'Agent',
+            phone: cleanPhone,
+            name: contactName,
+            templateId: templateName,
+          }),
+        });
+      } catch (err) {
+        console.warn('Failed to persist new conversation to backend DB:', err);
+      }
+    }
 
     if (templateName) {
       await apiFetch('/whatsapp/send-template', {

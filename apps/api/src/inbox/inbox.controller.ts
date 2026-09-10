@@ -28,6 +28,8 @@ export class InboxController {
       authorName?: string;
       metaMessageId?: string;
       templateId?: string;
+      phone?: string;
+      name?: string;
     },
   ) {
     return this.inboxService.recordMessage(dto);
