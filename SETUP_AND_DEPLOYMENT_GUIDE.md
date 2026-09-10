@@ -253,4 +253,61 @@ npm run dev:web
 
 ---
 
+## 8. Meta WhatsApp Cloud API Operational Guide & Troubleshooting
+
+### Understanding Meta Messaging Rules
+
+| Message Type | 24-Hour Window Required? | Approved Template Required? | Meta Billing / Payment Required? |
+| :--- | :--- | :--- | :--- |
+| **Direct Text (Free-Form)** | **YES** (Customer must message first) | No | Free (Counted against 1,000 monthly free service tier) |
+| **Template Message** | **NO** (Can initiate conversation anytime) | **YES** (Must be approved in Meta) | **YES** (Billed at Meta regional utility/marketing rate) |
+
+---
+
+### Common Meta Error Codes & Solutions
+
+#### 1. Error `#131030` — `Recipient phone number not in allowed list`
+* **Cause:** The Meta Developer App is in **Development Mode** (Sandbox).
+* **Fix:**
+  - **For Testing:** Add the recipient's phone number to **WhatsApp > API Setup > To dropdown** in [developers.facebook.com](https://developers.facebook.com/).
+  - **For Production:** Switch the toggle in the top bar of Meta Developer Portal from **`In Development`** $\rightarrow$ **`Live`**.
+
+#### 2. Error `#131047` — `Re-engagement message (24 hours window closed)`
+* **Cause:** Attempting to send a free-form direct text message to a contact who has not messaged the business in the last 24 hours.
+* **Fix:** Send an **Approved Template Message** (e.g. *FGSN Welcome Notice*) to initiate the conversation. Once the customer replies, direct messages can be sent freely for the next 24 hours.
+
+#### 3. Error `#131031` / `#131042` — `Account has no active payment method`
+* **Cause:** Sending a business-initiated template without a linked credit/debit card on the WhatsApp Business Account.
+* **Fix:** Go to [business.facebook.com](https://business.facebook.com/) $\rightarrow$ **WhatsApp Accounts** $\rightarrow$ Select your WABA $\rightarrow$ **Payment Settings** $\rightarrow$ Add a valid card.
+
+#### 4. Error `#132000` / `#132001` — `Parameter count or Language translation mismatch`
+* **Cause:** Passing variables to a static template or specifying `en_US` for a template approved in `en`.
+* **Fix:** The FGSN ERP backend has **built-in self-healing fallbacks** that automatically strip variables and retry with alternate language codes (`en` $\leftrightarrow$ `en_US`).
+
+---
+
+## 9. EC2 Production Deployment Cheatsheet
+
+Whenever updates are pushed to GitHub `origin/master`, deploy to your live EC2 instance with these commands:
+
+```bash
+# 1. Connect to EC2 & navigate to project folder
+cd /var/www/fgsn-erp
+
+# 2. Pull latest commits from GitHub
+git pull origin master
+
+# 3. Build frontend web bundle & backend NestJS API
+npm run build --prefix apps/web
+npm run build --prefix apps/api
+
+# 4. Restart backend daemon with PM2
+pm2 restart fgsn-api
+
+# 5. Monitor real-time logs
+pm2 logs fgsn-api --lines 50
+```
+
+---
+
 *Documentation maintained by FGSN Core Engineering & Operations Team.*
