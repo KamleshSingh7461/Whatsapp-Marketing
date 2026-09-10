@@ -74,7 +74,20 @@ const DEFAULT_REGIONAL_RATES = [
 
 export function Dashboard() {
   // Navigation & Control States
-  const [activeTab, setActiveTab] = useState<TabType>('analytics');
+  const [activeTab, setActiveTabState] = useState<TabType>(() => {
+    const hash = window.location.hash.replace('#', '');
+    const validTabs: TabType[] = ['analytics', 'inbox', 'automations', 'campaigns', 'templates', 'contacts', 'settings'];
+    if (validTabs.includes(hash as TabType)) return hash as TabType;
+    const saved = localStorage.getItem('fgsn_active_tab') as TabType;
+    if (saved && validTabs.includes(saved)) return saved;
+    return 'inbox';
+  });
+
+  const setActiveTab = (tab: TabType) => {
+    setActiveTabState(tab);
+    localStorage.setItem('fgsn_active_tab', tab);
+    window.location.hash = tab;
+  };
   const [timeframe, setTimeframe] = useState<'7d' | '30d' | '90d'>('7d');
   const [currency, setCurrency] = useState<CurrencyCode>('INR');
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);

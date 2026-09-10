@@ -186,6 +186,15 @@ export const InboxView: React.FC<InboxViewProps> = ({
       {/* Left Column: Conversation Queue */}
       <div className="inbox-list-col">
         <div className="inbox-list-header">
+          {/* Live WABA Inbox Banner */}
+          <div style={{ background: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: 8, padding: '8px 12px', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10B981', display: 'inline-block', boxShadow: '0 0 0 2px rgba(16, 185, 129, 0.2)' }} />
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#047857' }}>Live Shared Inbox</span>
+            </div>
+            <span style={{ fontSize: 11, color: '#059669', fontFamily: 'monospace', fontWeight: 600 }}>+91 86558 51749</span>
+          </div>
+
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
             <div className="search-bar-wrap" style={{ flex: 1 }}>
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -577,8 +586,23 @@ export const InboxView: React.FC<InboxViewProps> = ({
           </div>
         </div>
       ) : (
-        <div className="inbox-chat-col empty-state">
-          <p>Select a conversation from the left queue to start chatting.</p>
+        <div className="inbox-chat-col empty-state" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 40, background: '#F8FAFC', textAlign: 'center', flex: 1 }}>
+          <div style={{ width: 68, height: 68, borderRadius: 20, background: '#ECFDF5', border: '1px solid #A7F3D0', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20, boxShadow: '0 4px 12px rgba(5, 150, 105, 0.1)' }}>
+            <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="#059669" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+          </div>
+          <h3 style={{ fontSize: 22, fontWeight: 700, color: '#0F172A', margin: '0 0 8px' }}>FGSN Live Shared Inbox</h3>
+          <p style={{ fontSize: 14, color: '#64748B', maxWidth: 440, lineHeight: 1.5, margin: '0 0 24px' }}>
+            Send direct WhatsApp messages, dispatch Meta templates, and manage live customer conversations in real-time.
+          </p>
+          <button
+            className="btn-primary"
+            onClick={() => setShowNewChatModal(true)}
+            style={{ padding: '12px 24px', fontSize: 14, fontWeight: 700, borderRadius: 10 }}
+          >
+            + Start New WhatsApp Conversation
+          </button>
         </div>
       )}
 
