@@ -21,29 +21,42 @@ export class InboxService {
         orderBy: { updatedAt: 'desc' },
       });
 
-      return conversations.map((c) => ({
-        id: c.id,
-        contact: {
-          id: c.contact.id,
-          phone: c.contact.phone,
-          displayName: c.contact.displayName || `+${c.contact.phone}`,
-          optedIn: c.contact.optedIn,
-          tags: c.contact.tags || ['New Lead'],
-        },
-        windowExpiresAt: c.windowExpiresAt ? c.windowExpiresAt.toISOString() : new Date(Date.now() + 24 * 3600000).toISOString(),
-        unreadCount: 0,
-        status: 'OPEN',
-        lastMessage: c.messages[0] ? {
-          id: c.messages[0].id,
-          conversationId: c.id,
-          direction: c.messages[0].direction,
-          status: c.messages[0].status,
-          content: (c.messages[0].payloadJson as any)?.body || (c.messages[0].payloadJson as any)?.text || 'Message',
-          timestamp: c.messages[0].createdAt.toISOString(),
-          authorName: (c.messages[0].payloadJson as any)?.authorName,
-          isInternalNote: (c.messages[0].payloadJson as any)?.isInternalNote,
-        } : null,
-      }));
+      // Group and unify by clean phone number to guarantee exactly 1 conversation thread per customer
+      const unifiedMap = new Map<string, any>();
+
+      for (const c of conversations) {
+        const rawPhone = c.contact?.phone || c.id;
+        const cleanPhone = rawPhone.replace(/[^0-9]/g, '') || rawPhone;
+
+        if (!unifiedMap.has(cleanPhone)) {
+          unifiedMap.set(cleanPhone, {
+            id: c.id,
+            contact: {
+              id: c.contact.id,
+              phone: c.contact.phone,
+              displayName: c.contact.displayName || `+${c.contact.phone}`,
+              optedIn: c.contact.optedIn,
+              tags: c.contact.tags || ['New Lead'],
+            },
+            windowExpiresAt: c.windowExpiresAt ? c.windowExpiresAt.toISOString() : new Date(Date.now() + 24 * 3600000).toISOString(),
+            unreadCount: 0,
+            assignedAgent: (c as any).assignedAgent || 'Unassigned',
+            status: 'OPEN',
+            lastMessage: c.messages[0] ? {
+              id: c.messages[0].id,
+              conversationId: c.id,
+              direction: c.messages[0].direction,
+              status: c.messages[0].status,
+              content: (c.messages[0].payloadJson as any)?.body || (c.messages[0].payloadJson as any)?.text || 'Message',
+              timestamp: c.messages[0].createdAt.toISOString(),
+              authorName: (c.messages[0].payloadJson as any)?.authorName,
+              isInternalNote: (c.messages[0].payloadJson as any)?.isInternalNote,
+            } : null,
+          });
+        }
+      }
+
+      return Array.from(unifiedMap.values());
     } catch (e: any) {
       this.logger.warn(`Could not query conversations from DB: ${e.message}`);
       return [];

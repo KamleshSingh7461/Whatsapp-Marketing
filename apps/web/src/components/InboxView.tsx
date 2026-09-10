@@ -7,6 +7,7 @@ interface InboxViewProps {
   conversations: Conversation[];
   messagesByConvId: Record<string, Message[]>;
   templates?: Template[];
+  teamMembers?: User[];
   currency?: CurrencyCode;
   currentUser?: User | null;
   onSendMessage: (convId: string, text: string, isInternalNote?: boolean) => void;
@@ -38,6 +39,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
   conversations,
   messagesByConvId,
   templates = [],
+  teamMembers = [],
   currency = 'INR',
   currentUser,
   onSendMessage,
@@ -57,7 +59,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
   const [customInboundText, setCustomInboundText] = useState('');
   const [selectedTemplateForModal, setSelectedTemplateForModal] = useState<Template | null>(null);
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<'ALL' | 'OPEN' | 'RESOLVED' | 'VIP'>('ALL');
+  const [filter, setFilter] = useState<'ALL' | 'MINE' | 'UNASSIGNED' | 'OPEN' | 'RESOLVED'>('ALL');
   const [cannedList, setCannedList] = useState<Array<{ label: string; text: string }>>(() => {
     try {
       const saved = localStorage.getItem('fgsn_saved_canned_responses');
@@ -198,6 +200,8 @@ export const InboxView: React.FC<InboxViewProps> = ({
     }
   };
 
+  const myName = currentUser?.name || 'FGSN Super Admin';
+
   const filteredConversations = conversations.filter(c => {
     const matchesSearch =
       c.contact.displayName.toLowerCase().includes(search.toLowerCase()) ||
@@ -207,9 +211,10 @@ export const InboxView: React.FC<InboxViewProps> = ({
     if (!matchesSearch) return false;
 
     if (filter === 'ALL') return true;
+    if (filter === 'MINE') return c.assignedAgent === myName || (!c.assignedAgent && currentUser?.role === 'ADMIN');
+    if (filter === 'UNASSIGNED') return !c.assignedAgent || c.assignedAgent === 'Unassigned';
     if (filter === 'OPEN') return c.status === 'OPEN';
     if (filter === 'RESOLVED') return c.status === 'RESOLVED';
-    if (filter === 'VIP') return c.contact.rfmSegment === 'CHAMPIONS' || (c.contact.lifetimeValue || 0) > 1000;
     return true;
   });
 
@@ -259,14 +264,17 @@ export const InboxView: React.FC<InboxViewProps> = ({
             <button className={`tab-filter ${filter === 'ALL' ? 'active' : ''}`} onClick={() => setFilter('ALL')}>
               All ({conversations.length})
             </button>
+            <button className={`tab-filter ${filter === 'MINE' ? 'active' : ''}`} onClick={() => setFilter('MINE')}>
+              Mine ({conversations.filter(c => c.assignedAgent === myName).length})
+            </button>
+            <button className={`tab-filter ${filter === 'UNASSIGNED' ? 'active' : ''}`} onClick={() => setFilter('UNASSIGNED')}>
+              Unassigned ({conversations.filter(c => !c.assignedAgent || c.assignedAgent === 'Unassigned').length})
+            </button>
             <button className={`tab-filter ${filter === 'OPEN' ? 'active' : ''}`} onClick={() => setFilter('OPEN')}>
               Open ({conversations.filter(c => c.status === 'OPEN').length})
             </button>
             <button className={`tab-filter ${filter === 'RESOLVED' ? 'active' : ''}`} onClick={() => setFilter('RESOLVED')}>
               Resolved ({conversations.filter(c => c.status === 'RESOLVED').length})
-            </button>
-            <button className={`tab-filter ${filter === 'VIP' ? 'active' : ''}`} onClick={() => setFilter('VIP')}>
-              VIP
             </button>
           </div>
         </div>
@@ -389,13 +397,16 @@ export const InboxView: React.FC<InboxViewProps> = ({
               <div className="agent-selector-box" title="Assigned Team Agent">
                 <span className="agent-lbl">Agent:</span>
                 <select
-                  value={activeConversation.assignedAgent || 'Kamlesh Sharma'}
+                  value={activeConversation.assignedAgent || 'Unassigned'}
                   onChange={(e) => onAssignAgent && onAssignAgent(activeConversation.id, e.target.value)}
                   className="agent-select"
                 >
-                  <option value="Kamlesh Sharma">Kamlesh Sharma (You)</option>
-                  <option value="Alex Carter">Alex Carter</option>
-                  <option value="Elena Vance">Elena Vance</option>
+                  {currentUser && (
+                    <option value={currentUser.name}>{currentUser.name} (You)</option>
+                  )}
+                  {teamMembers && teamMembers.filter(m => m.name !== currentUser?.name).map((m, idx) => (
+                    <option key={idx} value={m.name}>{m.name} ({m.role})</option>
+                  ))}
                   <option value="AI Support Bot">AI Support Bot</option>
                   <option value="Unassigned">Unassigned</option>
                 </select>

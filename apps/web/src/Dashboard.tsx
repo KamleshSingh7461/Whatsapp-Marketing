@@ -422,16 +422,18 @@ export function Dashboard() {
         if (Array.isArray(serverConvs)) {
           setConversations(prev => {
             const map = new Map<string, Conversation>();
-            // Retain existing local conversations
+            // Retain existing local conversations mapped by clean phone number
             prev.forEach(p => {
-              const key = p.contact?.phone || p.id;
-              map.set(key, p);
+              const raw = p.contact?.phone || p.id;
+              const cleanKey = raw.replace(/[^0-9]/g, '') || raw;
+              map.set(cleanKey, p);
             });
             // Merge/update with server conversations
             serverConvs.forEach(sc => {
-              const key = sc.contact?.phone || sc.id;
-              const existing = map.get(key);
-              map.set(key, {
+              const raw = sc.contact?.phone || sc.id;
+              const cleanKey = raw.replace(/[^0-9]/g, '') || raw;
+              const existing = map.get(cleanKey);
+              map.set(cleanKey, {
                 ...(existing || {}),
                 ...sc,
                 lastMessage: sc.lastMessage || existing?.lastMessage,
@@ -599,13 +601,20 @@ export function Dashboard() {
 
       if (phone) {
         try {
-          await apiFetch('/whatsapp/send-text', {
+          const res = await apiFetch<any>('/whatsapp/send-text', {
             method: 'POST',
             body: JSON.stringify({
               to: phone,
               text,
             }),
           });
+
+          if (res && res.success === false) {
+            const errStr = (res.error || '').toString().toLowerCase();
+            if (errStr.includes('131047') || errStr.includes('24 hours') || errStr.includes('template') || errStr.includes('re-engagement')) {
+              alert(`Meta WhatsApp Notice for +${phone}:\nDirect text messages can only be sent within 24 hours of a customer's message. Because this window is closed or this customer hasn't messaged yet, Meta requires an Approved Template to contact them.`);
+            }
+          }
         } catch (e) {
           console.warn('Failed to send text message via Meta Cloud API:', e);
         }
@@ -1092,6 +1101,7 @@ export function Dashboard() {
               conversations={conversations}
               messagesByConvId={messagesByConvId}
               templates={templates}
+              teamMembers={teamMembers}
               currency={currency}
               currentUser={user}
               onSendMessage={handleSendMessage}

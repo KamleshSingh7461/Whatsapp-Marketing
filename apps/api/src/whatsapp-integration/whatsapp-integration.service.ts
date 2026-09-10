@@ -151,7 +151,7 @@ export class WhatsappIntegrationService {
   }
 
   async sendTextMessage(dto: { to: string; text: string }) {
-    const phoneNumberId = this.config.get<string>('META_PHONE_NUMBER_ID') || '1313091738548766';
+    const phoneNumberId = this.config.get<string>('META_PHONE_NUMBER_ID') || '1268849126320372';
     const systemToken = this.config.get<string>('META_SYSTEM_USER_TOKEN');
     const apiVersion = this.config.get<string>('META_GRAPH_API_VERSION') || 'v21.0';
 
@@ -168,6 +168,8 @@ export class WhatsappIntegrationService {
       },
     };
 
+    this.logger.log(`Submitting direct text message to +${formattedTo}...`);
+
     try {
       const res = await fetch(`https://graph.facebook.com/${apiVersion}/${phoneNumberId}/messages`, {
         method: 'POST',
@@ -178,13 +180,20 @@ export class WhatsappIntegrationService {
         body: JSON.stringify(payload),
       });
 
-      const data = await res.json();
+      const responseText = await res.text();
+      let data: any = {};
+      try { data = JSON.parse(responseText); } catch (e) {}
+
       if (!res.ok) {
-        return { success: false, error: data.error?.message || 'Meta text send error', metaResponse: data };
+        this.logger.error(`Meta direct text send failed (${res.status}): ${responseText}`);
+        return { success: false, error: data.error?.message || `Meta API error ${res.status}`, metaResponse: data };
       }
 
-      return { success: true, messageId: data.messages?.[0]?.id, metaResponse: data };
+      const msgId = data.messages?.[0]?.id || `wmid.${Date.now()}`;
+      this.logger.log(`Direct text message delivered via Meta! WAMID: ${msgId}`);
+      return { success: true, messageId: msgId, metaResponse: data };
     } catch (err: any) {
+      this.logger.error(`Meta direct text exception: ${err.message}`);
       return { success: false, error: err.message };
     }
   }
