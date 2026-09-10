@@ -26,27 +26,38 @@ export class AuthService implements OnModuleInit {
   }
 
   /**
-   * Seeds default Super Admin (admin@fgsnlive.com) on startup if not present.
+   * Seeds default Super Admin (admin@fgsnlive.com) on startup if not present or updates password.
    */
   async seedSuperAdmin() {
     const superAdminEmail = 'admin@fgsnlive.com';
+    const passwordHash = await bcrypt.hash('FGSN@Admin2026!', 10);
     const existing = await this.prisma.user.findUnique({
       where: { email: superAdminEmail },
     });
 
     if (!existing) {
-      const passwordHash = await bcrypt.hash('Admin@fgsn2026!', 10);
       await this.prisma.user.create({
         data: {
           email: superAdminEmail,
           passwordHash,
-          name: 'Super Admin',
+          name: 'FGSN Super Admin',
           role: Role.ADMIN,
           isSuperAdmin: true,
           status: 'ACTIVE',
         },
       });
       console.log(`[AuthService] Seeded default Super Admin: ${superAdminEmail}`);
+    } else {
+      await this.prisma.user.update({
+        where: { email: superAdminEmail },
+        data: {
+          passwordHash,
+          isSuperAdmin: true,
+          role: Role.ADMIN,
+          status: 'ACTIVE',
+        },
+      });
+      console.log(`[AuthService] Updated Super Admin credentials for: ${superAdminEmail}`);
     }
   }
 

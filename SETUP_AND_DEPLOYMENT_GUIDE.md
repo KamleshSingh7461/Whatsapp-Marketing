@@ -234,7 +234,7 @@ In Meta Business Settings (**FGSN Learning Business Portfolio**):
 
 When running with the backend database, the initial seeded administrator account is:
 
-- **Email**: `superadmin@fgsn.com`
+- **Email**: `admin@fgsnlive.com`
 - **Password**: `FGSN@Admin2026!`
 - **Role**: `SUPER_ADMIN` / `ADMIN`
 

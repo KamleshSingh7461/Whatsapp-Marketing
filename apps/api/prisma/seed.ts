@@ -15,8 +15,8 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('--- Starting FGSN Production Database Seeding ---');
 
-  const superAdminEmail = process.env.SEED_SUPER_ADMIN_EMAIL ?? 'superadmin@fgsn.com';
-  const superAdminPass = process.env.SEED_SUPER_ADMIN_PASSWORD ?? 'FGSN_SuperAdmin_2026!';
+  const superAdminEmail = process.env.SEED_SUPER_ADMIN_EMAIL ?? 'admin@fgsnlive.com';
+  const superAdminPass = process.env.SEED_SUPER_ADMIN_PASSWORD ?? 'FGSN@Admin2026!';
   const superAdminName = process.env.SEED_SUPER_ADMIN_NAME ?? 'FGSN Super Admin';
 
   const defaultUsers = [
@@ -24,7 +24,8 @@ async function main() {
       email: superAdminEmail,
       name: superAdminName,
       password: superAdminPass,
-      role: Role.ADMIN, // Admin role with super-admin privileges
+      role: Role.ADMIN,
+      isSuperAdmin: true,
     },
     {
       email: 'operations@fgsn.com',
