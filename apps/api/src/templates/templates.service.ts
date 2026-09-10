@@ -12,10 +12,9 @@ const PROMOTIONAL_KEYWORDS = ['sale', 'discount', 'offer', 'deal', 'buy now', 'c
 export class TemplatesService {
   constructor(private prisma: PrismaService) {}
 
-  async create(companyId: string, dto: CreateTemplateDto) {
+  async create(dto: CreateTemplateDto) {
     const template = await this.prisma.template.create({
       data: {
-        companyId,
         name: dto.name,
         language: dto.language,
         category: dto.category,
@@ -27,8 +26,8 @@ export class TemplatesService {
     return { ...template, warning: this.checkLikelyMiscategorized(dto) };
   }
 
-  findAllForCompany(companyId: string) {
-    return this.prisma.template.findMany({ where: { companyId } });
+  findAll() {
+    return this.prisma.template.findMany();
   }
 
   private checkLikelyMiscategorized(dto: CreateTemplateDto): string | null {

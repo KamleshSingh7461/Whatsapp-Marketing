@@ -1,8 +1,6 @@
 // Data model mirrors §06 of the WhatsApp ERP Blueprint plan.
-// Tenant isolation strategy: shared database, every tenant-owned row carries
-// companyId, enforced additionally by Postgres row-level security policies
-// (see prisma/migrations/<ts>_row_level_security for the RLS policies —
-// added once the first migration is generated).
+// Single-company scope: no tenant column anywhere, no row-level isolation to
+// enforce — every table belongs to the one business running this app.
 
 generator client {
   provider = "prisma-client-js"
@@ -14,17 +12,10 @@ datasource db {
 }
 
 enum Role {
-  SUPER_ADMIN
-  COMPANY_ADMIN
+  ADMIN
   AGENT
   MARKETER
   VIEWER
-}
-
-enum CompanyStatus {
-  PENDING_ONBOARDING
-  ACTIVE
-  SUSPENDED
 }
 
 enum TemplateCategory {
@@ -77,108 +68,73 @@ enum CampaignStatus {
   FAILED
 }
 
-// A super admin (companyId null) governs the platform.
-// Every other user belongs to exactly one company.
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
   passwordHash String
   name         String
   role         Role
-  company      Company? @relation(fields: [companyId], references: [id])
-  companyId    String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   auditLogEntries AuditLogEntry[]
-
-  @@index([companyId])
 }
 
-model Company {
-  id        String        @id @default(cuid())
-  name      String
-  status    CompanyStatus @default(PENDING_ONBOARDING)
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-
-  users          User[]
-  wabaConnection WabaConnection?
-  templates      Template[]
-  contacts       Contact[]
-  conversations  Conversation[]
-  campaigns      Campaign[]
-  auditLogEntries AuditLogEntry[]
-}
-
-// One row per company's connected WhatsApp Business Account.
-// businessToken is the customer-scoped token obtained by exchanging the
-// Embedded Signup code (see §08 of the plan) — store encrypted at rest.
+// Singleton — exactly one row, the app's own WABA. Enforced in code
+// (WhatsappIntegrationService.getOrCreate), not by a DB constraint.
+// businessTokenEnc is the System User permanent token (§03) — store encrypted.
 model WabaConnection {
-  id                String        @id @default(cuid())
-  company           Company       @relation(fields: [companyId], references: [id])
-  companyId         String        @unique
-  wabaId            String        @unique
-  phoneNumberId     String        @unique
+  id                 String        @id @default(cuid())
+  wabaId             String        @unique
+  phoneNumberId      String        @unique
   displayPhoneNumber String?
-  businessTokenEnc  String
-  tier              MessagingTier @default(TIER_250)
-  qualityRating     QualityRating @default(UNKNOWN)
-  connectedAt       DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  businessTokenEnc   String
+  tier               MessagingTier @default(TIER_250)
+  qualityRating      QualityRating @default(UNKNOWN)
+  connectedAt        DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
 }
 
 model Template {
-  id             String            @id @default(cuid())
-  company        Company           @relation(fields: [companyId], references: [id])
-  companyId      String
+  id             String           @id @default(cuid())
   name           String
   language       String
   category       TemplateCategory
-  status         TemplateStatus    @default(DRAFT)
+  status         TemplateStatus   @default(DRAFT)
   metaTemplateId String?
   bodyJson       Json
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
 
   campaigns Campaign[]
 
-  @@unique([companyId, name, language])
-  @@index([companyId])
+  @@unique([name, language])
 }
 
 model Contact {
-  id          String   @id @default(cuid())
-  company     Company  @relation(fields: [companyId], references: [id])
-  companyId   String
-  phone       String
+  id          String    @id @default(cuid())
+  phone       String    @unique
   displayName String?
-  optedIn     Boolean  @default(false)
+  optedIn     Boolean   @default(false)
   optedInAt   DateTime?
   tags        String[]
   attributes  Json?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   conversations Conversation[]
-
-  @@unique([companyId, phone])
-  @@index([companyId])
 }
 
 model Conversation {
-  id            String   @id @default(cuid())
-  company       Company  @relation(fields: [companyId], references: [id])
-  companyId     String
-  contact       Contact  @relation(fields: [contactId], references: [id])
-  contactId     String
+  id              String    @id @default(cuid())
+  contact         Contact   @relation(fields: [contactId], references: [id])
+  contactId       String
   windowExpiresAt DateTime? // end of the current 24h free-form session window
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   messages Message[]
 
-  @@index([companyId])
   @@index([contactId])
 }
 
@@ -200,34 +156,27 @@ model Message {
 }
 
 model Campaign {
-  id         String         @id @default(cuid())
-  company    Company        @relation(fields: [companyId], references: [id])
-  companyId  String
-  name       String
-  template   Template       @relation(fields: [templateId], references: [id])
-  templateId String
-  status     CampaignStatus @default(DRAFT)
+  id          String         @id @default(cuid())
+  name        String
+  template    Template       @relation(fields: [templateId], references: [id])
+  templateId  String
+  status      CampaignStatus @default(DRAFT)
   scheduledAt DateTime?
-  segmentJson Json          // filter/segment definition, e.g. { tags: ["vip"] }
-  stats      Json?          // { queued, sent, delivered, read, failed }
-  createdAt  DateTime       @default(now())
-  updatedAt  DateTime       @updatedAt
-
-  @@index([companyId])
+  segmentJson Json // filter/segment definition, e.g. { tags: ["vip"] }
+  stats       Json? // { queued, sent, delivered, read, failed }
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
 }
 
 // Append-only. Never update or delete rows — write new entries only.
 model AuditLogEntry {
-  id             String   @id @default(cuid())
-  actor          User     @relation(fields: [actorId], references: [id])
-  actorId        String
-  actorRole      Role
-  targetCompany  Company? @relation(fields: [targetCompanyId], references: [id])
-  targetCompanyId String?
-  action         String
-  metadataJson   Json?
-  createdAt      DateTime @default(now())
+  id           String   @id @default(cuid())
+  actor        User     @relation(fields: [actorId], references: [id])
+  actorId      String
+  actorRole    Role
+  action       String
+  metadataJson Json?
+  createdAt    DateTime @default(now())
 
-  @@index([targetCompanyId])
   @@index([actorId])
 }

@@ -1,8 +1,5 @@
 -- CreateEnum
-CREATE TYPE "Role" AS ENUM ('SUPER_ADMIN', 'COMPANY_ADMIN', 'AGENT', 'MARKETER', 'VIEWER');
-
--- CreateEnum
-CREATE TYPE "CompanyStatus" AS ENUM ('PENDING_ONBOARDING', 'ACTIVE', 'SUSPENDED');
+CREATE TYPE "Role" AS ENUM ('ADMIN', 'AGENT', 'MARKETER', 'VIEWER');
 
 -- CreateEnum
 CREATE TYPE "TemplateCategory" AS ENUM ('MARKETING', 'UTILITY', 'AUTHENTICATION');
@@ -32,7 +29,6 @@ CREATE TABLE "User" (
     "passwordHash" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "role" "Role" NOT NULL,
-    "companyId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -40,20 +36,8 @@ CREATE TABLE "User" (
 );
 
 -- CreateTable
-CREATE TABLE "Company" (
-    "id" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
-    "status" "CompanyStatus" NOT NULL DEFAULT 'PENDING_ONBOARDING',
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "Company_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
 CREATE TABLE "WabaConnection" (
     "id" TEXT NOT NULL,
-    "companyId" TEXT NOT NULL,
     "wabaId" TEXT NOT NULL,
     "phoneNumberId" TEXT NOT NULL,
     "displayPhoneNumber" TEXT,
@@ -69,7 +53,6 @@ CREATE TABLE "WabaConnection" (
 -- CreateTable
 CREATE TABLE "Template" (
     "id" TEXT NOT NULL,
-    "companyId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "language" TEXT NOT NULL,
     "category" "TemplateCategory" NOT NULL,
@@ -85,7 +68,6 @@ CREATE TABLE "Template" (
 -- CreateTable
 CREATE TABLE "Contact" (
     "id" TEXT NOT NULL,
-    "companyId" TEXT NOT NULL,
     "phone" TEXT NOT NULL,
     "displayName" TEXT,
     "optedIn" BOOLEAN NOT NULL DEFAULT false,
@@ -101,7 +83,6 @@ CREATE TABLE "Contact" (
 -- CreateTable
 CREATE TABLE "Conversation" (
     "id" TEXT NOT NULL,
-    "companyId" TEXT NOT NULL,
     "contactId" TEXT NOT NULL,
     "windowExpiresAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -129,7 +110,6 @@ CREATE TABLE "Message" (
 -- CreateTable
 CREATE TABLE "Campaign" (
     "id" TEXT NOT NULL,
-    "companyId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "templateId" TEXT NOT NULL,
     "status" "CampaignStatus" NOT NULL DEFAULT 'DRAFT',
@@ -147,7 +127,6 @@ CREATE TABLE "AuditLogEntry" (
     "id" TEXT NOT NULL,
     "actorId" TEXT NOT NULL,
     "actorRole" "Role" NOT NULL,
-    "targetCompanyId" TEXT,
     "action" TEXT NOT NULL,
     "metadataJson" JSONB,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -159,31 +138,16 @@ CREATE TABLE "AuditLogEntry" (
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 
 -- CreateIndex
-CREATE INDEX "User_companyId_idx" ON "User"("companyId");
-
--- CreateIndex
-CREATE UNIQUE INDEX "WabaConnection_companyId_key" ON "WabaConnection"("companyId");
-
--- CreateIndex
 CREATE UNIQUE INDEX "WabaConnection_wabaId_key" ON "WabaConnection"("wabaId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "WabaConnection_phoneNumberId_key" ON "WabaConnection"("phoneNumberId");
 
 -- CreateIndex
-CREATE INDEX "Template_companyId_idx" ON "Template"("companyId");
+CREATE UNIQUE INDEX "Template_name_language_key" ON "Template"("name", "language");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Template_companyId_name_language_key" ON "Template"("companyId", "name", "language");
-
--- CreateIndex
-CREATE INDEX "Contact_companyId_idx" ON "Contact"("companyId");
-
--- CreateIndex
-CREATE UNIQUE INDEX "Contact_companyId_phone_key" ON "Contact"("companyId", "phone");
-
--- CreateIndex
-CREATE INDEX "Conversation_companyId_idx" ON "Conversation"("companyId");
+CREATE UNIQUE INDEX "Contact_phone_key" ON "Contact"("phone");
 
 -- CreateIndex
 CREATE INDEX "Conversation_contactId_idx" ON "Conversation"("contactId");
@@ -195,28 +159,7 @@ CREATE INDEX "Message_conversationId_idx" ON "Message"("conversationId");
 CREATE INDEX "Message_metaMessageId_idx" ON "Message"("metaMessageId");
 
 -- CreateIndex
-CREATE INDEX "Campaign_companyId_idx" ON "Campaign"("companyId");
-
--- CreateIndex
-CREATE INDEX "AuditLogEntry_targetCompanyId_idx" ON "AuditLogEntry"("targetCompanyId");
-
--- CreateIndex
 CREATE INDEX "AuditLogEntry_actorId_idx" ON "AuditLogEntry"("actorId");
-
--- AddForeignKey
-ALTER TABLE "User" ADD CONSTRAINT "User_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "WabaConnection" ADD CONSTRAINT "WabaConnection_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Template" ADD CONSTRAINT "Template_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Contact" ADD CONSTRAINT "Contact_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Conversation" ADD CONSTRAINT "Conversation_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Conversation" ADD CONSTRAINT "Conversation_contactId_fkey" FOREIGN KEY ("contactId") REFERENCES "Contact"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -225,13 +168,8 @@ ALTER TABLE "Conversation" ADD CONSTRAINT "Conversation_contactId_fkey" FOREIGN 
 ALTER TABLE "Message" ADD CONSTRAINT "Message_conversationId_fkey" FOREIGN KEY ("conversationId") REFERENCES "Conversation"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Campaign" ADD CONSTRAINT "Campaign_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
 ALTER TABLE "Campaign" ADD CONSTRAINT "Campaign_templateId_fkey" FOREIGN KEY ("templateId") REFERENCES "Template"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "AuditLogEntry" ADD CONSTRAINT "AuditLogEntry_actorId_fkey" FOREIGN KEY ("actorId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
--- AddForeignKey
-ALTER TABLE "AuditLogEntry" ADD CONSTRAINT "AuditLogEntry_targetCompanyId_fkey" FOREIGN KEY ("targetCompanyId") REFERENCES "Company"("id") ON DELETE SET NULL ON UPDATE CASCADE;

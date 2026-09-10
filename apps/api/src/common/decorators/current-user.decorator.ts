@@ -4,7 +4,6 @@ import { Role } from '@prisma/client';
 export interface AuthenticatedUser {
   userId: string;
   role: Role;
-  companyId: string | null;
 }
 
 export const CurrentUser = createParamDecorator(

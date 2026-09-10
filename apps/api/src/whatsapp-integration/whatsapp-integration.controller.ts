@@ -1,20 +1,25 @@
-import { Body, Controller, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
-import { TenantGuard } from '../common/guards/tenant.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { WhatsappIntegrationService } from './whatsapp-integration.service';
-import { CompleteEmbeddedSignupDto } from './dto/complete-embedded-signup.dto';
+import { ConnectWhatsappDto } from './dto/connect-whatsapp.dto';
 
-@Controller('companies/:companyId/whatsapp')
-@UseGuards(JwtAuthGuard, RolesGuard, TenantGuard)
+@Controller('whatsapp')
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class WhatsappIntegrationController {
   constructor(private integration: WhatsappIntegrationService) {}
 
   @Post('connect')
-  @Roles(Role.SUPER_ADMIN, Role.COMPANY_ADMIN)
-  connect(@Param('companyId') companyId: string, @Body() dto: CompleteEmbeddedSignupDto) {
-    return this.integration.completeSignup(companyId, dto);
+  @Roles(Role.ADMIN)
+  connect(@Body() dto: ConnectWhatsappDto) {
+    return this.integration.connect(dto);
+  }
+
+  @Get('status')
+  @Roles(Role.ADMIN, Role.AGENT, Role.MARKETER, Role.VIEWER)
+  status() {
+    return this.integration.getStatus();
   }
 }

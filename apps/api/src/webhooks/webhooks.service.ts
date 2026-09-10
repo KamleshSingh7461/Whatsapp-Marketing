@@ -5,9 +5,9 @@ import { PrismaService } from '../prisma/prisma.service';
 const SESSION_WINDOW_HOURS = 24;
 
 /**
- * Handles the payload shape Meta sends to a WABA webhook subscription:
+ * Handles the payload shape Meta sends to the WABA webhook subscription:
  * entry[].changes[].value.{messages[], statuses[], metadata}.
- * This is the Phase 1 skeleton from §08/§13 of the plan — inbound-only,
+ * This is the Phase 1 skeleton from §08/§12 of the plan — inbound-only,
  * synchronous. Move to a queue (BullMQ, per §10) once volume needs it.
  */
 @Injectable()
@@ -27,12 +27,12 @@ export class WebhooksService {
           where: { phoneNumberId: value.metadata.phone_number_id },
         });
         if (!waba) {
-          this.logger.warn(`No WABA registered for phone_number_id=${value.metadata.phone_number_id}`);
+          this.logger.warn(`Webhook for unrecognized phone_number_id=${value.metadata.phone_number_id} (connected WABA is ${await this.currentPhoneNumberId()})`);
           continue;
         }
 
         for (const message of value.messages ?? []) {
-          await this.recordInboundMessage(waba.companyId, message);
+          await this.recordInboundMessage(message);
         }
         for (const status of value.statuses ?? []) {
           await this.recordStatusUpdate(status);
@@ -41,16 +41,21 @@ export class WebhooksService {
     }
   }
 
-  private async recordInboundMessage(companyId: string, message: any) {
+  private async currentPhoneNumberId(): Promise<string | undefined> {
+    const waba = await this.prisma.wabaConnection.findFirst();
+    return waba?.phoneNumberId;
+  }
+
+  private async recordInboundMessage(message: any) {
     const contact = await this.prisma.contact.upsert({
-      where: { companyId_phone: { companyId, phone: message.from } },
+      where: { phone: message.from },
       update: {},
-      create: { companyId, phone: message.from },
+      create: { phone: message.from },
     });
 
     const windowExpiresAt = new Date(Date.now() + SESSION_WINDOW_HOURS * 60 * 60 * 1000);
     const conversation = await this.prisma.conversation.create({
-      data: { companyId, contactId: contact.id, windowExpiresAt },
+      data: { contactId: contact.id, windowExpiresAt },
     });
 
     await this.prisma.message.create({
