@@ -476,24 +476,31 @@ body {
 
 /* Corporate Top Header */
 .top-header {
-  height: 64px;
+  height: 58px;
+  min-height: 58px;
+  max-height: 58px;
   background: #FFFFFF;
   border-bottom: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 1.5rem;
+  padding: 0 1.25rem;
   position: sticky;
   top: 0;
   z-index: 40;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  box-sizing: border-box;
+  overflow: hidden;
+  gap: 0.75rem;
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
 }
 
 .header-brand-corporate {
@@ -501,15 +508,16 @@ body {
   align-items: center;
   gap: 10px;
   min-width: 0;
+  overflow: hidden;
 }
 
 .header-logo-mini {
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   background: #FFFFFF;
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
-  padding: 3px;
+  padding: 2px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -527,32 +535,39 @@ body {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  overflow: hidden;
 }
 
 .header-title-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 6px;
+  flex-wrap: nowrap;
+  overflow: hidden;
 }
 
 .header-company-name {
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   font-weight: 800;
   color: #0F172A;
   letter-spacing: -0.02em;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
 }
 
 .corporate-badge-pill {
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 700;
   color: #4F46E5;
   background: #EEF2FF;
   border: 1px solid #C7D2FE;
-  padding: 2px 7px;
-  border-radius: 6px;
+  padding: 1px 6px;
+  border-radius: 5px;
   letter-spacing: -0.01em;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .header-status-line {
@@ -560,6 +575,7 @@ body {
   align-items: center;
   gap: 6px;
   margin-top: 1px;
+  white-space: nowrap;
 }
 
 .live-status-dot {
@@ -568,12 +584,14 @@ body {
   border-radius: 50%;
   background: #10B981;
   box-shadow: 0 0 6px #10B981;
+  flex-shrink: 0;
 }
 
 .waba-number-text {
   font-size: 11px;
   color: #059669;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .header-right {
@@ -4234,9 +4252,13 @@ body {
 }
 
 /* ==========================================================================
-   BREAKPOINT 1: Laptops & Medium Screens (<= 1279px)
+   BREAKPOINT 1: Laptops & Medium Screens (<= 1200px / Vertical Displays)
    ========================================================================== */
-@media (max-width: 1279px) {
+@media (max-width: 1200px) {
+  .hide-on-compact {
+    display: none !important;
+  }
+
   .inbox-layout {
     height: calc(100vh - 95px);
     height: calc(100dvh - 95px);
@@ -4270,12 +4292,34 @@ body {
   .crm-mobile-header {
     display: flex;
   }
+
+  /* Stack Dual-Column Grids for High Readability on Vertical/Portrait Screens */
+  .metrics-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 1rem;
+  }
+
+  .charts-double-row,
+  .analytics-funnel-grid,
+  .funnel-breakdown-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .sla-metrics-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  .page-header-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
 }
 
 /* ==========================================================================
-   BREAKPOINT 2: Tablets & Small Laptops (<= 1024px)
+   BREAKPOINT 2: Tablets, Portrait Monitors & Small Laptops (<= 1120px)
    ========================================================================== */
-@media (max-width: 1024px) {
+@media (max-width: 1120px) {
   /* Sidebar Drawer Navigation */
   .sidebar {
     position: fixed;
@@ -4316,19 +4360,7 @@ body {
   }
 
   .top-header {
-    padding: 0 1rem;
-  }
-
-  /* Grid Layouts Stack */
-  .metrics-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1rem;
-  }
-
-  .charts-double-row,
-  .analytics-funnel-grid,
-  .funnel-breakdown-grid {
-    grid-template-columns: 1fr;
+    padding: 0 0.85rem;
   }
 
   .template-grid-split {

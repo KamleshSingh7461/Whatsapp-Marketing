@@ -49,9 +49,9 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="header-brand-text">
             <div className="header-title-row">
               <span className="header-company-name">Freedom Global Sports Network</span>
-              <span className="corporate-badge-pill">Enterprise Command Center</span>
+              <span className="corporate-badge-pill hide-on-compact">Command Center</span>
             </div>
-            <div className="header-status-line hide-on-mobile">
+            <div className="header-status-line hide-on-compact">
               <span className="live-status-dot" />
               <span className="waba-number-text">Meta WABA Active • +91 86558 51749</span>
             </div>
@@ -74,7 +74,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Date Range Selector */}
-        <div className="date-filter-segmented hide-on-mobile">
+        <div className="date-filter-segmented hide-on-compact">
           <button
             className={`date-seg-btn ${timeframe === '7d' ? 'active' : ''}`}
             onClick={() => setTimeframe('7d')}
@@ -102,7 +102,7 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="header-user-avatar">
                 {user.name.split(' ').map(n => n[0]).join('')}
               </div>
-              <div className="header-user-details hide-on-mobile">
+              <div className="header-user-details hide-on-compact">
                 <span className="header-user-name">{user.name}</span>
                 <span className={`header-user-role-badge ${user.isSuperAdmin ? 'super-admin' : ''}`}>
                   {user.isSuperAdmin ? 'SUPER ADMIN' : user.role}
