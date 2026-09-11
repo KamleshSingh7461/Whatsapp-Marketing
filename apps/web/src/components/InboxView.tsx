@@ -261,25 +261,48 @@ export const InboxView: React.FC<InboxViewProps> = ({
             </button>
           </div>
 
-          <div className="inbox-filter-tabs">
-            {(['ALL', 'MINE', 'UNASSIGNED', 'OPEN', 'RESOLVED'] as const).map(tab => (
+          {/* 2-Tier Structured Filter Matrix (100% visible, zero scrolling needed) */}
+          <div className="inbox-filter-matrix">
+            <div className="filter-row primary-row">
               <button
-                key={tab}
-                className={`inbox-filter-tab ${filter === tab ? 'active' : ''}`}
-                onClick={() => setFilter(tab)}
+                className={`filter-btn ${filter === 'OPEN' ? 'active' : ''}`}
+                onClick={() => setFilter('OPEN')}
+                title="View active open chats"
               >
-                {tab === 'ALL' ? 'All' : tab === 'MINE' ? 'Mine' : tab === 'UNASSIGNED' ? 'Unassigned' : tab === 'OPEN' ? 'Open' : 'Resolved'}
-                <span className="tab-count">
-                  ({
-                    tab === 'ALL' ? conversations.length :
-                    tab === 'MINE' ? conversations.filter(c => c.assignedAgent === myName || (!c.assignedAgent && currentUser?.role === 'ADMIN')).length :
-                    tab === 'UNASSIGNED' ? conversations.filter(c => !c.assignedAgent || c.assignedAgent === 'Unassigned').length :
-                    tab === 'OPEN' ? conversations.filter(c => c.status === 'OPEN').length :
-                    conversations.filter(c => c.status === 'RESOLVED').length
-                  })
-                </span>
+                Open <span className="pill-count">({conversations.filter(c => c.status === 'OPEN').length})</span>
               </button>
-            ))}
+              <button
+                className={`filter-btn ${filter === 'ALL' ? 'active' : ''}`}
+                onClick={() => setFilter('ALL')}
+                title="View all conversations"
+              >
+                All <span className="pill-count">({conversations.length})</span>
+              </button>
+              <button
+                className={`filter-btn ${filter === 'RESOLVED' ? 'active' : ''}`}
+                onClick={() => setFilter('RESOLVED')}
+                title="View resolved chats"
+              >
+                Resolved <span className="pill-count">({conversations.filter(c => c.status === 'RESOLVED').length})</span>
+              </button>
+            </div>
+
+            <div className="filter-row secondary-row">
+              <button
+                className={`filter-btn sub-btn ${filter === 'MINE' ? 'active' : ''}`}
+                onClick={() => setFilter('MINE')}
+                title="Assigned to me"
+              >
+                👤 Mine <span className="pill-count">({conversations.filter(c => c.assignedAgent === myName || (!c.assignedAgent && currentUser?.role === 'ADMIN')).length})</span>
+              </button>
+              <button
+                className={`filter-btn sub-btn ${filter === 'UNASSIGNED' ? 'active' : ''}`}
+                onClick={() => setFilter('UNASSIGNED')}
+                title="Unassigned queue"
+              >
+                ⚡ Unassigned <span className="pill-count">({conversations.filter(c => !c.assignedAgent || c.assignedAgent === 'Unassigned').length})</span>
+              </button>
+            </div>
           </div>
         </div>
 
