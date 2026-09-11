@@ -270,11 +270,11 @@ export function Dashboard() {
   const totalRevenue = totalCampaignRevenue + totalFlowRevenue;
   const totalSpend = campaigns.reduce((acc, c) => acc + c.stats.cost, 0);
   
-  const totalSent = (campaigns.reduce((acc, c) => acc + c.stats.sent, 0) + liveOutboundSent) || 10;
-  const totalDelivered = (campaigns.reduce((acc, c) => acc + c.stats.delivered, 0) + liveOutboundDelivered) || 10;
-  const totalRead = campaigns.reduce((acc, c) => acc + c.stats.read, 0) + liveReadMessages;
-  const totalEngaged = (campaigns.reduce((acc, c) => acc + c.stats.clickedOrReplied, 0) + liveInboundReceived) || 6;
-  const totalConverted = campaigns.reduce((acc, c) => acc + c.stats.converted, 0) + flows.reduce((acc, f) => acc + f.stats.converted, 0);
+  const totalSent = campaigns.reduce((acc, c) => acc + (c.stats?.sent || 0), 0) + liveOutboundSent;
+  const totalDelivered = campaigns.reduce((acc, c) => acc + (c.stats?.delivered || 0), 0) + liveOutboundDelivered;
+  const totalRead = campaigns.reduce((acc, c) => acc + (c.stats?.read || 0), 0) + liveReadMessages;
+  const totalEngaged = campaigns.reduce((acc, c) => acc + (c.stats?.clickedOrReplied || 0), 0) + liveInboundReceived;
+  const totalConverted = campaigns.reduce((acc, c) => acc + (c.stats?.converted || 0), 0) + flows.reduce((acc, f) => acc + (f.stats?.converted || 0), 0);
 
   // Free care service sessions: active 24-hour service conversations
   const freeServiceUsed = conversations.filter(c => c.windowExpiresAt && new Date(c.windowExpiresAt).getTime() > Date.now()).length;
@@ -282,7 +282,7 @@ export function Dashboard() {
   const computedStatus: WhatsappStatus | null = status ? {
     ...status,
     dailyMessagesSent: totalSent,
-    freeMonthlyServiceUsed: freeServiceUsed > 0 ? freeServiceUsed : 10,
+    freeMonthlyServiceUsed: freeServiceUsed,
   } : null;
 
   const currentAnalytics: RevenueAnalytics = {
@@ -296,7 +296,7 @@ export function Dashboard() {
     marketingCost: totalSpend,
     utilityCost: 0,
     serviceCost: 0,
-    freeServiceUsed: freeServiceUsed > 0 ? freeServiceUsed : 10,
+    freeServiceUsed: freeServiceUsed,
     cacValue: totalConverted > 0 ? Number((totalSpend / totalConverted).toFixed(2)) : 0,
     ltvValue: contacts.length > 0 ? Number((contacts.reduce((acc, c) => acc + (c.lifetimeValue || 0), 0) / contacts.length).toFixed(0)) : 0,
     funnel: {

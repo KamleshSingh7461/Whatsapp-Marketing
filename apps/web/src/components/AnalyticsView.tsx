@@ -84,6 +84,16 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     },
   ];
 
+  // Category delivery and cost counts
+  const marketingDelivered = campaigns.reduce((acc, c) => acc + (c.stats?.delivered || 0), 0);
+  const marketingCharges = marketingCost;
+  const utilityDelivered = 0;
+  const utilityCharges = utilityCost;
+  const serviceDelivered = Math.max(0, funnel.delivered - marketingDelivered - utilityDelivered);
+  const serviceFreeMessages = Math.min(serviceDelivered, 1000);
+  const servicePaidMessages = Math.max(0, serviceDelivered - 1000);
+  const serviceCharges = serviceCost;
+
   return (
     <div className="view-container">
       {/* Executive Page Header (Single Global Currency is in Top Navbar) */}
@@ -137,7 +147,9 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
           </div>
           <div className="metric-primary-value">{analytics.roiMultiplier.toFixed(1)}x</div>
           <div className="metric-footer-text">
-            {formatCurrency(analytics.totalSpend > 0 ? analytics.totalRevenue / analytics.totalSpend : 0, currency, 2)} return per {formatCurrency(1, currency)} spent on Meta API
+            {analytics.totalSpend > 0
+              ? `${formatCurrency(analytics.totalRevenue / analytics.totalSpend, currency, 2)} return per ${formatCurrency(1, currency)} spent on Meta API`
+              : 'Zero spend recorded (100% Free Service Tier)'}
           </div>
         </div>
 
@@ -150,16 +162,18 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             {formatCurrency(analytics.ltvValue, currency)} <span className="sub-unit">LTV</span>
           </div>
           <div className="metric-footer-text">
-            Customer Acquisition Cost: <strong>{formatCurrency(analytics.cacValue, currency, 2)}</strong>
+            {analytics.cacValue > 0
+              ? `Customer Acquisition Cost: ${formatCurrency(analytics.cacValue, currency, 2)}`
+              : 'Organic & Care Inbound (₹0 CAC)'}
           </div>
         </div>
 
         <div className="metric-card">
           <div className="metric-header">
             <span className="metric-label">Free Care Quota Remaining</span>
-            <span className="metric-trend-badge positive">{1000 - freeServiceUsed} left</span>
+            <span className="metric-trend-badge positive">{Math.max(0, 1000 - freeServiceUsed)} left</span>
           </div>
-          <div className="metric-primary-value">{1000 - freeServiceUsed} <span className="sub-unit">/ 1,000</span></div>
+          <div className="metric-primary-value">{Math.max(0, 1000 - freeServiceUsed)} <span className="sub-unit">/ 1,000</span></div>
           <div className="metric-footer-text">
             Standard Meta 1,000 monthly zero-cost customer care sessions
           </div>
@@ -183,26 +197,28 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, padding: '16px 0', borderBottom: '1px solid #F1F5F9' }}>
           <div style={{ background: '#F8FAFC', padding: '12px 14px', borderRadius: 8, border: '1px solid #E2E8F0' }}>
             <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block', fontWeight: 600 }}>MESSAGES SENT</span>
-            <strong style={{ fontSize: '1.4rem', color: '#0F172A' }}>{funnel.sent > 0 ? funnel.sent : 10}</strong>
+            <strong style={{ fontSize: '1.4rem', color: '#0F172A' }}>{funnel.sent}</strong>
             <span style={{ fontSize: '0.72rem', color: '#10B981', display: 'block', marginTop: 2 }}>Outbound Dispatched</span>
           </div>
 
           <div style={{ background: '#F8FAFC', padding: '12px 14px', borderRadius: 8, border: '1px solid #E2E8F0' }}>
             <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block', fontWeight: 600 }}>MESSAGES DELIVERED</span>
-            <strong style={{ fontSize: '1.4rem', color: '#059669' }}>{funnel.delivered > 0 ? funnel.delivered : 10}</strong>
-            <span style={{ fontSize: '0.72rem', color: '#059669', display: 'block', marginTop: 2 }}>100.0% Carrier Delivery</span>
+            <strong style={{ fontSize: '1.4rem', color: '#059669' }}>{funnel.delivered}</strong>
+            <span style={{ fontSize: '0.72rem', color: '#059669', display: 'block', marginTop: 2 }}>{deliveryRate}% Carrier Delivery</span>
           </div>
 
           <div style={{ background: '#F8FAFC', padding: '12px 14px', borderRadius: 8, border: '1px solid #E2E8F0' }}>
             <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block', fontWeight: 600 }}>MESSAGES RECEIVED</span>
-            <strong style={{ fontSize: '1.4rem', color: '#2563EB' }}>{funnel.engaged > 0 ? funnel.engaged : 6}</strong>
+            <strong style={{ fontSize: '1.4rem', color: '#2563EB' }}>{funnel.engaged}</strong>
             <span style={{ fontSize: '0.72rem', color: '#2563EB', display: 'block', marginTop: 2 }}>Inbound Customer Inquiries</span>
           </div>
 
           <div style={{ background: '#F8FAFC', padding: '12px 14px', borderRadius: 8, border: '1px solid #E2E8F0' }}>
             <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block', fontWeight: 600 }}>APPROXIMATE CHARGES</span>
             <strong style={{ fontSize: '1.4rem', color: '#0F172A' }}>{formatCurrency(totalCost, currency, 2)}</strong>
-            <span style={{ fontSize: '0.72rem', color: '#64748B', display: 'block', marginTop: 2 }}>Zero-Cost Free Tier Active</span>
+            <span style={{ fontSize: '0.72rem', color: totalCost === 0 ? '#059669' : '#64748B', display: 'block', marginTop: 2 }}>
+              {totalCost === 0 ? 'Zero-Cost Free Tier Active' : 'Billed to WABA Balance'}
+            </span>
           </div>
         </div>
 
@@ -223,27 +239,27 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             <tbody>
               <tr>
                 <td><strong>Service (Customer Care)</strong></td>
-                <td>10</td>
-                <td>10 <span style={{ fontSize: '0.7rem', color: '#059669' }}>(Free Care Window)</span></td>
-                <td>0</td>
-                <td><strong>{formatCurrency(0, currency, 2)}</strong></td>
+                <td>{serviceDelivered}</td>
+                <td>{serviceFreeMessages} <span style={{ fontSize: '0.7rem', color: '#059669' }}>(Free Care Window)</span></td>
+                <td>{servicePaidMessages}</td>
+                <td><strong>{formatCurrency(serviceCharges, currency, 2)}</strong></td>
                 <td><span className="status-chip success">1,000 Free Tier</span></td>
               </tr>
               <tr>
                 <td><strong>Marketing (Broadcasts & Promos)</strong></td>
+                <td>{marketingDelivered}</td>
                 <td>0</td>
-                <td>0</td>
-                <td>0</td>
-                <td><strong>{formatCurrency(0, currency, 2)}</strong></td>
-                <td><span className="status-chip neutral">Active</span></td>
+                <td>{marketingDelivered}</td>
+                <td><strong>{formatCurrency(marketingCharges, currency, 2)}</strong></td>
+                <td><span className="status-chip neutral">{marketingDelivered > 0 ? 'Active' : 'Standby'}</span></td>
               </tr>
               <tr>
                 <td><strong>Utility (Order Updates & Tracking)</strong></td>
+                <td>{utilityDelivered}</td>
                 <td>0</td>
-                <td>0</td>
-                <td>0</td>
-                <td><strong>{formatCurrency(0, currency, 2)}</strong></td>
-                <td><span className="status-chip neutral">Active</span></td>
+                <td>{utilityDelivered}</td>
+                <td><strong>{formatCurrency(utilityCharges, currency, 2)}</strong></td>
+                <td><span className="status-chip neutral">{utilityDelivered > 0 ? 'Active' : 'Standby'}</span></td>
               </tr>
               <tr>
                 <td><strong>Authentication & OTP</strong></td>
@@ -251,7 +267,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                 <td>0</td>
                 <td>0</td>
                 <td><strong>{formatCurrency(0, currency, 2)}</strong></td>
-                <td><span className="status-chip neutral">Active</span></td>
+                <td><span className="status-chip neutral">Standby</span></td>
               </tr>
               <tr>
                 <td><strong>Authentication – International</strong></td>
@@ -259,7 +275,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                 <td>0</td>
                 <td>0</td>
                 <td><strong>{formatCurrency(0, currency, 2)}</strong></td>
-                <td><span className="status-chip neutral">Active</span></td>
+                <td><span className="status-chip neutral">Standby</span></td>
               </tr>
               <tr>
                 <td><strong>AI Provider & Voice Calls</strong></td>
