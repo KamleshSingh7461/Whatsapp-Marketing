@@ -126,7 +126,11 @@ export function Dashboard() {
       const saved = localStorage.getItem('fgsn_saved_conversations');
       if (!saved) return [];
       const parsed: Conversation[] = JSON.parse(saved);
-      return parsed.filter(c => !['conv_1', 'conv_2', 'conv_3'].includes(c.id));
+      return parsed.filter(c => 
+        !['conv_1', 'conv_2', 'conv_3'].includes(c.id) &&
+        !c.lastMessage?.id?.startsWith('msg_init_') &&
+        !c.lastMessage?.content?.includes('WhatsApp session initialized with')
+      );
     } catch (e) {
       return [];
     }
@@ -140,7 +144,14 @@ export function Dashboard() {
       delete parsed.conv_1;
       delete parsed.conv_2;
       delete parsed.conv_3;
-      return parsed;
+      const cleaned: Record<string, Message[]> = {};
+      Object.entries(parsed).forEach(([k, msgs]) => {
+        const realMsgs = msgs.filter(m => !m.id?.startsWith('msg_init_') && !m.content?.includes('WhatsApp session initialized with'));
+        if (realMsgs.length > 0) {
+          cleaned[k] = realMsgs;
+        }
+      });
+      return cleaned;
     } catch (e) {
       return {};
     }
@@ -490,57 +501,42 @@ export function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  // Synchronize contacts as conversations in shared inbox
+  // Active cleanup: Purge any previously auto-generated placeholder conversations
   useEffect(() => {
-    if (contacts.length === 0) return;
-
     setConversations(prev => {
-      const next = [...prev];
-      let modified = false;
+      const cleaned = prev.filter(c => 
+        !['conv_1', 'conv_2', 'conv_3'].includes(c.id) &&
+        !c.lastMessage?.id?.startsWith('msg_init_') &&
+        !c.lastMessage?.content?.includes('WhatsApp session initialized with')
+      );
+      if (cleaned.length !== prev.length) {
+        try {
+          localStorage.setItem('fgsn_saved_conversations', JSON.stringify(cleaned));
+        } catch (e) {}
+      }
+      return cleaned;
+    });
 
-      contacts.forEach(contact => {
-        const convId = `conv_${contact.phone.replace(/[^0-9]/g, '')}`;
-        const exists = next.some(c => c.id === convId || c.contact?.phone === contact.phone);
-
-        if (!exists) {
-          modified = true;
-          next.unshift({
-            id: convId,
-            contact: contact,
-            windowExpiresAt: new Date(Date.now() + 24 * 3600000).toISOString(),
-            unreadCount: 0,
-            assignedAgent: user?.name || 'FGSN Super Admin',
-            status: 'OPEN',
-            sentiment: 'POSITIVE',
-            lastMessage: {
-              id: `msg_init_${contact.id}`,
-              conversationId: convId,
-              direction: 'OUTBOUND',
-              status: 'DELIVERED',
-              content: `WhatsApp session initialized with ${contact.displayName}.`,
-              timestamp: new Date().toISOString(),
-            },
-          });
-
-          setMessagesByConvId(msgPrev => ({
-            ...msgPrev,
-            [convId]: msgPrev[convId] || [
-              {
-                id: `msg_init_${contact.id}`,
-                conversationId: convId,
-                direction: 'OUTBOUND',
-                status: 'DELIVERED',
-                content: `WhatsApp session initialized with ${contact.displayName} (${contact.phone.startsWith('+') ? contact.phone : '+' + contact.phone}). You can send text messages or templates below.`,
-                timestamp: new Date().toISOString(),
-              }
-            ],
-          }));
+    setMessagesByConvId(prev => {
+      const cleaned: Record<string, Message[]> = {};
+      let changed = false;
+      Object.entries(prev).forEach(([k, msgs]) => {
+        const realMsgs = msgs.filter(m => !m.id?.startsWith('msg_init_') && !m.content?.includes('WhatsApp session initialized with'));
+        if (realMsgs.length !== msgs.length) {
+          changed = true;
+        }
+        if (realMsgs.length > 0) {
+          cleaned[k] = realMsgs;
         }
       });
-
-      return modified ? next : prev;
+      if (changed) {
+        try {
+          localStorage.setItem('fgsn_saved_messages', JSON.stringify(cleaned));
+        } catch (e) {}
+      }
+      return changed ? cleaned : prev;
     });
-  }, [contacts, user]);
+  }, []);
 
   // Handlers
   const handleSendMessage = async (convId: string, text: string, isInternalNote?: boolean) => {
@@ -1076,6 +1072,26 @@ export function Dashboard() {
     setIsAuthOpen(true);
   };
 
+  const handleStartChatWithContact = (contact: Contact) => {
+    const cleanPhone = contact.phone.replace(/[^0-9]/g, '');
+    const convId = `conv_${cleanPhone}`;
+    setConversations(prev => {
+      const exists = prev.some(c => c.id === convId || c.contact?.phone === contact.phone);
+      if (exists) return prev;
+      const newConv: Conversation = {
+        id: convId,
+        contact: contact,
+        unreadCount: 0,
+        assignedAgent: user?.name || 'FGSN Super Admin',
+        status: 'OPEN',
+        sentiment: 'POSITIVE',
+      };
+      return [newConv, ...prev];
+    });
+    setActiveTabState('inbox');
+    window.location.hash = 'inbox';
+  };
+
   const totalUnread = conversations.reduce((acc, c) => acc + c.unreadCount, 0);
 
   // 1. Accept Invite View
@@ -1194,6 +1210,7 @@ export function Dashboard() {
               currentUser={user}
               onAddContact={handleAddContact}
               onBulkAddContacts={handleBulkAddContacts}
+              onStartChat={handleStartChatWithContact}
             />
           )}
           {activeTab === 'settings' && canAccessTab(user.role, 'settings') && (

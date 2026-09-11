@@ -5760,3 +5760,320 @@ body {
   width: 100%;
 }
 
+/* ==========================================================================
+   RESPONSIVE DESIGN SYSTEM (Optimized for 9:16 Mobile, Tablets & Desktops)
+   ========================================================================== */
+
+/* 1. Mobile Sidebar & Drawer (<= 1024px) */
+@media (max-width: 1024px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    height: 100vh;
+    z-index: 1000;
+    transform: translateX(-100%);
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.15);
+    max-width: 85vw;
+    width: 290px;
+  }
+
+  .sidebar.mobile-open {
+    transform: translateX(0);
+  }
+
+  .sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.65);
+    backdrop-filter: blur(3px);
+    z-index: 999;
+  }
+
+  .sidebar-close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+    font-size: 14px;
+    cursor: pointer;
+    margin-left: auto;
+  }
+
+  .mobile-hamburger-btn {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 8px;
+    border: 1px solid var(--border-subtle);
+    background: #FFFFFF;
+    color: var(--text-primary);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .app-layout {
+    overflow-x: hidden;
+  }
+
+  .main-content {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+/* 2. Top Header Responsiveness (<= 768px & 9:16 mobile) */
+@media (max-width: 768px) {
+  .top-header {
+    padding: 8px 12px;
+    gap: 8px;
+    flex-wrap: wrap;
+    min-height: 56px;
+  }
+
+  .header-brand-corporate {
+    gap: 8px;
+  }
+
+  .header-logo-mini {
+    width: 28px;
+    height: 28px;
+  }
+
+  .header-company-name {
+    font-size: 0.82rem;
+    max-width: 140px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .hide-on-compact {
+    display: none !important;
+  }
+
+  .header-right {
+    gap: 6px;
+    margin-left: auto;
+  }
+
+  .currency-segmented-group {
+    max-width: 130px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .currency-seg-btn {
+    padding: 3px 6px;
+    font-size: 10px;
+  }
+
+  .header-user-badge {
+    padding: 3px 6px;
+  }
+
+  .header-user-avatar {
+    width: 28px;
+    height: 28px;
+    font-size: 11px;
+  }
+}
+
+/* 3. Shared Inbox 3-Column to 1-Pane Single Screen Navigation (<= 900px, 9:16 Viewport) */
+@media (max-width: 900px) {
+  .inbox-layout {
+    height: calc(100vh - 60px) !important;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .inbox-layout.mobile-list .inbox-list-col {
+    width: 100% !important;
+    max-width: 100% !important;
+    flex: 1 !important;
+    display: flex !important;
+  }
+
+  .inbox-layout.mobile-list .inbox-chat-col,
+  .inbox-layout.mobile-list .inbox-crm-col {
+    display: none !important;
+  }
+
+  .inbox-layout.mobile-chat .inbox-chat-col {
+    width: 100% !important;
+    max-width: 100% !important;
+    flex: 1 !important;
+    display: flex !important;
+  }
+
+  .inbox-layout.mobile-chat .inbox-list-col,
+  .inbox-layout.mobile-chat .inbox-crm-col {
+    display: none !important;
+  }
+
+  .inbox-layout.mobile-crm .inbox-crm-col {
+    width: 100% !important;
+    max-width: 100% !important;
+    flex: 1 !important;
+    display: flex !important;
+  }
+
+  .inbox-layout.mobile-crm .inbox-list-col,
+  .inbox-layout.mobile-crm .inbox-chat-col {
+    display: none !important;
+  }
+
+  .inbox-mobile-back-btn {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 10px;
+    background: #F1F5F9;
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+
+  .inbox-mobile-crm-toggle {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    padding: 5px 8px;
+  }
+
+  .chat-header {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .chat-header-actions {
+    flex-wrap: wrap;
+    gap: 6px;
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .chat-input-bar {
+    position: sticky;
+    bottom: 0;
+    background: #FFFFFF;
+    padding: 8px 10px;
+    z-index: 10;
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .composer-quick-actions {
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+  }
+}
+
+/* 4. Analytics & CRM Grid Stacking (<= 768px, 9:16 mobile) */
+@media (max-width: 768px) {
+  .view-container {
+    padding: 12px;
+  }
+
+  .page-header-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .analytics-quick-badges {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .metrics-grid {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  .charts-double-row {
+    display: flex;
+    flex-direction: column !important;
+    gap: 14px !important;
+  }
+
+  .sla-metrics-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+  }
+
+  .sla-card {
+    padding: 10px;
+  }
+
+  .sla-value {
+    font-size: 1.25rem;
+  }
+
+  /* Responsive Horizontal Scroll for Enterprise Tables */
+  .panel-card {
+    padding: 12px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .corporate-table {
+    min-width: 580px;
+  }
+
+  .crm-filter-bar {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .tag-filter-pills {
+    display: flex;
+    overflow-x: auto;
+    flex-wrap: nowrap !important;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tag-filter-btn {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* Modals on 9:16 Mobile */
+  .modal-overlay {
+    padding: 10px;
+  }
+
+  .modal-card {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 92vh !important;
+    border-radius: 12px !important;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .modal-body {
+    overflow-y: auto;
+    flex: 1;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+

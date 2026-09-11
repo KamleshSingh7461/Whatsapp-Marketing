@@ -10,6 +10,7 @@ interface ContactsViewProps {
   currentUser?: User | null;
   onAddContact: (contact: Contact) => void;
   onBulkAddContacts?: (contacts: Contact[]) => void;
+  onStartChat?: (contact: Contact) => void;
 }
 
 export const ContactsView: React.FC<ContactsViewProps> = ({
@@ -18,6 +19,7 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
   currentUser,
   onAddContact,
   onBulkAddContacts,
+  onStartChat,
 }) => {
   const [search, setSearch] = useState('');
   const [selectedRfm, setSelectedRfm] = useState<string>('ALL');
@@ -260,12 +262,13 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
               <th>Lifetime Value</th>
               <th>Orders</th>
               <th>Last Active</th>
+              <th>Action</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={9} style={{ textAlign: 'center', color: '#64748B', padding: '3rem 1rem' }}>
+                <td colSpan={10} style={{ textAlign: 'center', color: '#64748B', padding: '3rem 1rem' }}>
                   <p style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: 4 }}>No contacts enrolled</p>
                   <span style={{ fontSize: '0.8rem' }}>Add verified WhatsApp opt-in numbers using "Add Contact" or import your customer list via CSV.</span>
                 </td>
@@ -305,6 +308,20 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
                   </td>
                   <td>{c.totalOrders || 0}</td>
                   <td>{c.lastActiveAt ? new Date(c.lastActiveAt).toLocaleDateString() : 'N/A'}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="btn-outline-sm"
+                      style={{ padding: '4px 9px', fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: 4, borderRadius: 6 }}
+                      onClick={() => onStartChat && onStartChat(c)}
+                      title={`Open WhatsApp chat with ${c.displayName}`}
+                    >
+                      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.2">
+                        <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+                      </svg>
+                      Chat
+                    </button>
+                  </td>
                 </tr>
               ))
             )}

@@ -174,7 +174,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
     setCustomInboundText('');
   };
 
-  const getWindowStatus = (expiresAt: string | null) => {
+  const getWindowStatus = (expiresAt?: string | null) => {
     if (!expiresAt) return { expired: true, text: 'Session Expired (Template Required)', hours: 0, percent: 0 };
     const diff = new Date(expiresAt).getTime() - Date.now();
     if (diff <= 0) return { expired: true, text: 'Session Expired (Template Required)', hours: 0, percent: 0 };
@@ -203,10 +203,11 @@ export const InboxView: React.FC<InboxViewProps> = ({
   const myName = currentUser?.name || 'FGSN Super Admin';
 
   const filteredConversations = conversations.filter(c => {
+    const lastContent = c.lastMessage?.content || '';
     const matchesSearch =
       c.contact.displayName.toLowerCase().includes(search.toLowerCase()) ||
       c.contact.phone.includes(search) ||
-      c.lastMessage.content.toLowerCase().includes(search.toLowerCase());
+      lastContent.toLowerCase().includes(search.toLowerCase());
 
     if (!matchesSearch) return false;
 
@@ -261,37 +262,39 @@ export const InboxView: React.FC<InboxViewProps> = ({
           </div>
 
           <div className="inbox-filter-tabs">
-            <button className={`tab-filter ${filter === 'ALL' ? 'active' : ''}`} onClick={() => setFilter('ALL')}>
-              All ({conversations.length})
-            </button>
-            <button className={`tab-filter ${filter === 'MINE' ? 'active' : ''}`} onClick={() => setFilter('MINE')}>
-              Mine ({conversations.filter(c => c.assignedAgent === myName).length})
-            </button>
-            <button className={`tab-filter ${filter === 'UNASSIGNED' ? 'active' : ''}`} onClick={() => setFilter('UNASSIGNED')}>
-              Unassigned ({conversations.filter(c => !c.assignedAgent || c.assignedAgent === 'Unassigned').length})
-            </button>
-            <button className={`tab-filter ${filter === 'OPEN' ? 'active' : ''}`} onClick={() => setFilter('OPEN')}>
-              Open ({conversations.filter(c => c.status === 'OPEN').length})
-            </button>
-            <button className={`tab-filter ${filter === 'RESOLVED' ? 'active' : ''}`} onClick={() => setFilter('RESOLVED')}>
-              Resolved ({conversations.filter(c => c.status === 'RESOLVED').length})
-            </button>
+            {(['ALL', 'MINE', 'UNASSIGNED', 'OPEN', 'RESOLVED'] as const).map(tab => (
+              <button
+                key={tab}
+                className={`inbox-filter-tab ${filter === tab ? 'active' : ''}`}
+                onClick={() => setFilter(tab)}
+              >
+                {tab === 'ALL' ? 'All' : tab === 'MINE' ? 'Mine' : tab === 'UNASSIGNED' ? 'Unassigned' : tab === 'OPEN' ? 'Open' : 'Resolved'}
+                <span className="tab-count">
+                  ({
+                    tab === 'ALL' ? conversations.length :
+                    tab === 'MINE' ? conversations.filter(c => c.assignedAgent === myName || (!c.assignedAgent && currentUser?.role === 'ADMIN')).length :
+                    tab === 'UNASSIGNED' ? conversations.filter(c => !c.assignedAgent || c.assignedAgent === 'Unassigned').length :
+                    tab === 'OPEN' ? conversations.filter(c => c.status === 'OPEN').length :
+                    conversations.filter(c => c.status === 'RESOLVED').length
+                  })
+                </span>
+              </button>
+            ))}
           </div>
         </div>
 
-        <div className="conversation-scroll-list">
+        {/* Conversation List */}
+        <div className="inbox-conv-list">
           {filteredConversations.length === 0 ? (
-            <div className="empty-search-state" style={{ padding: 24, textAlign: 'center' }}>
-              <p style={{ color: 'var(--text-muted)', marginBottom: 14 }}>No active conversations found.</p>
-              <button className="btn-primary" onClick={() => setShowNewChatModal(true)} style={{ padding: '10px 16px', fontSize: 13 }}>
-                + Start New WhatsApp Conversation
-              </button>
+            <div style={{ textAlign: 'center', padding: '3rem 1rem', color: '#64748B' }}>
+              <p style={{ fontWeight: 600, fontSize: '0.88rem', marginBottom: 4 }}>No active conversations</p>
+              <span style={{ fontSize: '0.78rem' }}>Incoming WhatsApp messages and initiated chats will appear here.</span>
             </div>
           ) : (
             filteredConversations.map((conv) => {
               const itemWindowState = getWindowStatus(conv.windowExpiresAt);
               const isSelected = conv.id === selectedConvId;
-              const isOutbound = conv.lastMessage.direction === 'OUTBOUND';
+              const isOutbound = conv.lastMessage?.direction === 'OUTBOUND';
 
               return (
                 <div
@@ -314,17 +317,19 @@ export const InboxView: React.FC<InboxViewProps> = ({
                     <div className="conv-top-line">
                       <span className="conv-name">{conv.contact.displayName}</span>
                       <span className="conv-time">
-                        {new Date(conv.lastMessage.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {conv.lastMessage?.timestamp
+                          ? new Date(conv.lastMessage.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                          : ''}
                       </span>
                     </div>
 
                     <div className="conv-mid-line">
                       {isOutbound && (
-                        <span className="msg-check-icon" title={conv.lastMessage.status}>
+                        <span className="msg-check-icon" title={conv.lastMessage?.status || 'SENT'}>
                           ✓✓
                         </span>
                       )}
-                      <p className="conv-last-text">{conv.lastMessage.content}</p>
+                      <p className="conv-last-text">{conv.lastMessage?.content || 'Session initialized'}</p>
                     </div>
 
                     <div className="conv-badges">

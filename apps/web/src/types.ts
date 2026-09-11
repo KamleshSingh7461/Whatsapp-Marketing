@@ -90,9 +90,9 @@ export interface Message {
 export interface Conversation {
   id: string;
   contact: Contact;
-  windowExpiresAt: string | null; // 24h Meta customer care window
+  windowExpiresAt?: string | null; // 24h Meta customer care window
   unreadCount: number;
-  lastMessage: Message;
+  lastMessage?: Message;
   assignedAgent?: string;
   status: 'OPEN' | 'RESOLVED' | 'PENDING';
   sentiment?: CustomerSentiment;
