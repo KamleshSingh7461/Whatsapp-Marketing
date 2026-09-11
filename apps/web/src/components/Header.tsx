@@ -49,23 +49,22 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="header-brand-text">
             <div className="header-title-row">
               <span className="header-company-name">Freedom Global Sports Network</span>
-              <span className="corporate-badge-pill hide-on-compact">Command Center</span>
             </div>
             <div className="header-status-line hide-on-compact">
               <span className="live-status-dot" />
-              <span className="waba-number-text">Meta WABA Active • +91 86558 51749</span>
+              <span className="waba-number-text">WhatsApp Enterprise • +91 86558 51749</span>
             </div>
           </div>
         </div>
       </div>
 
       <div className="header-right">
-        {/* Single Global Currency Switcher */}
-        <div className="currency-segmented-group" title="Global Display Currency">
+        {/* Global Currency Segmented Control */}
+        <div className="corporate-segmented-control" title="Display Currency">
           {(['INR', 'USD', 'EUR', 'GBP'] as const).map(c => (
             <button
               key={c}
-              className={`currency-seg-btn ${currency === c ? 'active' : ''}`}
+              className={`corp-seg-item ${currency === c ? 'active' : ''}`}
               onClick={() => setCurrency(c)}
             >
               {c === 'INR' ? '₹ INR' : c === 'USD' ? '$ USD' : c === 'EUR' ? '€ EUR' : '£ GBP'}
@@ -74,21 +73,21 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Date Range Selector */}
-        <div className="date-filter-segmented hide-on-compact">
+        <div className="corporate-segmented-control hide-on-compact" title="Analytics Timeframe">
           <button
-            className={`date-seg-btn ${timeframe === '7d' ? 'active' : ''}`}
+            className={`corp-seg-item ${timeframe === '7d' ? 'active' : ''}`}
             onClick={() => setTimeframe('7d')}
           >
             7 Days
           </button>
           <button
-            className={`date-seg-btn ${timeframe === '30d' ? 'active' : ''}`}
+            className={`corp-seg-item ${timeframe === '30d' ? 'active' : ''}`}
             onClick={() => setTimeframe('30d')}
           >
             30 Days
           </button>
           <button
-            className={`date-seg-btn ${timeframe === '90d' ? 'active' : ''}`}
+            className={`corp-seg-item ${timeframe === '90d' ? 'active' : ''}`}
             onClick={() => setTimeframe('90d')}
           >
             Quarter
@@ -100,15 +99,15 @@ export const Header: React.FC<HeaderProps> = ({
           {user ? (
             <div className="header-user-badge">
               <div className="header-user-avatar">
-                {user.name.split(' ').map(n => n[0]).join('')}
+                {user.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
               </div>
               <div className="header-user-details hide-on-compact">
                 <span className="header-user-name">{user.name}</span>
-                <span className={`header-user-role-badge ${user.isSuperAdmin ? 'super-admin' : ''}`}>
-                  {user.isSuperAdmin ? 'SUPER ADMIN' : user.role}
+                <span className="header-user-role-badge">
+                  {user.isSuperAdmin ? 'Super Admin' : user.role}
                 </span>
               </div>
-              <button className="header-logout-btn" onClick={onLogout} title="Sign Out of Workspace">
+              <button className="header-logout-btn" onClick={onLogout} title="Sign Out">
                 <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
                   <polyline points="16 17 21 12 16 7" />

@@ -5761,6 +5761,131 @@ body {
 }
 
 /* ==========================================================================
+   MINIMALIST CORPORATE HEADER & INBOX FILTER TABS
+   ========================================================================== */
+
+.corporate-segmented-control {
+  display: inline-flex;
+  align-items: center;
+  background: #F1F5F9;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.corp-seg-item {
+  border: none;
+  background: transparent;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748B;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.corp-seg-item:hover {
+  color: #0F172A;
+}
+
+.corp-seg-item.active {
+  background: #FFFFFF;
+  color: #0F172A;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  font-weight: 700;
+}
+
+.header-user-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 1px solid #E2E8F0;
+  background: #FFFFFF;
+  border-radius: 8px;
+}
+
+.header-user-avatar {
+  width: 30px;
+  height: 30px;
+  background: #0F172A;
+  color: #FFFFFF;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.header-user-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #0F172A;
+  line-height: 1.2;
+}
+
+.header-user-role-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: #64748B;
+  background: #F1F5F9;
+  padding: 1px 5px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.inbox-filter-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 4px 0;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.inbox-filter-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.inbox-filter-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  color: #475569;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.inbox-filter-tab:hover {
+  background: #F1F5F9;
+  color: #0F172A;
+}
+
+.inbox-filter-tab.active {
+  background: #0F172A;
+  color: #FFFFFF;
+  border-color: #0F172A;
+}
+
+.inbox-filter-tab .tab-count {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+/* ==========================================================================
    RESPONSIVE DESIGN SYSTEM (Optimized for 9:16 Mobile, Tablets & Desktops)
    ========================================================================== */
 

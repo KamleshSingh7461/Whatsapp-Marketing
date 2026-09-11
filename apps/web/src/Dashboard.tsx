@@ -317,7 +317,7 @@ export function Dashboard() {
       engaged: totalEngaged,
       converted: totalConverted,
     },
-    dailyTrend: [
+    dailyTrend: timeframe === '7d' ? [
       { date: 'Mon', revenue: Math.round(totalRevenue * 0.12), cost: Math.round(totalSpend * 0.12), messages: Math.round(totalSent * 0.12), conversions: Math.round(totalConverted * 0.12) },
       { date: 'Tue', revenue: Math.round(totalRevenue * 0.15), cost: Math.round(totalSpend * 0.15), messages: Math.round(totalSent * 0.15), conversions: Math.round(totalConverted * 0.15) },
       { date: 'Wed', revenue: Math.round(totalRevenue * 0.18), cost: Math.round(totalSpend * 0.18), messages: Math.round(totalSent * 0.18), conversions: Math.round(totalConverted * 0.18) },
@@ -325,6 +325,15 @@ export function Dashboard() {
       { date: 'Fri', revenue: Math.round(totalRevenue * 0.20), cost: Math.round(totalSpend * 0.20), messages: Math.round(totalSent * 0.20), conversions: Math.round(totalConverted * 0.20) },
       { date: 'Sat', revenue: Math.round(totalRevenue * 0.08), cost: Math.round(totalSpend * 0.08), messages: Math.round(totalSent * 0.08), conversions: Math.round(totalConverted * 0.08) },
       { date: 'Sun', revenue: Math.round(totalRevenue * 0.05), cost: Math.round(totalSpend * 0.05), messages: Math.round(totalSent * 0.05), conversions: Math.round(totalConverted * 0.05) },
+    ] : timeframe === '30d' ? [
+      { date: 'Week 1', revenue: Math.round(totalRevenue * 0.22), cost: Math.round(totalSpend * 0.22), messages: Math.round(totalSent * 0.22), conversions: Math.round(totalConverted * 0.22) },
+      { date: 'Week 2', revenue: Math.round(totalRevenue * 0.28), cost: Math.round(totalSpend * 0.28), messages: Math.round(totalSent * 0.28), conversions: Math.round(totalConverted * 0.28) },
+      { date: 'Week 3', revenue: Math.round(totalRevenue * 0.26), cost: Math.round(totalSpend * 0.26), messages: Math.round(totalSent * 0.26), conversions: Math.round(totalConverted * 0.26) },
+      { date: 'Week 4', revenue: Math.round(totalRevenue * 0.24), cost: Math.round(totalSpend * 0.24), messages: Math.round(totalSent * 0.24), conversions: Math.round(totalConverted * 0.24) },
+    ] : [
+      { date: 'Month 1', revenue: Math.round(totalRevenue * 0.28), cost: Math.round(totalSpend * 0.28), messages: Math.round(totalSent * 0.28), conversions: Math.round(totalConverted * 0.28) },
+      { date: 'Month 2', revenue: Math.round(totalRevenue * 0.34), cost: Math.round(totalSpend * 0.34), messages: Math.round(totalSent * 0.34), conversions: Math.round(totalConverted * 0.34) },
+      { date: 'Month 3', revenue: Math.round(totalRevenue * 0.38), cost: Math.round(totalSpend * 0.38), messages: Math.round(totalSent * 0.38), conversions: Math.round(totalConverted * 0.38) },
     ],
     channelComparison: {
       whatsapp: {
