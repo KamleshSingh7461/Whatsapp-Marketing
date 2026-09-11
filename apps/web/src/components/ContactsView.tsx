@@ -2,12 +2,14 @@ import React, { useState } from 'react';
 import { Contact, RFMSegment, User } from '../types';
 import { CurrencyCode, formatCurrency } from '../lib/currency';
 import { canManageContacts } from '../lib/permissions';
+import { BulkContactUploadModal } from './BulkContactUploadModal';
 
 interface ContactsViewProps {
   contacts: Contact[];
   currency?: CurrencyCode;
   currentUser?: User | null;
   onAddContact: (contact: Contact) => void;
+  onBulkAddContacts?: (contacts: Contact[]) => void;
 }
 
 export const ContactsView: React.FC<ContactsViewProps> = ({
@@ -15,15 +17,47 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
   currency = 'INR',
   currentUser,
   onAddContact,
+  onBulkAddContacts,
 }) => {
   const [search, setSearch] = useState('');
   const [selectedRfm, setSelectedRfm] = useState<string>('ALL');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
 
   // Form states
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [tagsInput, setTagsInput] = useState('');
+
+  const handleExportCsv = () => {
+    if (contacts.length === 0) {
+      alert('No contacts to export.');
+      return;
+    }
+    const headers = ['Customer Name', 'WhatsApp Phone', 'Cohort', 'Opt-In Status', 'Source', 'Audience Tags', 'Lifetime Value', 'Total Orders', 'Last Active'];
+    const rows = contacts.map(c => [
+      `"${(c.displayName || '').replace(/"/g, '""')}"`,
+      `"${c.phone}"`,
+      `"${c.rfmSegment || 'NEW_LEADS'}"`,
+      c.optedIn ? 'Opted In' : 'Opted Out',
+      `"${c.optInSource || 'ORGANIC_INBOUND'}"`,
+      `"${(c.tags || []).join(', ')}"`,
+      c.lifetimeValue || 0,
+      c.totalOrders || 0,
+      c.lastActiveAt ? new Date(c.lastActiveAt).toLocaleDateString() : '',
+    ]);
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `FGSN_Contacts_CRM_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   const filtered = contacts.filter((c) => {
     const matchesSearch =
@@ -97,16 +131,26 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
             Manage verified WhatsApp opt-ins, purchase history, and RFM value segments
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           {canManageContacts(currentUser?.role) && (
-            <button className="btn-secondary" onClick={() => alert('Exporting contacts CSV...')}>
-              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6 }}>
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
-              Export CSV
-            </button>
+            <>
+              <button className="btn-secondary" onClick={handleExportCsv} title="Export all contacts to CSV">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6 }}>
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                Export CSV
+              </button>
+              <button className="btn-secondary" onClick={() => setIsBulkModalOpen(true)} title="Bulk upload contacts via CSV, TSV, or Meta Lead Ads export">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6 }}>
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="17 8 12 3 7 8" />
+                  <line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+                Bulk Upload
+              </button>
+            </>
           )}
           <button className="btn-primary" onClick={() => setIsModalOpen(true)}>
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6 }}>
@@ -324,6 +368,20 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Bulk Upload Modal */}
+      <BulkContactUploadModal
+        isOpen={isBulkModalOpen}
+        onClose={() => setIsBulkModalOpen(false)}
+        existingContacts={contacts}
+        onImportContacts={(newContacts) => {
+          if (onBulkAddContacts) {
+            onBulkAddContacts(newContacts);
+          } else {
+            newContacts.forEach(c => onAddContact(c));
+          }
+        }}
+      />
     </div>
   );
 };

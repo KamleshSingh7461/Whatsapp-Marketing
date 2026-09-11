@@ -53,6 +53,7 @@ export interface Contact {
   id: string;
   phone: string;
   displayName: string;
+  email?: string;
   optedIn: boolean;
   optedInAt?: string | null;
   optInSource?: OptInSource;

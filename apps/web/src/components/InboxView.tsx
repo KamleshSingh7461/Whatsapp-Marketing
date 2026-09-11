@@ -404,7 +404,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
                   {currentUser && (
                     <option value={currentUser.name}>{currentUser.name} (You)</option>
                   )}
-                  {teamMembers && teamMembers.filter(m => m.name !== currentUser?.name).map((m, idx) => (
+                  {teamMembers && teamMembers.filter(m => m.name !== currentUser?.name && m.email !== currentUser?.email && m.id !== currentUser?.id).map((m, idx) => (
                     <option key={idx} value={m.name}>{m.name} ({m.role})</option>
                   ))}
                   <option value="AI Support Bot">AI Support Bot</option>
