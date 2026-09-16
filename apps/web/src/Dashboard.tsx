@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { apiFetch, clearToken, getMeApi, getTeamMembersApi, getToken, loginApi, setToken } from './lib/api';
 import { Sidebar, TabType } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -65,6 +65,119 @@ export function Dashboard() {
   // Clean Production Data States (Connected Live WABA)
   const [user, setUser] = useState<User | null>(null);
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
+
+  // Desktop Notifications & Audio Chime System
+  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(() => {
+    return typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted';
+  });
+  const seenMessageIds = useRef<Set<string>>(new Set());
+
+  const playChimeSound = () => {
+    try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextClass) return;
+      const ctx = new AudioContextClass();
+
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+      gain1.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain1.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      osc1.start();
+      osc1.stop(ctx.currentTime + 0.25);
+
+      setTimeout(() => {
+        try {
+          const osc2 = ctx.createOscillator();
+          const gain2 = ctx.createGain();
+          osc2.type = 'sine';
+          osc2.frequency.setValueAtTime(880, ctx.currentTime); // A5
+          gain2.gain.setValueAtTime(0.2, ctx.currentTime);
+          gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+          osc2.connect(gain2);
+          gain2.connect(ctx.destination);
+          osc2.start();
+          osc2.stop(ctx.currentTime + 0.35);
+        } catch (e) {}
+      }, 120);
+    } catch (e) {}
+  };
+
+  const triggerDesktopNotification = (title: string, body: string) => {
+    playChimeSound();
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        const notification = new Notification(title, {
+          body,
+          icon: '/favicon.ico',
+          tag: 'fgsn-msg-' + Date.now(),
+        });
+        notification.onclick = () => {
+          window.focus();
+          setActiveTabState('inbox');
+          window.location.hash = 'inbox';
+          notification.close();
+        };
+      } catch (e) {
+        console.warn('Could not display desktop notification:', e);
+      }
+    }
+  };
+
+  const requestNotificationPermission = async () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      alert('Desktop notifications are not supported by your web browser.');
+      return;
+    }
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm === 'granted') {
+        setNotificationsEnabled(true);
+        triggerDesktopNotification(
+          '🔔 Notifications Enabled',
+          'You will receive instant alerts for incoming WhatsApp customer messages!'
+        );
+      } else if (perm === 'denied') {
+        setNotificationsEnabled(false);
+        alert('Notification permission was denied. Please allow notifications in your browser address bar settings to receive alerts.');
+      }
+    } catch (e) {
+      console.warn('Error requesting notification permission:', e);
+    }
+  };
+
+  // Support Agent Workload Balancing (Round-Robin Auto-Assignment)
+  const getNextRoundRobinAgent = (members: User[], currentConvs: Conversation[]): string => {
+    if (!members || members.length === 0) return user?.name || 'Unassigned';
+    if (members.length === 1) return members[0].name; // Sole support agent gets 100% direct assignment!
+
+    // Multi-agent balancing: count active open conversations assigned to each agent
+    const counts: Record<string, number> = {};
+    members.forEach(m => { counts[m.name] = 0; });
+
+    currentConvs.forEach(c => {
+      if (c.status !== 'RESOLVED' && c.assignedAgent && counts[c.assignedAgent] !== undefined) {
+        counts[c.assignedAgent] += 1;
+      }
+    });
+
+    // Find agent with minimum active workload
+    let minAgent = members[0].name;
+    let minCount = counts[minAgent] ?? Infinity;
+
+    for (const m of members) {
+      const count = counts[m.name] ?? 0;
+      if (count < minCount) {
+        minCount = count;
+        minAgent = m.name;
+      }
+    }
+
+    return minAgent;
+  };
   const [status, setStatus] = useState<WhatsappStatus | null>({
     connected: true,
     wabaId: '1845046976654799',
@@ -454,9 +567,17 @@ export function Dashboard() {
               const raw = sc.contact?.phone || sc.id;
               const cleanKey = raw.replace(/[^0-9]/g, '') || raw;
               const existing = map.get(cleanKey);
+
+              // Auto-assign unassigned conversations using Round-Robin across team members
+              let assigned = sc.assignedAgent || existing?.assignedAgent;
+              if (!assigned || assigned === 'Unassigned') {
+                assigned = getNextRoundRobinAgent(teamMembers, Array.from(map.values()));
+              }
+
               map.set(cleanKey, {
                 ...(existing || {}),
                 ...sc,
+                assignedAgent: assigned,
                 lastMessage: sc.lastMessage || existing?.lastMessage,
               });
             });
@@ -468,6 +589,19 @@ export function Dashboard() {
             apiFetch<Message[]>(`/inbox/messages/${sc.id}`)
               .then(sMsgs => {
                 if (Array.isArray(sMsgs) && sMsgs.length > 0) {
+                  // Trigger desktop notification if a new inbound message is received
+                  if (seenMessageIds.current.size > 0) {
+                    sMsgs.forEach(sm => {
+                      if (!seenMessageIds.current.has(sm.id) && sm.direction === 'INBOUND') {
+                        triggerDesktopNotification(
+                          `💬 Message from ${sc.contact?.displayName || sc.id}`,
+                          sm.content
+                        );
+                      }
+                    });
+                  }
+                  sMsgs.forEach(sm => seenMessageIds.current.add(sm.id));
+
                   setMessagesByConvId(prev => {
                     const existing = prev[sc.id] || prev[`conv_${sc.contact?.phone}`] || [];
                     
@@ -508,7 +642,7 @@ export function Dashboard() {
     fetchInbox();
     const interval = setInterval(fetchInbox, 2500);
     return () => clearInterval(interval);
-  }, []);
+  }, [teamMembers]);
 
   // Active cleanup: Purge any previously auto-generated placeholder conversations
   useEffect(() => {
@@ -760,6 +894,11 @@ export function Dashboard() {
 
   // Simulate an inbound WhatsApp reply from a customer
   const handleSimulateInbound = (convId: string, text: string) => {
+    const conv = conversations.find(c => c.id === convId);
+    const contactName = conv?.contact?.displayName || 'Customer';
+
+    triggerDesktopNotification(`💬 Message from ${contactName}`, text);
+
     const newInboundMsg: Message = {
       id: `msg_in_${Date.now()}`,
       conversationId: convId,
@@ -786,6 +925,9 @@ export function Dashboard() {
               windowExpiresAt: newWindowExpiry,
               status: 'OPEN',
               unreadCount: 0,
+              assignedAgent: c.assignedAgent && c.assignedAgent !== 'Unassigned'
+                ? c.assignedAgent
+                : getNextRoundRobinAgent(teamMembers, prev),
             }
           : c
       )
@@ -817,11 +959,14 @@ export function Dashboard() {
       authorName: user?.name || 'Agent',
     };
 
+    const assignedAgent = getNextRoundRobinAgent(teamMembers, conversations);
+
     const newConv: Conversation = {
       id: convId,
       contact: newContact,
       lastMessage: newMsg,
       unreadCount: 0,
+      assignedAgent: assignedAgent,
       status: 'OPEN',
       windowExpiresAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
     };
@@ -1163,11 +1308,12 @@ export function Dashboard() {
     setConversations(prev => {
       const exists = prev.some(c => c.id === convId || c.contact?.phone === contact.phone);
       if (exists) return prev;
+      const assignedAgent = getNextRoundRobinAgent(teamMembers, prev);
       const newConv: Conversation = {
         id: convId,
         contact: contact,
         unreadCount: 0,
-        assignedAgent: user?.name || 'FGSN Super Admin',
+        assignedAgent: assignedAgent,
         status: 'OPEN',
         sentiment: 'POSITIVE',
       };
@@ -1231,6 +1377,8 @@ export function Dashboard() {
           setTimeframe={setTimeframe}
           currency={currency}
           setCurrency={setCurrency}
+          notificationsEnabled={notificationsEnabled}
+          onRequestNotificationPermission={requestNotificationPermission}
           onOpenAuth={() => setIsAuthOpen(true)}
           onLogout={handleLogout}
           onToggleMobileSidebar={() => setIsMobileSidebarOpen(prev => !prev)}

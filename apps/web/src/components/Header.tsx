@@ -9,6 +9,8 @@ interface HeaderProps {
   setTimeframe: (t: '7d' | '30d' | '90d') => void;
   currency: CurrencyCode;
   setCurrency: (c: CurrencyCode) => void;
+  notificationsEnabled?: boolean;
+  onRequestNotificationPermission?: () => void;
   onOpenAuth: () => void;
   onLogout: () => void;
   onToggleMobileSidebar?: () => void;
@@ -20,6 +22,8 @@ export const Header: React.FC<HeaderProps> = ({
   setTimeframe,
   currency,
   setCurrency,
+  notificationsEnabled,
+  onRequestNotificationPermission,
   onOpenAuth,
   onLogout,
   onToggleMobileSidebar,
@@ -93,6 +97,31 @@ export const Header: React.FC<HeaderProps> = ({
             Quarter
           </button>
         </div>
+
+        {/* Desktop Browser Notification Toggle */}
+        {onRequestNotificationPermission && (
+          <button
+            className="corp-seg-item"
+            onClick={onRequestNotificationPermission}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              padding: '6px 12px',
+              borderRadius: 8,
+              fontSize: '0.78rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              background: notificationsEnabled ? '#ECFDF5' : '#F1F5F9',
+              color: notificationsEnabled ? '#047857' : '#64748B',
+              border: `1px solid ${notificationsEnabled ? '#A7F3D0' : '#CBD5E1'}`,
+            }}
+            title={notificationsEnabled ? 'Desktop Notifications Active' : 'Click to enable OS Desktop Notifications for incoming WhatsApp chats'}
+          >
+            <span style={{ fontSize: 13 }}>{notificationsEnabled ? '🔔' : '🔕'}</span>
+            <span className="hide-on-compact">{notificationsEnabled ? 'Notifications On' : 'Enable Alerts'}</span>
+          </button>
+        )}
 
         {/* User Account & Role Badge */}
         <div className="header-user-container">
