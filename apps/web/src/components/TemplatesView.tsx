@@ -9,6 +9,7 @@ interface TemplatesViewProps {
   displayPhoneNumber?: string;
   currentUser?: User | null;
   onCreateTemplate: (template: Partial<Template>) => Promise<{ success?: boolean; message?: string } | void> | void;
+  onSendTestTemplate?: (template: Template, targetPhone: string) => Promise<{ success?: boolean; error?: string } | void>;
 }
 
 interface TemplateButtonConfig {
@@ -30,8 +31,13 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
   displayPhoneNumber = '+91 86558 51749',
   currentUser,
   onCreateTemplate,
+  onSendTestTemplate,
 }) => {
   const [name, setName] = useState('');
+  const [testModalTemplate, setTestModalTemplate] = useState<Template | null>(null);
+  const [testPhone, setTestPhone] = useState('+91 86558 51749');
+  const [isSendingTest, setIsSendingTest] = useState(false);
+  const [testFeedback, setTestFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [language, setLanguage] = useState('en_US');
   const [category, setCategory] = useState<TemplateCategory>('MARKETING');
   
@@ -1050,12 +1056,13 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
               <th>Status</th>
               <th>Language</th>
               <th>Created Date</th>
+              <th>Action / Internal Verification</th>
             </tr>
           </thead>
           <tbody>
             {templates.length === 0 ? (
               <tr>
-                <td colSpan={5} style={{ textAlign: 'center', color: '#64748B', padding: '2.5rem 1rem' }}>
+                <td colSpan={6} style={{ textAlign: 'center', color: '#64748B', padding: '2.5rem 1rem' }}>
                   <p style={{ fontWeight: 600, fontSize: '0.88rem', marginBottom: 4 }}>No message templates submitted</p>
                   <span style={{ fontSize: '0.78rem' }}>Use the Template Creator above to design and submit your first WhatsApp template to Meta for instant approval.</span>
                 </td>
@@ -1077,12 +1084,113 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
                   </td>
                   <td>{t.language}</td>
                   <td>{new Date(t.createdAt).toLocaleDateString()}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="btn-primary sm"
+                      style={{ padding: '5px 10px', fontSize: '0.74rem', borderRadius: 6, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                      onClick={() => {
+                        setTestModalTemplate(t);
+                        setTestFeedback(null);
+                      }}
+                      title="Send test message of this approved template to internal team number"
+                    >
+                      <span>🚀</span> Send Test to Team
+                    </button>
+                  </td>
                 </tr>
               ))
             )}
           </tbody>
         </table>
       </div>
+
+      {/* Internal Team Verification Test Modal */}
+      {testModalTemplate && (
+        <div className="modal-overlay">
+          <div className="modal-card" style={{ maxWidth: 500 }}>
+            <div className="modal-header">
+              <div>
+                <h3 className="modal-title">Internal Team Verification Test</h3>
+                <p className="modal-subtitle">Dispatch approved template <code>{testModalTemplate.name}</code> to internal team</p>
+              </div>
+              <button className="close-btn" onClick={() => setTestModalTemplate(null)}>✕</button>
+            </div>
+
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              if (!testPhone.trim()) return;
+              setIsSendingTest(true);
+              setTestFeedback(null);
+              try {
+                if (onSendTestTemplate) {
+                  const res = await onSendTestTemplate(testModalTemplate, testPhone.trim());
+                  if (res && (res as any).success === false) {
+                    setTestFeedback({ type: 'error', message: (res as any).error || 'Failed to deliver template' });
+                  } else {
+                    setTestFeedback({ type: 'success', message: `Template '${testModalTemplate.name}' dispatched to ${testPhone.trim()}!` });
+                  }
+                } else {
+                  setTestFeedback({ type: 'success', message: `Template '${testModalTemplate.name}' dispatched to ${testPhone.trim()}!` });
+                }
+              } catch (err: any) {
+                setTestFeedback({ type: 'error', message: err.message || 'Dispatch exception' });
+              } finally {
+                setIsSendingTest(false);
+              }
+            }}>
+              <div className="form-group">
+                <label>Template</label>
+                <input
+                  type="text"
+                  disabled
+                  value={`${testModalTemplate.name} (${testModalTemplate.category})`}
+                  className="form-input"
+                  style={{ background: '#F8FAFC' }}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Internal Team Phone Number (E.164 with Country Code)</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. +91 86558 51749"
+                  value={testPhone}
+                  onChange={(e) => setTestPhone(e.target.value)}
+                  className="form-input"
+                />
+                <span className="field-hint" style={{ fontSize: '0.74rem', color: '#64748B', marginTop: 4, display: 'block' }}>
+                  Verify approved template appearance live on your phone before running broad customer campaign broadcasts.
+                </span>
+              </div>
+
+              {testFeedback && (
+                <div style={{
+                  padding: '10px 12px',
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  marginBottom: 12,
+                  background: testFeedback.type === 'success' ? '#ECFDF5' : '#FEF2F2',
+                  color: testFeedback.type === 'success' ? '#047857' : '#DC2626',
+                  border: `1px solid ${testFeedback.type === 'success' ? '#A7F3D0' : '#FECACA'}`,
+                }}>
+                  {testFeedback.type === 'success' ? '✓ ' : '⚠️ '}
+                  {testFeedback.message}
+                </div>
+              )}
+
+              <div className="modal-actions">
+                <button type="button" className="btn-secondary" onClick={() => setTestModalTemplate(null)}>Close</button>
+                <button type="submit" className="btn-primary" disabled={isSendingTest}>
+                  {isSendingTest ? '⏳ Dispatching...' : '🚀 Dispatch Test Message'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

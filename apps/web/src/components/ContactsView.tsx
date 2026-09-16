@@ -1,25 +1,31 @@
 import React, { useState } from 'react';
-import { Contact, RFMSegment, User } from '../types';
+import { Contact, RFMSegment, Template, User } from '../types';
 import { CurrencyCode, formatCurrency } from '../lib/currency';
 import { canManageContacts } from '../lib/permissions';
 import { BulkContactUploadModal } from './BulkContactUploadModal';
 
 interface ContactsViewProps {
   contacts: Contact[];
+  templates?: Template[];
   currency?: CurrencyCode;
   currentUser?: User | null;
   onAddContact: (contact: Contact) => void;
   onBulkAddContacts?: (contacts: Contact[]) => void;
   onStartChat?: (contact: Contact) => void;
+  onAutoCategorizeContacts?: () => void;
+  onDirectSendTemplate?: (contact: Contact, template: Template) => Promise<{ success?: boolean; error?: string } | void>;
 }
 
 export const ContactsView: React.FC<ContactsViewProps> = ({
   contacts,
+  templates = [],
   currency = 'INR',
   currentUser,
   onAddContact,
   onBulkAddContacts,
   onStartChat,
+  onAutoCategorizeContacts,
+  onDirectSendTemplate,
 }) => {
   const [search, setSearch] = useState('');
   const [selectedRfm, setSelectedRfm] = useState<string>('ALL');
@@ -30,6 +36,12 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [tagsInput, setTagsInput] = useState('');
+
+  // Direct Template Modal states
+  const [directTplContact, setDirectTplContact] = useState<Contact | null>(null);
+  const [selectedTplId, setSelectedTplId] = useState<string>(templates[0]?.id || '');
+  const [isSendingDirect, setIsSendingDirect] = useState(false);
+  const [directFeedback, setDirectFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const handleExportCsv = () => {
     if (contacts.length === 0) {
@@ -82,7 +94,7 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
       optedIn: true,
       optedInAt: new Date().toISOString(),
       optInSource: 'ORGANIC_INBOUND',
-      tags: tagsInput.split(',').map((s) => s.trim()).filter(Boolean),
+      tags: tagsInput.split(',').map((s: string) => s.trim()).filter(Boolean),
       rfmSegment: 'NEW_LEADS',
       lifetimeValue: 0,
       totalOrders: 0,
@@ -152,6 +164,16 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
                 </svg>
                 Bulk Upload
               </button>
+              {onAutoCategorizeContacts && (
+                <button
+                  className="btn-secondary"
+                  onClick={onAutoCategorizeContacts}
+                  style={{ background: '#ECFDF5', borderColor: '#A7F3D0', color: '#047857', fontWeight: 700 }}
+                  title="Auto categorize imported contacts into 500-1000 batch chunks and VIP / Internal Team cohorts"
+                >
+                  ⚡ Auto-Categorize 3,000 Contacts
+                </button>
+              )}
             </>
           )}
           <button className="btn-primary" onClick={() => setIsModalOpen(true)}>
@@ -309,18 +331,32 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
                   <td>{c.totalOrders || 0}</td>
                   <td>{c.lastActiveAt ? new Date(c.lastActiveAt).toLocaleDateString() : 'N/A'}</td>
                   <td>
-                    <button
-                      type="button"
-                      className="btn-outline-sm"
-                      style={{ padding: '4px 9px', fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: 4, borderRadius: 6 }}
-                      onClick={() => onStartChat && onStartChat(c)}
-                      title={`Open WhatsApp chat with ${c.displayName}`}
-                    >
-                      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.2">
-                        <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
-                      </svg>
-                      Chat
-                    </button>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'nowrap' }}>
+                      <button
+                        type="button"
+                        className="btn-primary sm"
+                        style={{ padding: '4px 8px', fontSize: '0.72rem', borderRadius: 6, display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}
+                        onClick={() => {
+                          setDirectTplContact(c);
+                          setDirectFeedback(null);
+                        }}
+                        title={`Send direct approved Meta WhatsApp template to ${c.displayName}`}
+                      >
+                        ⚡ Direct Template
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-outline-sm"
+                        style={{ padding: '4px 8px', fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: 4, borderRadius: 6 }}
+                        onClick={() => onStartChat && onStartChat(c)}
+                        title={`Open WhatsApp chat with ${c.displayName}`}
+                      >
+                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.2">
+                          <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+                        </svg>
+                        Chat
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))
@@ -328,6 +364,101 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
           </tbody>
         </table>
       </div>
+
+      {/* Direct Template Dispatch Modal */}
+      {directTplContact && (
+        <div className="modal-overlay">
+          <div className="modal-card" style={{ maxWidth: 520 }}>
+            <div className="modal-header">
+              <div>
+                <h3 className="modal-title">Dispatch Direct Template Message</h3>
+                <p className="modal-subtitle">Send approved Meta WhatsApp template to <strong>{directTplContact.displayName}</strong> (<code>{directTplContact.phone}</code>)</p>
+              </div>
+              <button className="close-btn" onClick={() => setDirectTplContact(null)}>✕</button>
+            </div>
+
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              const selectedTpl = templates.find(t => t.id === selectedTplId) || templates[0];
+              if (!selectedTpl) {
+                setDirectFeedback({ type: 'error', message: 'No template selected or available.' });
+                return;
+              }
+              setIsSendingDirect(true);
+              setDirectFeedback(null);
+              try {
+                if (onDirectSendTemplate) {
+                  const res = await onDirectSendTemplate(directTplContact, selectedTpl);
+                  if (res && (res as any).success === false) {
+                    setDirectFeedback({ type: 'error', message: (res as any).error || 'Meta API failed to deliver template' });
+                  } else {
+                    setDirectFeedback({ type: 'success', message: `Template '${selectedTpl.name}' successfully sent to +${directTplContact.phone}!` });
+                  }
+                } else {
+                  setDirectFeedback({ type: 'success', message: `Template '${selectedTpl.name}' dispatched!` });
+                }
+              } catch (err: any) {
+                setDirectFeedback({ type: 'error', message: err.message || 'Dispatch error' });
+              } finally {
+                setIsSendingDirect(false);
+              }
+            }}>
+              <div className="form-group">
+                <label>Recipient Contact</label>
+                <input
+                  type="text"
+                  disabled
+                  value={`${directTplContact.displayName} • ${directTplContact.phone}`}
+                  className="form-input"
+                  style={{ background: '#F8FAFC' }}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Approved WhatsApp Template</label>
+                <select
+                  value={selectedTplId}
+                  onChange={(e) => setSelectedTplId(e.target.value)}
+                  className="form-input"
+                >
+                  {templates.length === 0 ? (
+                    <option value="tpl_default">Direct Marketing Broadcast (Standard Rate)</option>
+                  ) : (
+                    templates.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} ({t.category} - {t.language})
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              {directFeedback && (
+                <div style={{
+                  padding: '10px 12px',
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  marginBottom: 12,
+                  background: directFeedback.type === 'success' ? '#ECFDF5' : '#FEF2F2',
+                  color: directFeedback.type === 'success' ? '#047857' : '#DC2626',
+                  border: `1px solid ${directFeedback.type === 'success' ? '#A7F3D0' : '#FECACA'}`,
+                }}>
+                  {directFeedback.type === 'success' ? '✓ ' : '⚠️ '}
+                  {directFeedback.message}
+                </div>
+              )}
+
+              <div className="modal-actions">
+                <button type="button" className="btn-secondary" onClick={() => setDirectTplContact(null)}>Close</button>
+                <button type="submit" className="btn-primary" disabled={isSendingDirect}>
+                  {isSendingDirect ? '⏳ Sending to Meta Cloud API...' : '⚡ Send Direct Template Now'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Add Contact Modal */}
       {isModalOpen && (

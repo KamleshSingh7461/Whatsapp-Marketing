@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Campaign, Template, User } from '../types';
+import { Campaign, Contact, Template, User } from '../types';
 import { CurrencyCode, formatCurrency } from '../lib/currency';
 import { canCreateCampaigns } from '../lib/permissions';
 
 interface CampaignsViewProps {
   campaigns: Campaign[];
   templates: Template[];
+  contacts?: Contact[];
   currency?: CurrencyCode;
   currentUser?: User | null;
   onLaunchCampaign: (campaign: Campaign) => void;
@@ -14,6 +15,7 @@ interface CampaignsViewProps {
 export const CampaignsView: React.FC<CampaignsViewProps> = ({
   campaigns,
   templates,
+  contacts = [],
   currency = 'INR',
   currentUser,
   onLaunchCampaign,
@@ -21,8 +23,12 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [campaignName, setCampaignName] = useState('');
   const [selectedTemplateId, setSelectedTemplateId] = useState(templates[0]?.id || '');
-  const [selectedTag, setSelectedTag] = useState('VIP Customers');
-  const [recipientsCount, setRecipientsCount] = useState(1000);
+
+  // Extract all unique tags present across contacts in CRM
+  const crmTags = Array.from(new Set(contacts.flatMap(c => c.tags || []))).filter(Boolean);
+
+  const [selectedTag, setSelectedTag] = useState(crmTags[0] || 'All Opted-In');
+  const [recipientsCount, setRecipientsCount] = useState(contacts.length > 0 ? contacts.length : 1000);
 
   const totalCampaignRevenue = campaigns.reduce((acc, c) => acc + c.stats.revenue, 0);
   const totalCampaignCost = campaigns.reduce((acc, c) => acc + c.stats.cost, 0);
@@ -256,29 +262,76 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
               </div>
 
               <div className="form-group">
-                <label>Target Audience Cohort</label>
+                <label>Target Audience Cohort / Dynamic CRM Tag</label>
                 <select
                   value={selectedTag}
-                  onChange={(e) => setSelectedTag(e.target.value)}
+                  onChange={(e) => {
+                    const tag = e.target.value;
+                    setSelectedTag(tag);
+                    
+                    if (tag === 'All Opted-In') {
+                      setRecipientsCount(contacts.length || 1000);
+                    } else if (tag.startsWith('Batch 1')) {
+                      setRecipientsCount(Math.min(500, contacts.length || 500));
+                    } else if (tag.startsWith('Batch 2')) {
+                      setRecipientsCount(Math.max(1, Math.min(500, (contacts.length || 1000) - 500)));
+                    } else if (tag.startsWith('Batch 3') || tag.startsWith('Batch 4')) {
+                      setRecipientsCount(Math.max(1, Math.min(1000, contacts.length || 1000)));
+                    } else {
+                      const matchCount = contacts.filter(c => c.tags && c.tags.includes(tag)).length;
+                      setRecipientsCount(matchCount > 0 ? matchCount : 500);
+                    }
+                  }}
                   className="form-input"
                 >
-                  <option value="VIP Customers">VIP Customers (High LTV)</option>
-                  <option value="Cart Abandoners">Cart Abandoners (High Intent)</option>
-                  <option value="Recent Buyers">Recent Buyers (Past 30 Days)</option>
-                  <option value="All Opted-In">All Opted-In Database</option>
+                  <optgroup label="📋 Dynamic CRM Contact Tags">
+                    {crmTags.length === 0 ? (
+                      <option value="New Lead">New Lead Tag</option>
+                    ) : (
+                      crmTags.map(t => {
+                        const count = contacts.filter(c => c.tags && c.tags.includes(t)).length;
+                        return (
+                          <option key={t} value={t}>
+                            Tag: {t} ({count} {count === 1 ? 'contact' : 'contacts'})
+                          </option>
+                        );
+                      })
+                    )}
+                  </optgroup>
+
+                  <optgroup label="📦 Batch Segment Chunks (Safety Limit)">
+                    <option value="Batch 1: Contacts 1 - 500">Batch 1: Contacts 1 - 500 (500 max)</option>
+                    <option value="Batch 2: Contacts 501 - 1000">Batch 2: Contacts 501 - 1,000 (500 max)</option>
+                    <option value="Batch 3: Contacts 1001 - 2000">Batch 3: Contacts 1,001 - 2,000 (1,000 max)</option>
+                    <option value="Batch 4: Contacts 2001 - 3000">Batch 4: Contacts 2,001 - 3,000 (1,000 max)</option>
+                  </optgroup>
+
+                  <optgroup label="🌐 Global Database">
+                    <option value="All Opted-In">All Opted-In Database ({contacts.length} total contacts)</option>
+                    <option value="Internal Team Test Group">Internal Team Test Group (Safety Verification)</option>
+                  </optgroup>
                 </select>
               </div>
 
               <div className="form-group">
-                <label>Recipient Cohort Size</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label style={{ margin: 0 }}>Recipient Cohort Size</label>
+                  <span style={{ fontSize: '0.74rem', color: '#059669', fontWeight: 600 }}>Meta Tier Limit: 2,000 Msg/24h</span>
+                </div>
                 <input
                   type="number"
-                  min="10"
+                  min="1"
                   max="50000"
                   value={recipientsCount}
                   onChange={(e) => setRecipientsCount(Number(e.target.value))}
                   className="form-input"
+                  style={{ marginTop: 4 }}
                 />
+                {recipientsCount > 2000 && (
+                  <div style={{ marginTop: 6, padding: '8px 12px', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 6, color: '#DC2626', fontSize: '0.76rem', fontWeight: 600 }}>
+                    ⚠️ Warning: Selected count ({recipientsCount}) exceeds Meta's current 2,000 daily message limit. We recommend targeting Batch 1 or Batch 2 (500 to 1,000 recipients).
+                  </div>
+                )}
               </div>
 
               {/* Estimate Box */}

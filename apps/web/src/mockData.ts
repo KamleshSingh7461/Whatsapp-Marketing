@@ -19,14 +19,14 @@ export const mockUser: User = {
 
 export const mockWabaStatus: WhatsappStatus = {
   connected: true,
-  wabaId: '109845728392019',
-  phoneNumberId: '104829104829104',
-  displayPhoneNumber: '+1 (555) 019-2834',
-  tier: 'TIER_10K',
+  wabaId: '1845046976654799',
+  phoneNumberId: '1268849126320372',
+  displayPhoneNumber: '+91 86558 51749',
+  tier: 'TIER_2K',
   qualityRating: 'GREEN',
   connectedAt: new Date(Date.now() - 45 * 86400000).toISOString(),
-  dailyMessageLimit: 10000,
-  dailyMessagesSent: 4210,
+  dailyMessageLimit: 2000,
+  dailyMessagesSent: 2,
   spamReportRate: 0.03, // 0.03% (Threshold < 0.10%)
   blockRate: 0.08,      // 0.08% (Threshold < 0.20%)
   freeMonthlyServiceUsed: 420, // 420 / 1000 free service convs used

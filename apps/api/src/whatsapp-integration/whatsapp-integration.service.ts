@@ -60,7 +60,7 @@ export class WhatsappIntegrationService {
       wabaId: connection?.wabaId || defaultWabaId,
       phoneNumberId: connection?.phoneNumberId || defaultPhoneId,
       displayPhoneNumber: connection?.displayPhoneNumber || defaultDisplayPhone,
-      tier: connection?.tier || 'TIER_10K',
+      tier: connection?.tier || 'TIER_2K',
       qualityRating: connection?.qualityRating || 'GREEN',
       connectedAt: connection?.connectedAt || new Date().toISOString(),
     };
@@ -75,7 +75,16 @@ export class WhatsappIntegrationService {
     if (formattedTo.length === 10) {
       formattedTo = '91' + formattedTo;
     }
-    const initialLang = dto.language || 'en_US';
+
+    // Self-messaging safety check: Meta Graph API rejects messages sent to the sender WABA number itself
+    if (formattedTo === '918655851749') {
+      return {
+        success: false,
+        error: 'Meta API restriction: Cannot send a message to your own WABA sender number (+91 86558 51749). Please enter a customer or team member recipient number.',
+      };
+    }
+
+    const initialLang = dto.language || 'en';
 
     const executeCall = async (langCode: string, comps?: any[]) => {
       const payload: any = {
@@ -169,6 +178,13 @@ export class WhatsappIntegrationService {
     let formattedTo = dto.to.replace(/[^\d]/g, '');
     if (formattedTo.length === 10) {
       formattedTo = '91' + formattedTo;
+    }
+
+    if (formattedTo === '918655851749') {
+      return {
+        success: false,
+        error: 'Meta API restriction: Cannot send a message to your own WABA sender number (+91 86558 51749). Please enter a customer or team member recipient number.',
+      };
     }
 
     const payload = {

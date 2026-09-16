@@ -885,6 +885,82 @@ export function Dashboard() {
     return convId;
   };
 
+  const handleSendTestTemplate = async (template: Template, targetPhone: string) => {
+    try {
+      const res = await apiFetch<any>('/whatsapp/send-template', {
+        method: 'POST',
+        body: JSON.stringify({
+          to: targetPhone,
+          templateName: template.name,
+          language: template.language || 'en_US',
+        }),
+      });
+      return res;
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Template dispatch failed' };
+    }
+  };
+
+  const handleDirectSendTemplate = async (contact: Contact, template: Template) => {
+    try {
+      const res = await apiFetch<any>('/whatsapp/send-template', {
+        method: 'POST',
+        body: JSON.stringify({
+          to: contact.phone,
+          templateName: template.name,
+          language: template.language || 'en_US',
+        }),
+      });
+
+      if (res && res.success) {
+        // Record outbound message in shared inbox
+        const convId = `conv_${contact.phone.replace(/[^0-9]/g, '')}`;
+        const newMsg: Message = {
+          id: `msg_tpl_${Date.now()}`,
+          conversationId: convId,
+          direction: 'OUTBOUND',
+          status: 'SENT',
+          templateId: template.id,
+          content: `[Approved Template: ${template.name}]`,
+          authorName: user?.name || 'Agent',
+          timestamp: new Date().toISOString(),
+        };
+
+        setMessagesByConvId(prev => ({
+          ...prev,
+          [convId]: [...(prev[convId] || []), newMsg],
+        }));
+      }
+
+      return res;
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Direct template send failed' };
+    }
+  };
+
+  const handleAutoCategorizeContacts = () => {
+    setContacts(prev => {
+      const updated = prev.map((c, index) => {
+        let batchTag = 'Batch 1: Contacts 1 - 500';
+        if (index >= 500 && index < 1000) batchTag = 'Batch 2: Contacts 501 - 1000';
+        else if (index >= 1000 && index < 2000) batchTag = 'Batch 3: Contacts 1001 - 2000';
+        else if (index >= 2000) batchTag = 'Batch 4: Contacts 2001 - 3000';
+
+        const existingTags = c.tags || [];
+        const newTags = Array.from(new Set([...existingTags, batchTag]));
+        return {
+          ...c,
+          tags: newTags,
+        };
+      });
+      try {
+        localStorage.setItem('fgsn_saved_contacts', JSON.stringify(updated));
+      } catch (e) {}
+      alert(`Successfully auto-categorized ${prev.length} contacts into 500-1,000 batch chunks! You can now select Batch 1, Batch 2, etc. when creating Broadcast Campaigns.`);
+      return updated;
+    });
+  };
+
   const handleToggleResolve = (convId: string) => {
     setConversations(prev =>
       prev.map(c =>
@@ -1198,6 +1274,7 @@ export function Dashboard() {
             <CampaignsView
               campaigns={campaigns}
               templates={templates}
+              contacts={contacts}
               currency={currency}
               currentUser={user}
               onLaunchCampaign={handleLaunchCampaign}
@@ -1207,19 +1284,23 @@ export function Dashboard() {
             <TemplatesView
               templates={templates}
               wabaAccountName="Freedom Global Sports Network"
-              displayPhoneNumber={status?.displayPhoneNumber || '+91 86558 51946'}
+              displayPhoneNumber={status?.displayPhoneNumber || '+91 86558 51749'}
               currentUser={user}
               onCreateTemplate={handleCreateTemplate}
+              onSendTestTemplate={handleSendTestTemplate}
             />
           )}
           {activeTab === 'contacts' && canAccessTab(user.role, 'contacts') && (
             <ContactsView
               contacts={contacts}
+              templates={templates}
               currency={currency}
               currentUser={user}
               onAddContact={handleAddContact}
               onBulkAddContacts={handleBulkAddContacts}
               onStartChat={handleStartChatWithContact}
+              onAutoCategorizeContacts={handleAutoCategorizeContacts}
+              onDirectSendTemplate={handleDirectSendTemplate}
             />
           )}
           {activeTab === 'settings' && canAccessTab(user.role, 'settings') && (
