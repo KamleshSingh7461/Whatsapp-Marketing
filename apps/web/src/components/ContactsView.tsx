@@ -4,12 +4,40 @@ import { CurrencyCode, formatCurrency } from '../lib/currency';
 import { canManageContacts } from '../lib/permissions';
 import { BulkContactUploadModal } from './BulkContactUploadModal';
 
+export const COUNTRY_CODES = [
+  { code: '+91', label: '🇮🇳 India (+91)' },
+  { code: '+1', label: '🇺🇸 US / Canada (+1)' },
+  { code: '+44', label: '🇬🇧 UK (+44)' },
+  { code: '+971', label: '🇦🇪 UAE (+971)' },
+  { code: '+966', label: '🇸🇦 Saudi Arabia (+966)' },
+  { code: '+65', label: '🇸🇬 Singapore (+65)' },
+  { code: '+61', label: '🇦🇺 Australia (+61)' },
+  { code: '+49', label: '🇩🇪 Germany (+49)' },
+  { code: '+33', label: '🇫🇷 France (+33)' },
+  { code: '+34', label: '🇪🇸 Spain (+34)' },
+];
+
+export function cleanPhoneWithCountry(countryCode: string, rawPhone: string): string {
+  let digits = rawPhone.replace(/[^\d]/g, '');
+  if (!digits) return '';
+  const prefixDigits = countryCode.replace(/[^\d]/g, '');
+  
+  if (digits.length === 10) {
+    return `+${prefixDigits}${digits}`;
+  }
+  if (digits.startsWith(prefixDigits) && digits.length > prefixDigits.length) {
+    return `+${digits}`;
+  }
+  return `+${prefixDigits}${digits}`;
+}
+
 interface ContactsViewProps {
   contacts: Contact[];
   templates?: Template[];
   currency?: CurrencyCode;
   currentUser?: User | null;
   onAddContact: (contact: Contact) => void;
+  onUpdateContact?: (contact: Contact) => void;
   onBulkAddContacts?: (contacts: Contact[]) => void;
   onStartChat?: (contact: Contact) => void;
   onAutoCategorizeContacts?: () => void;
@@ -22,6 +50,7 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
   currency = 'INR',
   currentUser,
   onAddContact,
+  onUpdateContact,
   onBulkAddContacts,
   onStartChat,
   onAutoCategorizeContacts,
@@ -32,10 +61,38 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
 
-  // Form states
+  // Extract all existing unique tags dynamically
+  const allExistingTags = Array.from(
+    new Set([
+      'VIP Customers',
+      'High Intent',
+      'Frequent Buyer',
+      'New Lead',
+      'Internal Team',
+      'Batch 1: Contacts 1 - 500',
+      'Batch 2: Contacts 501 - 1000',
+      'Batch 3: Contacts 1001 - 2000',
+      'Batch 4: Contacts 2001 - 3000',
+      ...contacts.flatMap(c => c.tags || [])
+    ])
+  ).filter(Boolean);
+
+  // Form states for Add Contact
   const [name, setName] = useState('');
+  const [countryCode, setCountryCode] = useState('+91');
   const [phone, setPhone] = useState('');
-  const [tagsInput, setTagsInput] = useState('');
+  const [selectedTags, setSelectedTags] = useState<string[]>(['New Lead']);
+  const [newCustomTag, setNewCustomTag] = useState('');
+
+  // Form states for Edit Contact
+  const [editingContact, setEditingContact] = useState<Contact | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editCountryCode, setEditCountryCode] = useState('+91');
+  const [editPhone, setEditPhone] = useState('');
+  const [editTags, setEditTags] = useState<string[]>([]);
+  const [editRfm, setEditRfm] = useState<RFMSegment>('NEW_LEADS');
+  const [editOptedIn, setEditOptedIn] = useState(true);
+  const [editNewCustomTag, setEditNewCustomTag] = useState('');
 
   // Direct Template Modal states
   const [directTplContact, setDirectTplContact] = useState<Contact | null>(null);
@@ -87,14 +144,21 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
     e.preventDefault();
     if (!name.trim() || !phone.trim()) return;
 
+    const formattedPhone = cleanPhoneWithCountry(countryCode, phone.trim());
+
+    const finalTags = Array.from(new Set([
+      ...selectedTags,
+      ...(newCustomTag.trim() ? [newCustomTag.trim()] : [])
+    ]));
+
     const newContact: Contact = {
       id: `cnt_${Date.now()}`,
       displayName: name.trim(),
-      phone: phone.trim(),
+      phone: formattedPhone,
       optedIn: true,
       optedInAt: new Date().toISOString(),
       optInSource: 'ORGANIC_INBOUND',
-      tags: tagsInput.split(',').map((s: string) => s.trim()).filter(Boolean),
+      tags: finalTags.length > 0 ? finalTags : ['New Lead'],
       rfmSegment: 'NEW_LEADS',
       lifetimeValue: 0,
       totalOrders: 0,
@@ -105,7 +169,56 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
     setIsModalOpen(false);
     setName('');
     setPhone('');
-    setTagsInput('');
+    setCountryCode('+91');
+    setSelectedTags(['New Lead']);
+    setNewCustomTag('');
+  };
+
+  const handleStartEdit = (contact: Contact) => {
+    setEditingContact(contact);
+    setEditName(contact.displayName);
+    
+    // Detect country code
+    let cCode = '+91';
+    let pNum = contact.phone;
+    if (contact.phone.startsWith('+')) {
+      const matched = COUNTRY_CODES.find(c => contact.phone.startsWith(c.code));
+      if (matched) {
+        cCode = matched.code;
+        pNum = contact.phone.slice(matched.code.length);
+      }
+    }
+    setEditCountryCode(cCode);
+    setEditPhone(pNum);
+    setEditTags(contact.tags || []);
+    setEditRfm(contact.rfmSegment || 'NEW_LEADS');
+    setEditOptedIn(contact.optedIn ?? true);
+    setEditNewCustomTag('');
+  };
+
+  const handleSaveEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingContact || !editName.trim() || !editPhone.trim()) return;
+
+    const formattedPhone = cleanPhoneWithCountry(editCountryCode, editPhone.trim());
+    const finalTags = Array.from(new Set([
+      ...editTags,
+      ...(editNewCustomTag.trim() ? [editNewCustomTag.trim()] : [])
+    ]));
+
+    const updated: Contact = {
+      ...editingContact,
+      displayName: editName.trim(),
+      phone: formattedPhone,
+      tags: finalTags,
+      rfmSegment: editRfm,
+      optedIn: editOptedIn,
+    };
+
+    if (onUpdateContact) {
+      onUpdateContact(updated);
+    }
+    setEditingContact(null);
   };
 
   const getRfmBadge = (segment?: RFMSegment) => {
@@ -334,6 +447,15 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'nowrap' }}>
                       <button
                         type="button"
+                        className="btn-secondary sm"
+                        style={{ padding: '4px 8px', fontSize: '0.72rem', borderRadius: 6, display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}
+                        onClick={() => handleStartEdit(c)}
+                        title={`Edit contact details and tags for ${c.displayName}`}
+                      >
+                        ✏️ Edit
+                      </button>
+                      <button
+                        type="button"
                         className="btn-primary sm"
                         style={{ padding: '4px 8px', fontSize: '0.72rem', borderRadius: 6, display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}
                         onClick={() => {
@@ -463,18 +585,18 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
       {/* Add Contact Modal */}
       {isModalOpen && (
         <div className="modal-overlay">
-          <div className="modal-card">
+          <div className="modal-card" style={{ maxWidth: 540 }}>
             <div className="modal-header">
               <div>
                 <h3 className="modal-title">Add New Contact</h3>
-                <p className="modal-subtitle">Enroll a customer phone number into the WhatsApp database</p>
+                <p className="modal-subtitle">Enroll a verified WhatsApp phone number into your CRM</p>
               </div>
               <button className="close-btn" onClick={() => setIsModalOpen(false)}>✕</button>
             </div>
 
             <form onSubmit={handleAdd}>
               <div className="form-group">
-                <label>Full Name</label>
+                <label>Full Name *</label>
                 <input
                   type="text"
                   required
@@ -485,32 +607,267 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
                 />
               </div>
 
+              {/* Country Code + Phone Row */}
               <div className="form-group">
-                <label>WhatsApp Phone Number (E.164 with Country Code)</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. +14155552671"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="form-input"
-                />
+                <label>WhatsApp Phone Number *</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <select
+                    value={countryCode}
+                    onChange={(e) => setCountryCode(e.target.value)}
+                    className="form-input"
+                    style={{ width: 170, fontWeight: 600 }}
+                  >
+                    {COUNTRY_CODES.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="tel"
+                    required
+                    placeholder="e.g. 87664 53551 (10-digit number)"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    className="form-input"
+                    style={{ flex: 1 }}
+                  />
+                </div>
+                <span className="field-hint" style={{ fontSize: '0.74rem', color: '#059669', marginTop: 4, display: 'block' }}>
+                  Formatted: <code>{cleanPhoneWithCountry(countryCode, phone) || 'Select country & enter number'}</code>
+                </span>
               </div>
 
+              {/* Tag Multi-Select Picker Chips */}
               <div className="form-group">
-                <label>Audience Tags (comma-separated)</label>
-                <input
-                  type="text"
-                  placeholder="e.g. VIP Customers, High Intent"
-                  value={tagsInput}
-                  onChange={(e) => setTagsInput(e.target.value)}
-                  className="form-input"
-                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <label style={{ margin: 0 }}>Select Audience Tags</label>
+                  <span style={{ fontSize: '0.74rem', color: '#64748B' }}>Click chips to toggle</span>
+                </div>
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '8px 10px', background: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: 8, marginBottom: 8, maxHeight: 130, overflowY: 'auto' }}>
+                  {allExistingTags.map((t) => {
+                    const isSelected = selectedTags.includes(t);
+                    return (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => {
+                          if (isSelected) {
+                            setSelectedTags(prev => prev.filter(x => x !== t));
+                          } else {
+                            setSelectedTags(prev => [...prev, t]);
+                          }
+                        }}
+                        style={{
+                          padding: '4px 10px',
+                          fontSize: '0.75rem',
+                          fontWeight: 600,
+                          borderRadius: 20,
+                          cursor: 'pointer',
+                          border: isSelected ? '1px solid #059669' : '1px solid #CBD5E1',
+                          background: isSelected ? '#ECFDF5' : '#FFFFFF',
+                          color: isSelected ? '#047857' : '#475569',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        {isSelected ? '✓ ' : '+ '} {t}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Add Custom Tag Input */}
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input
+                    type="text"
+                    placeholder="Create a new custom tag..."
+                    value={newCustomTag}
+                    onChange={(e) => setNewCustomTag(e.target.value)}
+                    className="form-input sm"
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    className="btn-secondary sm"
+                    onClick={() => {
+                      if (newCustomTag.trim()) {
+                        const tag = newCustomTag.trim();
+                        if (!selectedTags.includes(tag)) {
+                          setSelectedTags(prev => [...prev, tag]);
+                        }
+                        setNewCustomTag('');
+                      }
+                    }}
+                  >
+                    + Add Tag
+                  </button>
+                </div>
               </div>
 
               <div className="modal-actions">
                 <button type="button" className="btn-secondary" onClick={() => setIsModalOpen(false)}>Cancel</button>
                 <button type="submit" className="btn-primary">Save Contact</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Contact Modal */}
+      {editingContact && (
+        <div className="modal-overlay">
+          <div className="modal-card" style={{ maxWidth: 540 }}>
+            <div className="modal-header">
+              <div>
+                <h3 className="modal-title">Edit Contact Details & Tags</h3>
+                <p className="modal-subtitle">Update information for <strong>{editingContact.displayName}</strong></p>
+              </div>
+              <button className="close-btn" onClick={() => setEditingContact(null)}>✕</button>
+            </div>
+
+            <form onSubmit={handleSaveEdit}>
+              <div className="form-group">
+                <label>Customer Display Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="form-input"
+                />
+              </div>
+
+              {/* Country Code + Phone Row */}
+              <div className="form-group">
+                <label>WhatsApp Phone Number *</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <select
+                    value={editCountryCode}
+                    onChange={(e) => setEditCountryCode(e.target.value)}
+                    className="form-input"
+                    style={{ width: 170, fontWeight: 600 }}
+                  >
+                    {COUNTRY_CODES.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="tel"
+                    required
+                    value={editPhone}
+                    onChange={(e) => setEditPhone(e.target.value)}
+                    className="form-input"
+                    style={{ flex: 1 }}
+                  />
+                </div>
+                <span className="field-hint" style={{ fontSize: '0.74rem', color: '#059669', marginTop: 4, display: 'block' }}>
+                  Formatted: <code>{cleanPhoneWithCountry(editCountryCode, editPhone)}</code>
+                </span>
+              </div>
+
+              {/* RFM Cohort & Opt-In Row */}
+              <div className="form-row">
+                <div className="form-group half">
+                  <label>RFM Value Cohort</label>
+                  <select
+                    value={editRfm}
+                    onChange={(e) => setEditRfm(e.target.value as RFMSegment)}
+                    className="form-input"
+                  >
+                    <option value="NEW_LEADS">New Lead</option>
+                    <option value="CHAMPIONS">VIP Tier 1 (Champions)</option>
+                    <option value="LOYAL_CUSTOMERS">Frequent Buyer</option>
+                    <option value="POTENTIAL_LOYALIST">High Intent</option>
+                    <option value="AT_RISK">At Risk</option>
+                  </select>
+                </div>
+
+                <div className="form-group half">
+                  <label>WhatsApp Opt-In Status</label>
+                  <select
+                    value={editOptedIn ? 'OPTED_IN' : 'OPTED_OUT'}
+                    onChange={(e) => setEditOptedIn(e.target.value === 'OPTED_IN')}
+                    className="form-input"
+                  >
+                    <option value="OPTED_IN">Opted In (Subscribed)</option>
+                    <option value="OPTED_OUT">Opted Out (Unsubscribed)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Tag Multi-Select Picker Chips */}
+              <div className="form-group">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <label style={{ margin: 0 }}>Manage Audience Tags ({editTags.length} selected)</label>
+                  <span style={{ fontSize: '0.74rem', color: '#64748B' }}>Click chips to toggle</span>
+                </div>
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '8px 10px', background: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: 8, marginBottom: 8, maxHeight: 140, overflowY: 'auto' }}>
+                  {allExistingTags.map((t) => {
+                    const isSelected = editTags.includes(t);
+                    return (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => {
+                          if (isSelected) {
+                            setEditTags(prev => prev.filter(x => x !== t));
+                          } else {
+                            setEditTags(prev => [...prev, t]);
+                          }
+                        }}
+                        style={{
+                          padding: '4px 10px',
+                          fontSize: '0.75rem',
+                          fontWeight: 600,
+                          borderRadius: 20,
+                          cursor: 'pointer',
+                          border: isSelected ? '1px solid #059669' : '1px solid #CBD5E1',
+                          background: isSelected ? '#ECFDF5' : '#FFFFFF',
+                          color: isSelected ? '#047857' : '#475569',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        {isSelected ? '✓ ' : '+ '} {t}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Add Custom Tag Input */}
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input
+                    type="text"
+                    placeholder="Create and attach new custom tag..."
+                    value={editNewCustomTag}
+                    onChange={(e) => setEditNewCustomTag(e.target.value)}
+                    className="form-input sm"
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    className="btn-secondary sm"
+                    onClick={() => {
+                      if (editNewCustomTag.trim()) {
+                        const tag = editNewCustomTag.trim();
+                        if (!editTags.includes(tag)) {
+                          setEditTags(prev => [...prev, tag]);
+                        }
+                        setEditNewCustomTag('');
+                      }
+                    }}
+                  >
+                    + Add Tag
+                  </button>
+                </div>
+              </div>
+
+              <div className="modal-actions">
+                <button type="button" className="btn-secondary" onClick={() => setEditingContact(null)}>Cancel</button>
+                <button type="submit" className="btn-primary">Save Changes</button>
               </div>
             </form>
           </div>
