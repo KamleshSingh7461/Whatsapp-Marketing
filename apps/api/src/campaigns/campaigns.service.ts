@@ -53,6 +53,7 @@ export class CampaignsService {
         data: {
           name: dto.name,
           status: dto.status || 'SENDING',
+          templateId: undefined,
           segmentJson: {
             templateName: dto.templateName,
             targetTags: dto.targetTags || [],
