@@ -521,7 +521,24 @@ export const InboxView: React.FC<InboxViewProps> = ({
                 }
                 if (msg.content && t.bodyJson?.body) {
                   const cleanMsg = msg.content.replace(/\s+/g, ' ').trim().toLowerCase();
-                  const cleanTpl = t.bodyJson.body.replace(/\s+/g, ' ').trim().toLowerCase();
+                  const cleanMsgAlpha = cleanMsg.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, ' ');
+
+                  // Split template body by {{...}} variables to match text segments
+                  const bodyText = t.bodyJson.body;
+                  const segments = bodyText
+                    .split(/\{\{.*?\}\}/)
+                    .map((s: string) => s.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, ' ').trim().toLowerCase())
+                    .filter((s: string) => s.length >= 10);
+
+                  if (segments.length > 0) {
+                    const isSegmentMatch = segments.some((seg: string) => {
+                      const snippet = seg.substring(0, 25);
+                      return cleanMsgAlpha.includes(snippet);
+                    });
+                    if (isSegmentMatch) return true;
+                  }
+
+                  const cleanTpl = bodyText.replace(/\{\{.*?\}\}/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
                   if (cleanMsg.length > 15 && cleanTpl.length > 15) {
                     const snippet = cleanTpl.substring(0, 25);
                     if (cleanMsg.includes(snippet)) return true;
@@ -588,18 +605,22 @@ export const InboxView: React.FC<InboxViewProps> = ({
                     {/* WhatsApp Action Buttons (Quick Replies, URL Link, Phone Call) */}
                     {buttons && buttons.length > 0 && (
                       <div className="whatsapp-bubble-buttons">
-                        {buttons.map((btn: any, bIdx: number) => (
-                          <div key={bIdx} className="whatsapp-bubble-btn">
-                            {btn.type === 'URL' || btn.url ? (
-                              <span className="btn-icon">↗</span>
-                            ) : btn.type === 'PHONE_NUMBER' || btn.phone ? (
-                              <span className="btn-icon">📞</span>
-                            ) : (
-                              <span className="btn-icon">↩</span>
-                            )}
-                            <span>{btn.text}</span>
-                          </div>
-                        ))}
+                        {buttons.map((btn: any, bIdx: number) => {
+                          const btnText = typeof btn === 'string' ? btn : (btn.text || btn.title || btn.label || 'Action');
+                          const btnType = typeof btn === 'object' ? (btn.type || (btn.url ? 'URL' : btn.phone ? 'PHONE_NUMBER' : 'QUICK_REPLY')) : 'QUICK_REPLY';
+                          return (
+                            <div key={bIdx} className="whatsapp-bubble-btn">
+                              {btnType === 'URL' || btn.url ? (
+                                <span className="btn-icon">↗</span>
+                              ) : btnType === 'PHONE_NUMBER' || btn.phone || btn.phone_number ? (
+                                <span className="btn-icon">📞</span>
+                              ) : (
+                                <span className="btn-icon">↩</span>
+                              )}
+                              <span>{btnText}</span>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>

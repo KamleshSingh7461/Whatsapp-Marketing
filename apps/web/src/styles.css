@@ -1627,6 +1627,89 @@ body {
   border-bottom-right-radius: 2px;
 }
 
+/* WhatsApp Template Cards & Action Buttons Styling */
+.template-card-bubble {
+  padding: 0 !important;
+  overflow: hidden;
+  border: 1px solid #C4E8A8 !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08) !important;
+}
+
+.whatsapp-bubble-header-text {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: #0F172A;
+  padding: 0.75rem 0.9rem 0.25rem 0.9rem;
+  line-height: 1.3;
+}
+
+.whatsapp-bubble-media-header {
+  width: 100%;
+  height: 140px;
+  background: #E2E8F0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748B;
+  font-size: 0.8rem;
+}
+
+.template-card-bubble .message-text {
+  padding: 0.6rem 0.9rem;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.whatsapp-bubble-footer-text {
+  font-size: 0.72rem;
+  color: #64748B;
+  padding: 0 0.9rem 0.4rem 0.9rem;
+}
+
+.template-card-bubble .message-meta {
+  padding: 0 0.9rem 0.5rem 0.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.whatsapp-bubble-buttons {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.whatsapp-bubble-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #059669;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  transition: background 0.15s ease;
+  user-select: none;
+}
+
+.whatsapp-bubble-btn:last-child {
+  border-bottom: none;
+}
+
+.whatsapp-bubble-btn:hover {
+  background: rgba(5, 150, 105, 0.08);
+}
+
+.whatsapp-bubble-btn .btn-icon {
+  font-size: 0.85rem;
+  opacity: 0.85;
+}
+
 .internal-note-box {
   background: #FFFBEB;
   border: 1px solid #FCD34D;
