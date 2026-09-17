@@ -307,7 +307,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
         </div>
 
         {/* Conversation List */}
-        <div className="inbox-conv-list">
+        <div className="inbox-conv-list conversation-scroll-list">
           {filteredConversations.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '3rem 1rem', color: '#64748B' }}>
               <p style={{ fontWeight: 600, fontSize: '0.88rem', marginBottom: 4 }}>No active conversations</p>

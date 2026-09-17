@@ -2792,11 +2792,35 @@ body {
   box-shadow: var(--shadow-sm);
 }
 
+.inbox-conv-list,
 .conversation-scroll-list {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.inbox-conv-list::-webkit-scrollbar,
+.conversation-scroll-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.inbox-conv-list::-webkit-scrollbar-track,
+.conversation-scroll-list::-webkit-scrollbar-track {
+  background: #F1F5F9;
+}
+
+.inbox-conv-list::-webkit-scrollbar-thumb,
+.conversation-scroll-list::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 4px;
+}
+
+.inbox-conv-list::-webkit-scrollbar-thumb:hover,
+.conversation-scroll-list::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
 }
 
 .empty-search-state {
