@@ -16,6 +16,9 @@ export function normalizePhoneNumber(raw: string, defaultCountryCode: string = '
   // Remove common prefixes from Facebook/Instagram Lead Ads like "p:", "p:+", "tel:"
   let cleaned = raw.trim().replace(/^(p:|p:\+|tel:)/i, '');
   
+  // Remove trailing .0 from Excel numbers
+  cleaned = cleaned.replace(/\.0+$/, '');
+
   // Remove all non-digit and non-plus characters
   cleaned = cleaned.replace(/[^0-9+]/g, '');
 
