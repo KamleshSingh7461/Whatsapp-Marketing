@@ -437,6 +437,17 @@ export function Dashboard() {
             setConversations(ledger.conversations);
           }
           if (ledger.messagesByConvId) {
+            if (seenMessageIds.current.size > 0) {
+              Object.values(ledger.messagesByConvId).flat().forEach((sm: any) => {
+                if (!seenMessageIds.current.has(sm.id) && sm.direction === 'INBOUND') {
+                  triggerDesktopNotification(
+                    `💬 Message from ${sm.senderName || 'Customer'}`,
+                    sm.content
+                  );
+                }
+              });
+            }
+            Object.values(ledger.messagesByConvId).flat().forEach((sm: any) => seenMessageIds.current.add(sm.id));
             setMessagesByConvId(ledger.messagesByConvId);
           }
         }
@@ -567,103 +578,7 @@ export function Dashboard() {
     return () => window.removeEventListener('storage', handleStorage);
   }, []);
 
-  // Real-time 2.5-second background synchronization for Shared Inbox (Conversations & Inbound/Outbound Messages)
-  useEffect(() => {
-    if (!getToken()) return;
 
-    const fetchInbox = async () => {
-      try {
-        const serverConvs = await apiFetch<Conversation[]>('/inbox/conversations');
-        if (Array.isArray(serverConvs)) {
-          setConversations(prev => {
-            const map = new Map<string, Conversation>();
-            // Retain existing local conversations mapped by clean phone number
-            prev.forEach(p => {
-              const raw = p.contact?.phone || p.id;
-              const cleanKey = raw.replace(/[^0-9]/g, '') || raw;
-              map.set(cleanKey, p);
-            });
-            // Merge/update with server conversations
-            serverConvs.forEach(sc => {
-              const raw = sc.contact?.phone || sc.id;
-              const cleanKey = raw.replace(/[^0-9]/g, '') || raw;
-              const existing = map.get(cleanKey);
-
-              // Auto-assign unassigned conversations using Round-Robin across team members
-              let assigned = sc.assignedAgent || existing?.assignedAgent;
-              if (!assigned || assigned === 'Unassigned') {
-                assigned = getNextRoundRobinAgent(teamMembers, Array.from(map.values()));
-              }
-
-              map.set(cleanKey, {
-                ...(existing || {}),
-                ...sc,
-                assignedAgent: assigned,
-                lastMessage: sc.lastMessage || existing?.lastMessage,
-              });
-            });
-            return Array.from(map.values());
-          });
-
-          // Fetch messages for all active conversations in parallel
-          for (const sc of serverConvs) {
-            apiFetch<Message[]>(`/inbox/messages/${sc.id}`)
-              .then(sMsgs => {
-                if (Array.isArray(sMsgs) && sMsgs.length > 0) {
-                  // Trigger desktop notification if a new inbound message is received
-                  if (seenMessageIds.current.size > 0) {
-                    sMsgs.forEach(sm => {
-                      if (!seenMessageIds.current.has(sm.id) && sm.direction === 'INBOUND') {
-                        triggerDesktopNotification(
-                          `💬 Message from ${sc.contact?.displayName || sc.id}`,
-                          sm.content
-                        );
-                      }
-                    });
-                  }
-                  sMsgs.forEach(sm => seenMessageIds.current.add(sm.id));
-
-                  setMessagesByConvId(prev => {
-                    const existing = prev[sc.id] || prev[`conv_${sc.contact?.phone}`] || [];
-                    
-                    // Deduplicate: replace optimistic local messages if server has recorded them
-                    const serverMsgKeys = new Set(sMsgs.map(sm => `${sm.content.trim()}_${sm.direction}`));
-                    const cleanExisting = existing.filter(em => {
-                      if (em.id.startsWith('msg_') || em.id.startsWith('msg_tpl_')) {
-                        const key = `${em.content.trim()}_${em.direction}`;
-                        if (serverMsgKeys.has(key)) {
-                          return false; // Verified server message exists
-                        }
-                      }
-                      return true;
-                    });
-
-                    const msgMap = new Map<string, Message>();
-                    cleanExisting.forEach(m => msgMap.set(m.id, m));
-                    sMsgs.forEach(m => msgMap.set(m.id, m));
-                    const merged = Array.from(msgMap.values()).sort(
-                      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-                    );
-                    return {
-                      ...prev,
-                      [sc.id]: merged,
-                      [`conv_${sc.contact?.phone}`]: merged,
-                    };
-                  });
-                }
-              })
-              .catch(() => null);
-          }
-        }
-      } catch (err) {
-        // Quiet catch background polling errors
-      }
-    };
-
-    fetchInbox();
-    const interval = setInterval(fetchInbox, 2500);
-    return () => clearInterval(interval);
-  }, [teamMembers]);
 
   // Active cleanup: Purge any previously auto-generated placeholder conversations
   useEffect(() => {
