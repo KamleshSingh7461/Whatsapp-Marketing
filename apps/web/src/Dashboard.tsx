@@ -405,45 +405,34 @@ export function Dashboard() {
                   tags: c.tags,
                 }))
               );
-              // Clear merged local storage so we only rely on server source of truth
               localStorage.removeItem('fgsn_saved_contacts');
             }
           } catch (e) {}
         }
-
-        // 2. Fetch authoritative clean deduplicated contacts from backend server DB
-        const serverContacts = await getContactsApi();
-        if (isMounted && Array.isArray(serverContacts) && serverContacts.length > 0) {
-          setContacts(serverContacts);
-        }
-      } catch (e) {
-        console.warn('Contacts sync error:', e);
-      }
+      } catch (e) {}
     }
-
     syncContactsWithServer();
-
-    // Re-sync contacts every 10s and on window focus for live multi-PC parity
-    const interval = setInterval(syncContactsWithServer, 10000);
-    const handleFocus = () => syncContactsWithServer();
-    window.addEventListener('focus', handleFocus);
-
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-      window.removeEventListener('focus', handleFocus);
-    };
   }, [user]);
 
-  // Real-time Cloud Sync for WhatsApp Inbox Messages, Conversations & Meta Delivery Stats across all PCs
+  // Single Unified Atomic Heartbeat Sync Loop (5s) for Live Ledger, Contacts, Status & Meta Metrics
   useEffect(() => {
-    if (!user) return;
+    if (!getToken()) return;
     let isMounted = true;
 
-    async function syncLiveLedger() {
+    async function syncAllRealTimeData() {
       try {
-        const ledger = await getLiveMessagingLedgerApi();
-        if (isMounted && ledger) {
+        const [ledger, s, t, c, cmp, fl] = await Promise.all([
+          getLiveMessagingLedgerApi().catch(() => null),
+          apiFetch<WhatsappStatus>('/whatsapp/status').catch(() => null),
+          apiFetch<Template[]>('/templates').catch(() => null),
+          getContactsApi().catch(() => null),
+          getCampaignsApi().catch(() => null),
+          getFlowsApi().catch(() => null),
+        ]);
+
+        if (!isMounted) return;
+
+        if (ledger) {
           if (Array.isArray(ledger.conversations)) {
             setConversations(ledger.conversations);
           }
@@ -451,14 +440,19 @@ export function Dashboard() {
             setMessagesByConvId(ledger.messagesByConvId);
           }
         }
+        if (s) setStatus(s);
+        if (t && Array.isArray(t)) setTemplates(t as any);
+        if (c && Array.isArray(c)) setContacts(c);
+        if (cmp && Array.isArray(cmp)) setCampaigns(cmp);
+        if (fl && Array.isArray(fl)) setFlows(fl);
       } catch (e) {
-        console.warn('Live ledger sync error:', e);
+        console.warn('Real-time sync heartbeat error:', e);
       }
     }
 
-    syncLiveLedger();
-    const interval = setInterval(syncLiveLedger, 5000);
-    const handleFocus = () => syncLiveLedger();
+    syncAllRealTimeData();
+    const interval = setInterval(syncAllRealTimeData, 5000);
+    const handleFocus = () => syncAllRealTimeData();
     window.addEventListener('focus', handleFocus);
 
     return () => {
@@ -467,43 +461,6 @@ export function Dashboard() {
       window.removeEventListener('focus', handleFocus);
     };
   }, [user]);
-
-  // Save state changes to localStorage for offline / page reload persistence
-  useEffect(() => {
-    try {
-      localStorage.setItem('fgsn_saved_templates', JSON.stringify(templates));
-    } catch (e) {}
-  }, [templates]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('fgsn_saved_campaigns', JSON.stringify(campaigns));
-    } catch (e) {}
-  }, [campaigns]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('fgsn_saved_flows', JSON.stringify(flows));
-    } catch (e) {}
-  }, [flows]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('fgsn_saved_contacts', JSON.stringify(contacts));
-    } catch (e) {}
-  }, [contacts]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('fgsn_saved_conversations', JSON.stringify(conversations));
-    } catch (e) {}
-  }, [conversations]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('fgsn_saved_messages', JSON.stringify(messagesByConvId));
-    } catch (e) {}
-  }, [messagesByConvId]);
 
   // Dynamically computed analytics from live state (Inbox + Broadcasts + Flows)
   const allInboxMessages = Object.values(messagesByConvId).flat();
@@ -583,32 +540,6 @@ export function Dashboard() {
     },
     regionalPricing: DEFAULT_REGIONAL_RATES,
   };
-
-  // 1. Real-time background synchronization loop for Meta Templates, WABA Status, Contacts, Campaigns & Automations
-  useEffect(() => {
-    if (!getToken()) return;
-
-    const fetchSync = () => {
-      Promise.all([
-        apiFetch<WhatsappStatus>('/whatsapp/status').catch(() => null),
-        apiFetch<Template[]>('/templates').catch(() => null),
-        getContactsApi().catch(() => null),
-        getCampaignsApi().catch(() => null),
-        getFlowsApi().catch(() => null),
-      ]).then(([s, t, c, cmp, fl]) => {
-        if (s) setStatus(s);
-        if (t && Array.isArray(t)) setTemplates(t as any);
-        if (c && Array.isArray(c)) setContacts(c);
-        if (cmp && Array.isArray(cmp)) setCampaigns(cmp);
-        if (fl && Array.isArray(fl)) setFlows(fl);
-      });
-    };
-
-    fetchSync();
-    const interval = setInterval(fetchSync, 4000); // Cross-device real-time sync every 4 seconds
-
-    return () => clearInterval(interval);
-  }, []);
 
   // 3. Multi-tab real-time state synchronization for Templates, Messages, Contacts & Campaigns
   useEffect(() => {
