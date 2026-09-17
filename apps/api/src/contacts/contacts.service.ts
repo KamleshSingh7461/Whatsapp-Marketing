@@ -1,6 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
+export function normalizePhone(phone: string): string {
+  if (!phone) return '';
+  let clean = phone.replace(/[^0-9]/g, '');
+  clean = clean.replace(/^0+/, '');
+  if (clean.length === 10 && ['6', '7', '8', '9'].includes(clean[0])) {
+    clean = '91' + clean;
+  }
+  return clean;
+}
+
 @Injectable()
 export class ContactsService {
   private readonly logger = new Logger(ContactsService.name);
@@ -12,7 +22,61 @@ export class ContactsService {
       const contacts = await this.prisma.contact.findMany({
         orderBy: { createdAt: 'desc' },
       });
-      return contacts.map(c => ({
+
+      // Automatic Deduplication & Cleanup for duplicate phone numbers
+      const phoneGroupMap = new Map<string, typeof contacts>();
+      for (const c of contacts) {
+        const norm = normalizePhone(c.phone);
+        if (!norm) continue;
+        if (!phoneGroupMap.has(norm)) {
+          phoneGroupMap.set(norm, []);
+        }
+        phoneGroupMap.get(norm)!.push(c);
+      }
+
+      for (const [normPhone, group] of phoneGroupMap.entries()) {
+        if (group.length > 1) {
+          // Find best primary contact (prefer custom name over generic +phone)
+          const primary = group.find(c => c.displayName && !c.displayName.startsWith('+')) || group[0];
+          const duplicates = group.filter(c => c.id !== primary.id);
+
+          // Merge all unique tags
+          const mergedTags = Array.from(new Set(group.flatMap(c => c.tags || [])));
+          const anyOptedIn = group.some(c => c.optedIn);
+
+          // Update primary contact
+          await this.prisma.contact.update({
+            where: { id: primary.id },
+            data: {
+              phone: normPhone,
+              displayName: primary.displayName || `+${normPhone}`,
+              tags: mergedTags,
+              optedIn: anyOptedIn,
+            },
+          });
+
+          // Delete duplicate contacts from database
+          const dupIds = duplicates.map(d => d.id);
+          await this.prisma.contact.deleteMany({
+            where: { id: { in: dupIds } },
+          });
+
+          this.logger.log(`Merged ${duplicates.length} duplicate contacts for phone ${normPhone}`);
+        } else if (group[0].phone !== normPhone) {
+          // Standardize single contact phone format in DB
+          await this.prisma.contact.update({
+            where: { id: group[0].id },
+            data: { phone: normPhone },
+          });
+        }
+      }
+
+      // Fetch clean deduplicated list
+      const cleanContacts = await this.prisma.contact.findMany({
+        orderBy: { createdAt: 'desc' },
+      });
+
+      return cleanContacts.map(c => ({
         id: c.id,
         phone: c.phone,
         displayName: c.displayName || `+${c.phone}`,
@@ -30,7 +94,7 @@ export class ContactsService {
   }
 
   async saveContact(dto: { phone: string; displayName?: string; tags?: string[]; optedIn?: boolean }) {
-    const cleanPhone = dto.phone.replace(/[^0-9]/g, '');
+    const cleanPhone = normalizePhone(dto.phone);
     if (!cleanPhone) return null;
 
     try {
@@ -40,7 +104,7 @@ export class ContactsService {
       const contact = await this.prisma.contact.upsert({
         where: { phone: cleanPhone },
         update: {
-          displayName: dto.displayName || existing?.displayName || `+${cleanPhone}`,
+          displayName: dto.displayName && !dto.displayName.startsWith('+') ? dto.displayName : (existing?.displayName || dto.displayName || `+${cleanPhone}`),
           tags: Array.from(new Set([...(existing?.tags || []), ...tags])),
           optedIn: dto.optedIn !== undefined ? dto.optedIn : true,
         },

@@ -362,6 +362,57 @@ export function Dashboard() {
     loadTeam();
   }, [user]);
 
+  // Real-time Cloud Sync for Contacts across Home PC, Office PC & all locations
+  useEffect(() => {
+    if (!user) return;
+    let isMounted = true;
+
+    async function syncContactsWithServer() {
+      try {
+        // 1. Sync any offline/local contacts from browser storage to server DB
+        const localSavedRaw = localStorage.getItem('fgsn_saved_contacts');
+        if (localSavedRaw) {
+          try {
+            const localList: Contact[] = JSON.parse(localSavedRaw);
+            const validLocals = localList.filter(c => c.phone && !['cnt_1', 'cnt_2', 'cnt_3', 'cnt_4'].includes(c.id));
+            if (validLocals.length > 0) {
+              await bulkSaveContactsApi(
+                validLocals.map(c => ({
+                  phone: c.phone,
+                  displayName: c.displayName,
+                  tags: c.tags,
+                }))
+              );
+              // Clear merged local storage so we only rely on server source of truth
+              localStorage.removeItem('fgsn_saved_contacts');
+            }
+          } catch (e) {}
+        }
+
+        // 2. Fetch authoritative clean deduplicated contacts from backend server DB
+        const serverContacts = await getContactsApi();
+        if (isMounted && Array.isArray(serverContacts)) {
+          setContacts(serverContacts);
+        }
+      } catch (e) {
+        console.warn('Contacts sync error:', e);
+      }
+    }
+
+    syncContactsWithServer();
+
+    // Re-sync contacts every 10s and on window focus for live multi-PC parity
+    const interval = setInterval(syncContactsWithServer, 10000);
+    const handleFocus = () => syncContactsWithServer();
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [user]);
+
   // Save state changes to localStorage for offline / page reload persistence
   useEffect(() => {
     try {
@@ -1312,7 +1363,6 @@ export function Dashboard() {
   };
 
   const handleAddContact = async (contact: Contact) => {
-    setContacts(prev => [contact, ...prev]);
     try {
       await saveContactApi({
         phone: contact.phone,
@@ -1320,17 +1370,17 @@ export function Dashboard() {
         tags: contact.tags,
         optedIn: contact.optedIn,
       });
+      const serverContacts = await getContactsApi();
+      if (Array.isArray(serverContacts)) {
+        setContacts(serverContacts);
+      }
     } catch (e) {
       console.warn('Failed to save contact to backend DB:', e);
+      setContacts(prev => [contact, ...prev]);
     }
   };
 
   const handleBulkAddContacts = async (newContacts: Contact[]) => {
-    setContacts(prev => {
-      const existingPhones = new Set(prev.map(c => c.phone.replace(/[^0-9]/g, '')));
-      const uniqueNew = newContacts.filter(c => !existingPhones.has(c.phone.replace(/[^0-9]/g, '')));
-      return [...uniqueNew, ...prev];
-    });
     try {
       await bulkSaveContactsApi(
         newContacts.map(c => ({
@@ -1339,8 +1389,13 @@ export function Dashboard() {
           tags: c.tags,
         }))
       );
+      const serverContacts = await getContactsApi();
+      if (Array.isArray(serverContacts)) {
+        setContacts(serverContacts);
+      }
     } catch (e) {
       console.warn('Failed to bulk save contacts to backend DB:', e);
+      setContacts(prev => [...newContacts, ...prev]);
     }
   };
 
