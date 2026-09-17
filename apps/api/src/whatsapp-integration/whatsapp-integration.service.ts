@@ -331,7 +331,12 @@ export class WhatsappIntegrationService {
           };
         });
 
+        const cleanPhone = phone.replace(/[^0-9]/g, '');
         messagesByConvId[convId] = msgs;
+        if (cleanPhone) {
+          messagesByConvId[`conv_${cleanPhone}`] = msgs;
+          messagesByConvId[`conv_+${cleanPhone}`] = msgs;
+        }
 
         const lastMsg = msgs[msgs.length - 1];
         formattedConvs.push({

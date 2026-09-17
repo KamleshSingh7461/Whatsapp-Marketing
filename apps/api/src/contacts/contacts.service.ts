@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 export function normalizePhone(phone: string): string {
@@ -12,10 +12,108 @@ export function normalizePhone(phone: string): string {
 }
 
 @Injectable()
-export class ContactsService {
+export class ContactsService implements OnModuleInit {
   private readonly logger = new Logger(ContactsService.name);
 
   constructor(private prisma: PrismaService) {}
+
+  async onModuleInit() {
+    await this.mergeDuplicateContacts();
+  }
+
+  async mergeDuplicateContacts() {
+    try {
+      const allContacts = await this.prisma.contact.findMany({
+        include: { conversations: true },
+      });
+
+      const phoneGroupMap = new Map<string, typeof allContacts>();
+
+      for (const c of allContacts) {
+        const clean = normalizePhone(c.phone);
+        if (!clean) continue;
+        if (!phoneGroupMap.has(clean)) {
+          phoneGroupMap.set(clean, []);
+        }
+        phoneGroupMap.get(clean)!.push(c);
+      }
+
+      for (const [cleanPhone, group] of phoneGroupMap.entries()) {
+        if (group.length > 1) {
+          group.sort((a, b) => {
+            const aHasPlus = a.phone.startsWith('+');
+            const bHasPlus = b.phone.startsWith('+');
+            if (aHasPlus && !bHasPlus) return 1;
+            if (!aHasPlus && bHasPlus) return -1;
+            return a.createdAt.getTime() - b.createdAt.getTime();
+          });
+
+          const primary = group[0];
+          const duplicates = group.slice(1);
+
+          if (primary.phone !== cleanPhone) {
+            await this.prisma.contact.update({
+              where: { id: primary.id },
+              data: { phone: cleanPhone },
+            }).catch(() => null);
+          }
+
+          for (const dup of duplicates) {
+            const dupConvs = dup.conversations || [];
+            for (const conv of dupConvs) {
+              await this.prisma.conversation.update({
+                where: { id: conv.id },
+                data: { contactId: primary.id },
+              }).catch(() => null);
+            }
+
+            const mergedTags = Array.from(new Set([...(primary.tags || []), ...(dup.tags || [])]));
+            await this.prisma.contact.update({
+              where: { id: primary.id },
+              data: { tags: mergedTags },
+            }).catch(() => null);
+
+            await this.prisma.contact.delete({ where: { id: dup.id } }).catch(() => null);
+          }
+          this.logger.log(`Merged ${duplicates.length} duplicate contacts for phone +${cleanPhone}`);
+        } else if (group[0] && group[0].phone !== cleanPhone) {
+          await this.prisma.contact.update({
+            where: { id: group[0].id },
+            data: { phone: cleanPhone },
+          }).catch(() => null);
+        }
+      }
+
+      const allConvs = await this.prisma.conversation.findMany();
+      const convGroupMap = new Map<string, typeof allConvs>();
+
+      for (const conv of allConvs) {
+        if (!convGroupMap.has(conv.contactId)) {
+          convGroupMap.set(conv.contactId, []);
+        }
+        convGroupMap.get(conv.contactId)!.push(conv);
+      }
+
+      for (const [contactId, convGroup] of convGroupMap.entries()) {
+        if (convGroup.length > 1) {
+          convGroup.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+          const primaryConv = convGroup[0];
+          const duplicateConvs = convGroup.slice(1);
+
+          for (const dupConv of duplicateConvs) {
+            await this.prisma.message.updateMany({
+              where: { conversationId: dupConv.id },
+              data: { conversationId: primaryConv.id },
+            });
+            await this.prisma.conversation.delete({ where: { id: dupConv.id } }).catch(() => null);
+          }
+          this.logger.log(`Merged ${duplicateConvs.length} duplicate conversations for contactId ${contactId}`);
+        }
+      }
+    } catch (e: any) {
+      this.logger.warn(`Merge duplicate contacts error: ${e.message}`);
+    }
+  }
 
   async getAllContacts() {
     try {

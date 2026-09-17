@@ -48,32 +48,55 @@ export class WebhooksService {
   }
 
   private async recordInboundMessage(message: any) {
-    const phone = String(message.from || '').replace(/[^0-9]/g, '');
-    if (!phone) return;
+    const rawFrom = String(message.from || '').replace(/[^0-9]/g, '');
+    if (!rawFrom) return;
+    const phone = rawFrom.length === 10 ? '91' + rawFrom : rawFrom;
+    const phoneWithPlus = '+' + phone;
 
-    const contact = await this.prisma.contact.upsert({
-      where: { phone },
-      update: {
-        optedIn: true,
-        optedInAt: new Date(),
-        displayName: message.profile?.name || undefined,
-      },
-      create: {
-        phone,
-        displayName: message.profile?.name || `+${phone}`,
-        optedIn: true,
-        optedInAt: new Date(),
-        tags: ['WhatsApp Inbound'],
+    let contact = await this.prisma.contact.findFirst({
+      where: {
+        OR: [
+          { phone: phone },
+          { phone: phoneWithPlus },
+        ],
       },
     });
 
+    if (contact) {
+      if (contact.phone !== phone) {
+        contact = await this.prisma.contact.update({
+          where: { id: contact.id },
+          data: {
+            phone: phone,
+            displayName: message.profile?.name && !message.profile.name.startsWith('+') ? message.profile.name : contact.displayName,
+            optedIn: true,
+            optedInAt: new Date(),
+          },
+        }).catch(() => contact);
+      }
+    } else {
+      contact = await this.prisma.contact.create({
+        data: {
+          phone,
+          displayName: message.profile?.name || `+${phone}`,
+          optedIn: true,
+          optedInAt: new Date(),
+          tags: ['WhatsApp Inbound'],
+        },
+      });
+    }
+
+    if (!contact) return;
+
     const windowExpiresAt = new Date(Date.now() + SESSION_WINDOW_HOURS * 60 * 60 * 1000);
     const convId = `conv_${phone}`;
+    const altConvId = `conv_${phoneWithPlus}`;
     
     let conversation = await this.prisma.conversation.findFirst({
       where: {
         OR: [
           { id: convId },
+          { id: altConvId },
           { contactId: contact.id },
         ],
       },
@@ -91,7 +114,7 @@ export class WebhooksService {
     } else {
       await this.prisma.conversation.update({
         where: { id: conversation.id },
-        data: { windowExpiresAt, updatedAt: new Date() },
+        data: { contactId: contact.id, windowExpiresAt, updatedAt: new Date() },
       });
     }
 
