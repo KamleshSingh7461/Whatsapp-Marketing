@@ -446,14 +446,11 @@ export function Dashboard() {
       try {
         const ledger = await getLiveMessagingLedgerApi();
         if (isMounted && ledger) {
-          if (Array.isArray(ledger.conversations) && ledger.conversations.length > 0) {
+          if (Array.isArray(ledger.conversations)) {
             setConversations(ledger.conversations);
           }
-          if (ledger.messagesByConvId && Object.keys(ledger.messagesByConvId).length > 0) {
-            setMessagesByConvId(prev => ({
-              ...prev,
-              ...ledger.messagesByConvId,
-            }));
+          if (ledger.messagesByConvId) {
+            setMessagesByConvId(ledger.messagesByConvId);
           }
         }
       } catch (e) {
@@ -602,10 +599,10 @@ export function Dashboard() {
         getFlowsApi().catch(() => null),
       ]).then(([s, t, c, cmp, fl]) => {
         if (s) setStatus(s);
-        if (t && Array.isArray(t) && t.length > 0) setTemplates(t as any);
-        if (c && Array.isArray(c) && c.length > 0) setContacts(c);
-        if (cmp && Array.isArray(cmp) && cmp.length > 0) setCampaigns(cmp);
-        if (fl && Array.isArray(fl) && fl.length > 0) setFlows(fl);
+        if (t && Array.isArray(t)) setTemplates(t as any);
+        if (c && Array.isArray(c)) setContacts(c);
+        if (cmp && Array.isArray(cmp)) setCampaigns(cmp);
+        if (fl && Array.isArray(fl)) setFlows(fl);
       });
     };
 
@@ -613,45 +610,6 @@ export function Dashboard() {
     const interval = setInterval(fetchSync, 4000); // Cross-device real-time sync every 4 seconds
 
     return () => clearInterval(interval);
-  }, []);
-
-  // 2. Real-Time Broadcast Campaign Delivery Engine: Updates active 'SENDING' campaigns dynamically
-  useEffect(() => {
-    const campaignTimer = setInterval(() => {
-      setCampaigns(prev => {
-        let hasActive = false;
-        const next = prev.map(cmp => {
-          if (cmp.status === 'SENDING' && cmp.stats.sent < cmp.totalRecipients) {
-            hasActive = true;
-            const newSent = Math.min(cmp.totalRecipients, cmp.stats.sent + Math.ceil(cmp.totalRecipients * 0.20));
-            const isFinished = newSent >= cmp.totalRecipients;
-            const newDelivered = Math.round(newSent * 0.98);
-            const newRead = Math.round(newSent * 0.85);
-            const newClicked = Math.round(newSent * 0.32);
-            const newConverted = Math.round(newSent * 0.09);
-
-            return {
-              ...cmp,
-              status: isFinished ? ('COMPLETED' as const) : ('SENDING' as const),
-              stats: {
-                ...cmp.stats,
-                sent: newSent,
-                delivered: newDelivered,
-                read: newRead,
-                clickedOrReplied: newClicked,
-                converted: newConverted,
-                revenue: Math.round(newConverted * 145),
-                cost: Math.round(newSent * 0.085),
-              },
-            };
-          }
-          return cmp;
-        });
-        return hasActive ? next : prev;
-      });
-    }, 2500);
-
-    return () => clearInterval(campaignTimer);
   }, []);
 
   // 3. Multi-tab real-time state synchronization for Templates, Messages, Contacts & Campaigns
