@@ -93,9 +93,15 @@ export function Dashboard() {
 
   useEffect(() => {
     const unlockAudio = () => {
-      if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
-        audioCtxRef.current.resume().catch(() => {});
-      }
+      try {
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioContextClass && !audioCtxRef.current) {
+          audioCtxRef.current = new AudioContextClass();
+        }
+        if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+          audioCtxRef.current.resume().catch(() => {});
+        }
+      } catch (e) {}
     };
     window.addEventListener('click', unlockAudio);
     window.addEventListener('keydown', unlockAudio);
@@ -107,16 +113,8 @@ export function Dashboard() {
 
   const playChimeSound = () => {
     try {
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioContextClass) return;
-      if (!audioCtxRef.current) {
-        audioCtxRef.current = new AudioContextClass();
-      }
+      if (!audioCtxRef.current || audioCtxRef.current.state !== 'running') return;
       const ctx = audioCtxRef.current;
-      if (ctx.state === 'suspended') {
-        ctx.resume().catch(() => {});
-        return;
-      }
 
       const osc1 = ctx.createOscillator();
       const gain1 = ctx.createGain();
@@ -131,7 +129,7 @@ export function Dashboard() {
 
       setTimeout(() => {
         try {
-          if (ctx.state === 'suspended') return;
+          if (!audioCtxRef.current || audioCtxRef.current.state !== 'running') return;
           const osc2 = ctx.createOscillator();
           const gain2 = ctx.createGain();
           osc2.type = 'sine';
