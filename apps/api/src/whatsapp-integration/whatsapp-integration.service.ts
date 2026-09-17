@@ -310,13 +310,21 @@ export class WhatsappIntegrationService {
             totalInbound++;
           }
 
+          const extractedContent =
+            payload.body ||
+            payload.text ||
+            payload.content ||
+            (payload.templateName ? `Template: ${payload.templateName}` : null) ||
+            (payload.templateData?.name ? `Template: ${payload.templateData.name}` : null) ||
+            'WhatsApp Message';
+
           return {
             id: m.id,
             conversationId: convId,
             sender: isOutbound ? 'AGENT' : 'CUSTOMER',
-            senderName: isOutbound ? 'FGSN Team' : (c.contact.displayName || `+${phone}`),
+            senderName: isOutbound ? (payload.authorName || 'FGSN Team') : (c.contact.displayName || `+${phone}`),
             direction: m.direction,
-            content: payload.text || payload.content || (payload.templateName ? `Template: ${payload.templateName}` : 'WhatsApp Message'),
+            content: extractedContent,
             timestamp: m.createdAt.toISOString(),
             status: m.status,
             metaMessageId: m.metaMessageId,
