@@ -511,7 +511,25 @@ export const InboxView: React.FC<InboxViewProps> = ({
               }
 
               const isOutbound = msg.direction === 'OUTBOUND';
-              const matchedTemplate = msg.templateId ? templates.find(t => t.id === msg.templateId || t.name === msg.templateId) : null;
+              const matchedTemplate = templates.find(t => {
+                if (!t) return false;
+                if (msg.templateId && (t.id === msg.templateId || t.name === msg.templateId || t.metaTemplateId === msg.templateId)) {
+                  return true;
+                }
+                if ((msg as any).templateName && (t.id === (msg as any).templateName || t.name === (msg as any).templateName)) {
+                  return true;
+                }
+                if (msg.content && t.bodyJson?.body) {
+                  const cleanMsg = msg.content.replace(/\s+/g, ' ').trim().toLowerCase();
+                  const cleanTpl = t.bodyJson.body.replace(/\s+/g, ' ').trim().toLowerCase();
+                  if (cleanMsg.length > 15 && cleanTpl.length > 15) {
+                    const snippet = cleanTpl.substring(0, 25);
+                    if (cleanMsg.includes(snippet)) return true;
+                  }
+                }
+                return false;
+              });
+
               const headerText = msg.headerText || (msg as any).templateData?.header?.text || matchedTemplate?.bodyJson?.header?.text;
               const headerType = msg.headerType || (msg as any).templateData?.header?.type || matchedTemplate?.bodyJson?.header?.type;
               const footerText = msg.footerText || (msg as any).templateData?.footer || matchedTemplate?.bodyJson?.footer;
