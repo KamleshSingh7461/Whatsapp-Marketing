@@ -156,10 +156,20 @@ export async function saveContactApi(contact: { phone: string; displayName?: str
 }
 
 export async function bulkSaveContactsApi(contacts: Array<{ phone: string; displayName?: string; tags?: string[] }>) {
-  return apiFetch<any[]>('/contacts/bulk', {
-    method: 'POST',
-    body: JSON.stringify({ contacts }),
-  });
+  if (!contacts || contacts.length === 0) return [];
+  const BATCH_SIZE = 300;
+  const results = [];
+  for (let i = 0; i < contacts.length; i += BATCH_SIZE) {
+    const chunk = contacts.slice(i, i + BATCH_SIZE);
+    const res = await apiFetch<any[]>('/contacts/bulk', {
+      method: 'POST',
+      body: JSON.stringify({ contacts: chunk }),
+    });
+    if (Array.isArray(res)) {
+      results.push(...res);
+    }
+  }
+  return results;
 }
 
 export async function autoCategorizeContactsApi() {
