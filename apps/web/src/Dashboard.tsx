@@ -16,6 +16,7 @@ import {
   updateCampaignApi,
   getFlowsApi,
   updateFlowStatusApi,
+  getLiveMessagingLedgerApi,
 } from './lib/api';
 import { Sidebar, TabType } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -427,6 +428,42 @@ export function Dashboard() {
     // Re-sync contacts every 10s and on window focus for live multi-PC parity
     const interval = setInterval(syncContactsWithServer, 10000);
     const handleFocus = () => syncContactsWithServer();
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [user]);
+
+  // Real-time Cloud Sync for WhatsApp Inbox Messages, Conversations & Meta Delivery Stats across all PCs
+  useEffect(() => {
+    if (!user) return;
+    let isMounted = true;
+
+    async function syncLiveLedger() {
+      try {
+        const ledger = await getLiveMessagingLedgerApi();
+        if (isMounted && ledger) {
+          if (Array.isArray(ledger.conversations) && ledger.conversations.length > 0) {
+            setConversations(ledger.conversations);
+          }
+          if (ledger.messagesByConvId && Object.keys(ledger.messagesByConvId).length > 0) {
+            setMessagesByConvId(prev => ({
+              ...prev,
+              ...ledger.messagesByConvId,
+            }));
+          }
+        }
+      } catch (e) {
+        console.warn('Live ledger sync error:', e);
+      }
+    }
+
+    syncLiveLedger();
+    const interval = setInterval(syncLiveLedger, 5000);
+    const handleFocus = () => syncLiveLedger();
     window.addEventListener('focus', handleFocus);
 
     return () => {

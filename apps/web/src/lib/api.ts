@@ -134,6 +134,14 @@ export async function getWebhookStatusApi() {
   return apiFetch<any>('/webhooks/whatsapp/status');
 }
 
+export async function getLiveMessagingLedgerApi() {
+  return apiFetch<{
+    conversations: any[];
+    messagesByConvId: Record<string, any[]>;
+    metrics: { totalOutbound: number; totalDelivered: number; totalInbound: number };
+  }>('/whatsapp/ledger');
+}
+
 export async function testWebhookPingApi() {
   return apiFetch<{ success: boolean; message: string; timestamp: string }>(
     '/webhooks/whatsapp/test-ping',

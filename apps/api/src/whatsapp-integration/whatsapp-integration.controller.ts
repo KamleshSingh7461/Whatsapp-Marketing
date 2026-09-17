@@ -23,6 +23,12 @@ export class WhatsappIntegrationController {
     return this.integration.getStatus();
   }
 
+  @Get('ledger')
+  @Roles(Role.ADMIN, Role.AGENT, Role.MARKETER, Role.VIEWER)
+  ledger() {
+    return this.integration.getLiveMessagingLedger();
+  }
+
   @Post('send-template')
   @Roles(Role.ADMIN, Role.MARKETER, Role.AGENT)
   sendTemplate(@Body() body: { to: string; templateName: string; language?: string; components?: any[] }) {

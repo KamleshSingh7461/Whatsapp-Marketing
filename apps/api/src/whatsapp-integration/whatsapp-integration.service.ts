@@ -242,4 +242,94 @@ export class WhatsappIntegrationService {
       this.logger.warn(`Subscribe webhooks error: ${e.message}`);
     }
   }
+
+  async getLiveMessagingLedger() {
+    try {
+      const convs = await this.prisma.conversation.findMany({
+        include: {
+          contact: true,
+          messages: {
+            orderBy: { createdAt: 'asc' },
+          },
+        },
+        orderBy: { updatedAt: 'desc' },
+      });
+
+      const formattedConvs: any[] = [];
+      const messagesByConvId: Record<string, any[]> = {};
+
+      let totalOutbound = 0;
+      let totalDelivered = 0;
+      let totalInbound = 0;
+
+      for (const c of convs) {
+        if (!c.contact) continue;
+        const phone = c.contact.phone;
+        const convId = c.id || `conv_${phone}`;
+        const msgs = (c.messages || []).map(m => {
+          const payload = (m.payloadJson as any) || {};
+          const isOutbound = m.direction === 'OUTBOUND';
+          if (isOutbound) {
+            totalOutbound++;
+            if (m.status !== 'FAILED') totalDelivered++;
+          } else {
+            totalInbound++;
+          }
+
+          return {
+            id: m.id,
+            conversationId: convId,
+            sender: isOutbound ? 'AGENT' : 'CUSTOMER',
+            senderName: isOutbound ? 'FGSN Team' : (c.contact.displayName || `+${phone}`),
+            direction: m.direction,
+            content: payload.text || payload.content || (payload.templateName ? `Template: ${payload.templateName}` : 'WhatsApp Message'),
+            timestamp: m.createdAt.toISOString(),
+            status: m.status,
+            metaMessageId: m.metaMessageId,
+          };
+        });
+
+        messagesByConvId[convId] = msgs;
+
+        const lastMsg = msgs[msgs.length - 1];
+        formattedConvs.push({
+          id: convId,
+          contact: {
+            id: c.contact.id,
+            phone: c.contact.phone,
+            displayName: c.contact.displayName || `+${c.contact.phone}`,
+            avatarUrl: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80`,
+            optedIn: c.contact.optedIn,
+            tags: c.contact.tags || ['New Lead'],
+          },
+          lastMessage: lastMsg ? {
+            id: lastMsg.id,
+            content: lastMsg.content,
+            timestamp: lastMsg.timestamp,
+            sender: lastMsg.sender,
+          } : undefined,
+          unreadCount: msgs.filter(m => m.direction === 'INBOUND' && m.status !== 'READ').length,
+          status: 'OPEN',
+          windowExpiresAt: c.windowExpiresAt ? c.windowExpiresAt.toISOString() : undefined,
+        });
+      }
+
+      return {
+        conversations: formattedConvs,
+        messagesByConvId,
+        metrics: {
+          totalOutbound,
+          totalDelivered,
+          totalInbound,
+        },
+      };
+    } catch (e: any) {
+      this.logger.error(`Failed to get live messaging ledger: ${e.message}`);
+      return {
+        conversations: [],
+        messagesByConvId: {},
+        metrics: { totalOutbound: 0, totalDelivered: 0, totalInbound: 0 },
+      };
+    }
+  }
 }
