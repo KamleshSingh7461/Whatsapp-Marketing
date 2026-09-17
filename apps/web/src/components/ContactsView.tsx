@@ -130,11 +130,50 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
     URL.revokeObjectURL(url);
   };
 
+  const handleExportYesLeadCoverageSheet = () => {
+    const yesLeads = contacts.filter(c =>
+      c.tags && c.tags.some(t => t.toLowerCase().includes('yes') || t.toLowerCase().includes('hot lead'))
+    );
+
+    const listToExport = yesLeads.length > 0 ? yesLeads : contacts.filter(c => c.optedIn);
+
+    if (listToExport.length === 0) {
+      alert('No "YES" opt-in lead contacts found to export.');
+      return;
+    }
+
+    const headers = ['Lead Name', 'WhatsApp Phone Number', 'Opt-In Tag', 'Opt-In Date', 'Assigned Representative', 'Call Status', 'Notes / Preferred Time'];
+    const rows = listToExport.map(c => [
+      `"${(c.displayName || '').replace(/"/g, '""')}"`,
+      `"${c.phone}"`,
+      `"${(c.tags || []).join('; ')}"`,
+      `"${c.optedInAt ? new Date(c.optedInAt).toLocaleString() : new Date().toLocaleDateString()}"`,
+      `"Unassigned Representative"`,
+      `"Pending Call"`,
+      `"Wants Subject Matter Expert Call"`
+    ]);
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `FGSN_YES_Lead_Coverage_Sheet_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const filtered = contacts.filter((c) => {
     const matchesSearch =
       c.displayName.toLowerCase().includes(search.toLowerCase()) ||
       c.phone.includes(search) ||
       c.tags.some((t) => t.toLowerCase().includes(search.toLowerCase()));
+
+    if (selectedRfm === 'YES_LEADS') {
+      return matchesSearch && c.tags && c.tags.some(t => t.toLowerCase().includes('yes') || t.toLowerCase().includes('hot lead'));
+    }
 
     const matchesRfm = selectedRfm === 'ALL' || c.rfmSegment === selectedRfm;
     return matchesSearch && matchesRfm;
@@ -261,6 +300,14 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           {canManageContacts(currentUser?.role) && (
             <>
+              <button
+                className="btn-secondary"
+                onClick={handleExportYesLeadCoverageSheet}
+                style={{ background: '#FEF2F2', borderColor: '#FCA5A5', color: '#991B1B', fontWeight: 700 }}
+                title="Download Excel / CSV coverage sheet of all contacts who replied YES to send to sales representatives"
+              >
+                📋 Export "YES" Lead Coverage Sheet
+              </button>
               <button className="btn-secondary" onClick={handleExportCsv} title="Export all contacts to CSV">
                 <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6 }}>
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -305,12 +352,19 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
         const avgVipLtv = vipContacts.length > 0 ? Math.round(vipContacts.reduce((a, c) => a + (c.lifetimeValue || 0), 0) / vipContacts.length) : 0;
         const loyalContacts = contacts.filter(c => c.rfmSegment === 'LOYAL_CUSTOMERS');
         const avgLoyalLtv = loyalContacts.length > 0 ? Math.round(loyalContacts.reduce((a, c) => a + (c.lifetimeValue || 0), 0) / loyalContacts.length) : 0;
-        const highIntent = contacts.filter(c => c.rfmSegment === 'POTENTIAL_LOYALIST');
-        const avgHighIntentLtv = highIntent.length > 0 ? Math.round(highIntent.reduce((a, c) => a + (c.lifetimeValue || 0), 0) / highIntent.length) : 0;
+        const yesOptInCount = contacts.filter(c => c.tags?.some(t => t.toLowerCase().includes('yes') || t.toLowerCase().includes('hot lead'))).length;
         const optedInCount = contacts.filter(c => c.optedIn).length;
 
         return (
           <div className="metrics-grid">
+            <div className="metric-card" style={{ borderLeft: '4px solid #DC2626' }}>
+              <div className="metric-header">
+                <span className="metric-label" style={{ color: '#991B1B', fontWeight: 700 }}>🔥 "YES" Hot Lead Opt-Ins</span>
+              </div>
+              <div className="metric-primary-value text-primary-brand" style={{ color: '#DC2626' }}>{yesOptInCount}</div>
+              <div className="metric-footer-text">Ready for Representative Calls</div>
+            </div>
+
             <div className="metric-card">
               <div className="metric-header">
                 <span className="metric-label">VIP Tier 1 Avg LTV</span>
@@ -325,14 +379,6 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
               </div>
               <div className="metric-primary-value">{formatCurrency(avgLoyalLtv, currency)}</div>
               <div className="metric-footer-text">{loyalContacts.length} loyal customers</div>
-            </div>
-
-            <div className="metric-card">
-              <div className="metric-header">
-                <span className="metric-label">High Intent Cart Avg</span>
-              </div>
-              <div className="metric-primary-value">{formatCurrency(avgHighIntentLtv, currency)}</div>
-              <div className="metric-footer-text">{highIntent.length} potential buyers</div>
             </div>
 
             <div className="metric-card">
@@ -366,6 +412,13 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
           <div className="tag-filter-pills">
             <button className={`tag-filter-btn ${selectedRfm === 'ALL' ? 'active' : ''}`} onClick={() => setSelectedRfm('ALL')}>
               All ({contacts.length})
+            </button>
+            <button
+              className={`tag-filter-btn ${selectedRfm === 'YES_LEADS' ? 'active' : ''}`}
+              onClick={() => setSelectedRfm('YES_LEADS')}
+              style={{ background: selectedRfm === 'YES_LEADS' ? '#DC2626' : '#FEF2F2', color: selectedRfm === 'YES_LEADS' ? '#FFFFFF' : '#991B1B', fontWeight: 700 }}
+            >
+              🔥 YES Opt-Ins ({contacts.filter(c => c.tags?.some(t => t.toLowerCase().includes('yes') || t.toLowerCase().includes('hot lead'))).length})
             </button>
             <button className={`tag-filter-btn ${selectedRfm === 'CHAMPIONS' ? 'active' : ''}`} onClick={() => setSelectedRfm('CHAMPIONS')}>
               VIP Tier 1

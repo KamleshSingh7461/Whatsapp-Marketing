@@ -931,9 +931,45 @@ export function Dashboard() {
       timestamp: new Date().toISOString(),
     };
 
+    const cleanLower = text.trim().toLowerCase();
+    const isYesReply =
+      cleanLower === 'yes' ||
+      cleanLower.startsWith('yes ') ||
+      cleanLower.endsWith(' yes') ||
+      cleanLower === 'yes!' ||
+      cleanLower === 'yess' ||
+      cleanLower === 'yeah';
+
+    let autoBotMsg: Message | null = null;
+    if (isYesReply) {
+      const autoText = `Alright, let’s say it’s time for you to get started. \nOur student subject matter expert will call you shortly do you have a preferred time that we can connect?`;
+      autoBotMsg = {
+        id: `msg_auto_${Date.now()}`,
+        conversationId: convId,
+        direction: 'OUTBOUND',
+        status: 'DELIVERED',
+        content: autoText,
+        authorName: 'FGSN Auto-Reply Bot',
+        timestamp: new Date(Date.now() + 500).toISOString(),
+      };
+
+      // Tag contact as Hot Lead - Yes Opt-In
+      setContacts(prev =>
+        prev.map(ct => {
+          if (ct.phone === conv?.contact?.phone || ct.id === conv?.contact?.id) {
+            const existingTags = ct.tags || [];
+            const newTags = Array.from(new Set([...existingTags, 'Hot Lead - Yes Opt-In', 'Hot Lead']));
+            saveContactApi({ phone: ct.phone, displayName: ct.displayName, tags: newTags, optedIn: ct.optedIn }).catch(() => null);
+            return { ...ct, tags: newTags };
+          }
+          return ct;
+        })
+      );
+    }
+
     setMessagesByConvId(prev => ({
       ...prev,
-      [convId]: [...(prev[convId] || []), newInboundMsg],
+      [convId]: [...(prev[convId] || []), newInboundMsg, ...(autoBotMsg ? [autoBotMsg] : [])],
     }));
 
     // Reset 24-hour session window to +24 hrs from now!
@@ -944,7 +980,7 @@ export function Dashboard() {
         c.id === convId
           ? {
               ...c,
-              lastMessage: newInboundMsg,
+              lastMessage: autoBotMsg || newInboundMsg,
               windowExpiresAt: newWindowExpiry,
               status: 'OPEN',
               unreadCount: 0,

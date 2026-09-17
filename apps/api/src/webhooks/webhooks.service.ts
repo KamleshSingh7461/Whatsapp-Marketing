@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { MessageDirection, MessageStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { WhatsappIntegrationService } from '../whatsapp-integration/whatsapp-integration.service';
 
 const SESSION_WINDOW_HOURS = 24;
 
@@ -14,7 +15,10 @@ const SESSION_WINDOW_HOURS = 24;
 export class WebhooksService {
   private readonly logger = new Logger(WebhooksService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private whatsappService: WhatsappIntegrationService,
+  ) {}
 
   async handleIncoming(payload: any): Promise<void> {
     const entries = payload?.entry ?? [];
@@ -91,13 +95,15 @@ export class WebhooksService {
       });
     }
 
-    const textContent = 
+    const rawText = 
       message.text?.body ||
       message.button?.text ||
       message.interactive?.button_reply?.title ||
       message.interactive?.list_reply?.title ||
       message.caption ||
       (message.type ? `[${message.type.toUpperCase()} Message]` : 'Inbound WhatsApp message');
+
+    const textContent = String(rawText).trim();
 
     await this.prisma.message.create({
       data: {
@@ -113,6 +119,53 @@ export class WebhooksService {
     });
 
     this.logger.log(`Inbound message recorded from +${phone}: "${textContent}"`);
+
+    // Predefined "Yes" Auto-Response & Hot Lead Tagging Logic
+    const cleanLower = textContent.toLowerCase();
+    const isYesReply =
+      cleanLower === 'yes' ||
+      cleanLower.startsWith('yes ') ||
+      cleanLower.endsWith(' yes') ||
+      cleanLower === 'yes!' ||
+      cleanLower === 'yess' ||
+      cleanLower === 'yeah';
+
+    if (isYesReply) {
+      // 1. Tag contact as "Hot Lead - Yes Opt-In"
+      const existingTags = contact.tags || [];
+      const updatedTags = Array.from(new Set([...existingTags, 'Hot Lead - Yes Opt-In', 'Hot Lead']));
+      await this.prisma.contact.update({
+        where: { id: contact.id },
+        data: { tags: updatedTags },
+      });
+
+      // 2. Dispatch automated WhatsApp response
+      const autoReplyText = `Alright, let’s say it’s time for you to get started. \nOur student subject matter expert will call you shortly do you have a preferred time that we can connect?`;
+
+      try {
+        await this.whatsappService.sendTextMessage({
+          to: phone,
+          text: autoReplyText,
+        });
+      } catch (err: any) {
+        this.logger.warn(`Auto-reply dispatch exception to +${phone}: ${err.message}`);
+      }
+
+      // 3. Record outbound automated response in conversation thread
+      await this.prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          direction: MessageDirection.OUTBOUND,
+          status: MessageStatus.DELIVERED,
+          payloadJson: {
+            body: autoReplyText,
+            authorName: 'FGSN Auto-Reply Bot',
+          },
+        },
+      });
+
+      this.logger.log(`Dispatched YES auto-reply to +${phone} and tagged as 'Hot Lead - Yes Opt-In'`);
+    }
   }
 
   private async recordStatusUpdate(status: any) {

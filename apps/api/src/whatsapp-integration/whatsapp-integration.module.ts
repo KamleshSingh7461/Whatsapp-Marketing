@@ -5,5 +5,6 @@ import { WhatsappIntegrationService } from './whatsapp-integration.service';
 @Module({
   controllers: [WhatsappIntegrationController],
   providers: [WhatsappIntegrationService],
+  exports: [WhatsappIntegrationService],
 })
 export class WhatsappIntegrationModule {}
