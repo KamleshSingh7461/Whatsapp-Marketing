@@ -1,5 +1,22 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { apiFetch, clearToken, getMeApi, getTeamMembersApi, getToken, loginApi, setToken } from './lib/api';
+import {
+  apiFetch,
+  clearToken,
+  getMeApi,
+  getTeamMembersApi,
+  getToken,
+  loginApi,
+  setToken,
+  getContactsApi,
+  saveContactApi,
+  bulkSaveContactsApi,
+  autoCategorizeContactsApi,
+  getCampaignsApi,
+  createCampaignApi,
+  updateCampaignApi,
+  getFlowsApi,
+  updateFlowStatusApi,
+} from './lib/api';
 import { Sidebar, TabType } from './components/Sidebar';
 import { Header } from './components/Header';
 import { AnalyticsView } from './components/AnalyticsView';
@@ -461,22 +478,28 @@ export function Dashboard() {
     regionalPricing: DEFAULT_REGIONAL_RATES,
   };
 
-  // 1. Real-time 5-second background synchronization loop for Meta Templates & WABA Status
+  // 1. Real-time background synchronization loop for Meta Templates, WABA Status, Contacts, Campaigns & Automations
   useEffect(() => {
+    if (!getToken()) return;
+
     const fetchSync = () => {
       Promise.all([
         apiFetch<WhatsappStatus>('/whatsapp/status').catch(() => null),
         apiFetch<Template[]>('/templates').catch(() => null),
-      ]).then(([s, t]) => {
+        getContactsApi().catch(() => null),
+        getCampaignsApi().catch(() => null),
+        getFlowsApi().catch(() => null),
+      ]).then(([s, t, c, cmp, fl]) => {
         if (s) setStatus(s);
-        if (t && Array.isArray(t) && t.length > 0) {
-          setTemplates(t as any);
-        }
+        if (t && Array.isArray(t) && t.length > 0) setTemplates(t as any);
+        if (c && Array.isArray(c) && c.length > 0) setContacts(c);
+        if (cmp && Array.isArray(cmp) && cmp.length > 0) setCampaigns(cmp);
+        if (fl && Array.isArray(fl) && fl.length > 0) setFlows(fl);
       });
     };
 
     fetchSync();
-    const interval = setInterval(fetchSync, 5000); // Poll Meta Graph API every 5 seconds for instant approval updates
+    const interval = setInterval(fetchSync, 4000); // Cross-device real-time sync every 4 seconds
 
     return () => clearInterval(interval);
   }, []);
@@ -1083,7 +1106,18 @@ export function Dashboard() {
     }
   };
 
-  const handleAutoCategorizeContacts = () => {
+  const handleAutoCategorizeContacts = async () => {
+    try {
+      const updated = await autoCategorizeContactsApi();
+      if (Array.isArray(updated) && updated.length > 0) {
+        setContacts(updated);
+        alert(`Successfully auto-categorized ${updated.length} contacts into 500-1,000 batch chunks! You can now select Batch 1, Batch 2, etc. when creating Broadcast Campaigns.`);
+        return;
+      }
+    } catch (e) {
+      console.warn('Backend auto-categorize failed, applying local update:', e);
+    }
+
     setContacts(prev => {
       const updated = prev.map((c, index) => {
         let batchTag = 'Batch 1: Contacts 1 - 500';
@@ -1098,9 +1132,6 @@ export function Dashboard() {
           tags: newTags,
         };
       });
-      try {
-        localStorage.setItem('fgsn_saved_contacts', JSON.stringify(updated));
-      } catch (e) {}
       alert(`Successfully auto-categorized ${prev.length} contacts into 500-1,000 batch chunks! You can now select Batch 1, Batch 2, etc. when creating Broadcast Campaigns.`);
       return updated;
     });
@@ -1126,18 +1157,36 @@ export function Dashboard() {
     );
   };
 
-  const handleToggleFlowStatus = (flowId: string) => {
+  const handleToggleFlowStatus = async (flowId: string) => {
+    const target = flows.find(f => f.id === flowId);
+    const newStatus = target?.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE';
     setFlows(prev =>
       prev.map(f =>
         f.id === flowId
-          ? { ...f, status: f.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE' }
+          ? { ...f, status: newStatus }
           : f
       )
     );
+    try {
+      await updateFlowStatusApi(flowId, newStatus);
+    } catch (e) {}
   };
 
   const handleLaunchCampaign = async (newCmp: Campaign) => {
     setCampaigns(prev => [newCmp, ...prev]);
+
+    try {
+      await createCampaignApi({
+        name: newCmp.name,
+        templateName: newCmp.templateName,
+        targetTags: newCmp.targetTags,
+        totalRecipients: newCmp.totalRecipients,
+        stats: newCmp.stats,
+        status: newCmp.status,
+      });
+    } catch (e) {
+      console.warn('Failed to save campaign to backend DB:', e);
+    }
 
     // Send real Meta WhatsApp Cloud API messages to all target contacts in the campaign!
     const targetContacts = contacts.filter(c => c.optedIn && (newCmp.targetTags.length === 0 || c.tags.some(t => newCmp.targetTags.includes(t))));
@@ -1226,16 +1275,37 @@ export function Dashboard() {
     }
   };
 
-  const handleAddContact = (contact: Contact) => {
+  const handleAddContact = async (contact: Contact) => {
     setContacts(prev => [contact, ...prev]);
+    try {
+      await saveContactApi({
+        phone: contact.phone,
+        displayName: contact.displayName,
+        tags: contact.tags,
+        optedIn: contact.optedIn,
+      });
+    } catch (e) {
+      console.warn('Failed to save contact to backend DB:', e);
+    }
   };
 
-  const handleBulkAddContacts = (newContacts: Contact[]) => {
+  const handleBulkAddContacts = async (newContacts: Contact[]) => {
     setContacts(prev => {
       const existingPhones = new Set(prev.map(c => c.phone.replace(/[^0-9]/g, '')));
       const uniqueNew = newContacts.filter(c => !existingPhones.has(c.phone.replace(/[^0-9]/g, '')));
       return [...uniqueNew, ...prev];
     });
+    try {
+      await bulkSaveContactsApi(
+        newContacts.map(c => ({
+          phone: c.phone,
+          displayName: c.displayName,
+          tags: c.tags,
+        }))
+      );
+    } catch (e) {
+      console.warn('Failed to bulk save contacts to backend DB:', e);
+    }
   };
 
   const handleAddTeamMember = (member: Omit<User, 'id'>) => {

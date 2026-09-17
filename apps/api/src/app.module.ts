@@ -9,6 +9,9 @@ import { WebhooksModule } from './webhooks/webhooks.module';
 import { BillingModule } from './billing/billing.module';
 import { MailModule } from './mail/mail.module';
 import { InboxModule } from './inbox/inbox.module';
+import { ContactsModule } from './contacts/contacts.module';
+import { CampaignsModule } from './campaigns/campaigns.module';
+import { AutomationsModule } from './automations/automations.module';
 
 @Module({
   imports: [
@@ -19,6 +22,9 @@ import { InboxModule } from './inbox/inbox.module';
     PrismaModule,
     MailModule,
     InboxModule,
+    ContactsModule,
+    CampaignsModule,
+    AutomationsModule,
     AuthModule,
     WhatsappIntegrationModule,
     TemplatesModule,

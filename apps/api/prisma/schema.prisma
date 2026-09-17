@@ -191,14 +191,24 @@ model Message {
 model Campaign {
   id          String         @id @default(cuid())
   name        String
-  template    Template       @relation(fields: [templateId], references: [id])
-  templateId  String
+  template    Template?      @relation(fields: [templateId], references: [id])
+  templateId  String?
   status      CampaignStatus @default(DRAFT)
   scheduledAt DateTime?
-  segmentJson Json // filter/segment definition, e.g. { tags: ["vip"] }
+  segmentJson Json? // filter/segment definition, e.g. { tags: ["vip"] }
   stats       Json? // { queued, sent, delivered, read, failed }
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
+}
+
+model AutomationFlow {
+  id        String   @id @default(cuid())
+  name      String
+  trigger   String
+  status    String   @default("ACTIVE")
+  stats     Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // Append-only. Never update or delete rows — write new entries only.

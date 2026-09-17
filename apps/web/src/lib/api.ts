@@ -142,3 +142,66 @@ export async function testWebhookPingApi() {
     },
   );
 }
+
+// Contacts API Calls
+export async function getContactsApi() {
+  return apiFetch<any[]>('/contacts');
+}
+
+export async function saveContactApi(contact: { phone: string; displayName?: string; tags?: string[]; optedIn?: boolean }) {
+  return apiFetch<any>('/contacts', {
+    method: 'POST',
+    body: JSON.stringify(contact),
+  });
+}
+
+export async function bulkSaveContactsApi(contacts: Array<{ phone: string; displayName?: string; tags?: string[] }>) {
+  return apiFetch<any[]>('/contacts/bulk', {
+    method: 'POST',
+    body: JSON.stringify({ contacts }),
+  });
+}
+
+export async function autoCategorizeContactsApi() {
+  return apiFetch<any[]>('/contacts/auto-categorize', {
+    method: 'POST',
+  });
+}
+
+// Campaigns API Calls
+export async function getCampaignsApi() {
+  return apiFetch<any[]>('/campaigns');
+}
+
+export async function createCampaignApi(cmp: {
+  name: string;
+  templateName: string;
+  targetTags?: string[];
+  totalRecipients?: number;
+  stats?: any;
+  status?: any;
+}) {
+  return apiFetch<any>('/campaigns', {
+    method: 'POST',
+    body: JSON.stringify(cmp),
+  });
+}
+
+export async function updateCampaignApi(id: string, update: { status?: any; stats?: any }) {
+  return apiFetch<any>(`/campaigns/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(update),
+  });
+}
+
+// Automations API Calls
+export async function getFlowsApi() {
+  return apiFetch<any[]>('/automations');
+}
+
+export async function updateFlowStatusApi(id: string, status: 'ACTIVE' | 'PAUSED') {
+  return apiFetch<any>(`/automations/${id}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+}
