@@ -1404,6 +1404,12 @@ export function Dashboard() {
   };
 
   const handleBulkAddContacts = async (newContacts: Contact[]) => {
+    setContacts(prev => {
+      const existingPhones = new Set(prev.map(c => c.phone.replace(/[^0-9]/g, '')));
+      const uniqueNew = newContacts.filter(c => !existingPhones.has(c.phone.replace(/[^0-9]/g, '')));
+      return [...uniqueNew, ...prev];
+    });
+
     try {
       await bulkSaveContactsApi(
         newContacts.map(c => ({
@@ -1413,12 +1419,11 @@ export function Dashboard() {
         }))
       );
       const serverContacts = await getContactsApi();
-      if (Array.isArray(serverContacts)) {
+      if (Array.isArray(serverContacts) && serverContacts.length > 0) {
         setContacts(serverContacts);
       }
     } catch (e) {
       console.warn('Failed to bulk save contacts to backend DB:', e);
-      setContacts(prev => [...newContacts, ...prev]);
     }
   };
 
