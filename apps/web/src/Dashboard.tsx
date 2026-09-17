@@ -414,7 +414,7 @@ export function Dashboard() {
 
         // 2. Fetch authoritative clean deduplicated contacts from backend server DB
         const serverContacts = await getContactsApi();
-        if (isMounted && Array.isArray(serverContacts)) {
+        if (isMounted && Array.isArray(serverContacts) && serverContacts.length > 0) {
           setContacts(serverContacts);
         }
       } catch (e) {

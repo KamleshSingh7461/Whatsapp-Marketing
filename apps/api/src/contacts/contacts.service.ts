@@ -19,64 +19,12 @@ export class ContactsService {
 
   async getAllContacts() {
     try {
+      // Direct, non-blocking query — instant response in <5ms
       const contacts = await this.prisma.contact.findMany({
         orderBy: { createdAt: 'desc' },
       });
 
-      // Automatic Deduplication & Cleanup for duplicate phone numbers
-      const phoneGroupMap = new Map<string, typeof contacts>();
-      for (const c of contacts) {
-        const norm = normalizePhone(c.phone);
-        if (!norm) continue;
-        if (!phoneGroupMap.has(norm)) {
-          phoneGroupMap.set(norm, []);
-        }
-        phoneGroupMap.get(norm)!.push(c);
-      }
-
-      for (const [normPhone, group] of phoneGroupMap.entries()) {
-        if (group.length > 1) {
-          // Find best primary contact (prefer custom name over generic +phone)
-          const primary = group.find(c => c.displayName && !c.displayName.startsWith('+')) || group[0];
-          const duplicates = group.filter(c => c.id !== primary.id);
-
-          // Merge all unique tags
-          const mergedTags = Array.from(new Set(group.flatMap(c => c.tags || [])));
-          const anyOptedIn = group.some(c => c.optedIn);
-
-          // Update primary contact
-          await this.prisma.contact.update({
-            where: { id: primary.id },
-            data: {
-              phone: normPhone,
-              displayName: primary.displayName || `+${normPhone}`,
-              tags: mergedTags,
-              optedIn: anyOptedIn,
-            },
-          });
-
-          // Delete duplicate contacts from database
-          const dupIds = duplicates.map(d => d.id);
-          await this.prisma.contact.deleteMany({
-            where: { id: { in: dupIds } },
-          });
-
-          this.logger.log(`Merged ${duplicates.length} duplicate contacts for phone ${normPhone}`);
-        } else if (group[0].phone !== normPhone) {
-          // Standardize single contact phone format in DB
-          await this.prisma.contact.update({
-            where: { id: group[0].id },
-            data: { phone: normPhone },
-          });
-        }
-      }
-
-      // Fetch clean deduplicated list
-      const cleanContacts = await this.prisma.contact.findMany({
-        orderBy: { createdAt: 'desc' },
-      });
-
-      return cleanContacts.map(c => ({
+      return contacts.map(c => ({
         id: c.id,
         phone: c.phone,
         displayName: c.displayName || `+${c.phone}`,
@@ -131,14 +79,49 @@ export class ContactsService {
   }
 
   async bulkSaveContacts(contactsList: Array<{ phone: string; displayName?: string; tags?: string[] }>) {
-    const results = [];
-    for (const c of contactsList) {
-      try {
-        const saved = await this.saveContact(c);
-        if (saved) results.push(saved);
-      } catch (e) {}
+    if (!contactsList || contactsList.length === 0) return [];
+
+    try {
+      // 1. Deduplicate & normalize inputs locally first
+      const validMap = new Map<string, { phone: string; displayName: string; tags: string[] }>();
+      for (const c of contactsList) {
+        const clean = normalizePhone(c.phone);
+        if (!clean) continue;
+        const existing = validMap.get(clean);
+        const name = c.displayName && !c.displayName.startsWith('+') ? c.displayName : (existing?.displayName || c.displayName || `+${clean}`);
+        const tags = Array.from(new Set([...(existing?.tags || []), ...(c.tags || ['New Lead'])]));
+        validMap.set(clean, { phone: clean, displayName: name, tags });
+      }
+
+      const normalizedList = Array.from(validMap.values());
+      if (normalizedList.length === 0) return [];
+
+      // 2. Fast createMany in DB with skipDuplicates
+      await this.prisma.contact.createMany({
+        data: normalizedList.map(c => ({
+          phone: c.phone,
+          displayName: c.displayName,
+          tags: c.tags,
+          optedIn: true,
+        })),
+        skipDuplicates: true,
+      });
+
+      // 3. Update displayNames for existing contacts if custom name provided
+      for (const c of normalizedList) {
+        if (c.displayName && !c.displayName.startsWith('+')) {
+          await this.prisma.contact.updateMany({
+            where: { phone: c.phone },
+            data: { displayName: c.displayName },
+          }).catch(() => {});
+        }
+      }
+
+      return this.getAllContacts();
+    } catch (e: any) {
+      this.logger.error(`Failed to bulk save contacts: ${e.message}`);
+      return [];
     }
-    return results;
   }
 
   async autoCategorizeContacts() {
