@@ -51,17 +51,51 @@ export class WhatsappIntegrationService {
       // DB offline fallback
     }
 
-    const defaultWabaId = '1845046976654799';
-    const defaultPhoneId = '1268849126320372';
-    const defaultDisplayPhone = '+91 86558 51749';
+    const defaultWabaId = this.config.get<string>('META_WABA_ID') || '1845046976654799';
+    const defaultPhoneId = this.config.get<string>('META_PHONE_NUMBER_ID') || '1268849126320372';
+    const systemToken = this.config.get<string>('META_SYSTEM_USER_TOKEN');
+    const apiVersion = this.config.get<string>('META_GRAPH_API_VERSION') || 'v21.0';
+
+    const wabaId = connection?.wabaId || defaultWabaId;
+    const phoneId = connection?.phoneNumberId || defaultPhoneId;
+
+    let displayPhoneNumber = '+91 86558 51749';
+    let verifiedName = 'Freedom Global Sports Network';
+    let qualityRating = 'GREEN';
+    let tier = 'TIER_250';
+    let dailyMessageLimit = 250;
+
+    if (systemToken && phoneId) {
+      try {
+        const res = await fetch(`https://graph.facebook.com/${apiVersion}/${phoneId}?fields=display_phone_number,verified_name,quality_rating,messaging_limit_tier,status,account_mode`, {
+          headers: { Authorization: `Bearer ${systemToken}` },
+        });
+        if (res.ok) {
+          const metaData: any = await res.json();
+          displayPhoneNumber = metaData.display_phone_number || displayPhoneNumber;
+          verifiedName = metaData.verified_name || verifiedName;
+          qualityRating = metaData.quality_rating || qualityRating;
+          tier = metaData.messaging_limit_tier || tier;
+          if (tier === 'TIER_250') dailyMessageLimit = 250;
+          else if (tier === 'TIER_1K' || tier === 'TIER_2K') dailyMessageLimit = 2000;
+          else if (tier === 'TIER_10K') dailyMessageLimit = 10000;
+          else if (tier === 'TIER_100K') dailyMessageLimit = 100000;
+          else if (tier === 'UNLIMITED') dailyMessageLimit = 1000000;
+        }
+      } catch (e: any) {
+        this.logger.warn(`Meta phone status fetch failed: ${e.message}`);
+      }
+    }
 
     return {
       connected: true,
-      wabaId: connection?.wabaId || defaultWabaId,
-      phoneNumberId: connection?.phoneNumberId || defaultPhoneId,
-      displayPhoneNumber: connection?.displayPhoneNumber || defaultDisplayPhone,
-      tier: connection?.tier || 'TIER_2K',
-      qualityRating: connection?.qualityRating || 'GREEN',
+      wabaId,
+      phoneNumberId: phoneId,
+      displayPhoneNumber,
+      verifiedName,
+      tier,
+      qualityRating,
+      dailyMessageLimit,
       connectedAt: connection?.connectedAt || new Date().toISOString(),
     };
   }
@@ -314,12 +348,46 @@ export class WhatsappIntegrationService {
         });
       }
 
+      // Query official Meta WABA Analytics live from Meta Graph API
+      let metaOfficialSent = totalOutbound;
+      let metaOfficialDelivered = totalDelivered;
+
+      try {
+        const wabaId = this.config.get<string>('META_WABA_ID') || '1845046976654799';
+        const systemToken = this.config.get<string>('META_SYSTEM_USER_TOKEN');
+        const apiVersion = this.config.get<string>('META_GRAPH_API_VERSION') || 'v21.0';
+
+        if (systemToken && wabaId) {
+          const start = Math.floor(Date.now() / 1000) - 30 * 86400;
+          const end = Math.floor(Date.now() / 1000);
+          const res = await fetch(`https://graph.facebook.com/${apiVersion}/${wabaId}?fields=analytics.start(${start}).end(${end}).granularity(DAY)`, {
+            headers: { Authorization: `Bearer ${systemToken}` },
+          });
+          if (res.ok) {
+            const metaAnalyticsData: any = await res.json();
+            const dataPoints = metaAnalyticsData.analytics?.data_points || [];
+            let sumSent = 0;
+            let sumDelivered = 0;
+            dataPoints.forEach((dp: any) => {
+              sumSent += dp.sent || 0;
+              sumDelivered += dp.delivered || 0;
+            });
+            if (sumSent > 0) {
+              metaOfficialSent = Math.max(totalOutbound, sumSent);
+              metaOfficialDelivered = Math.max(totalDelivered, sumDelivered);
+            }
+          }
+        }
+      } catch (metaErr: any) {
+        this.logger.warn(`Meta official analytics fetch warning: ${metaErr.message}`);
+      }
+
       return {
         conversations: formattedConvs,
         messagesByConvId,
         metrics: {
-          totalOutbound,
-          totalDelivered,
+          totalOutbound: metaOfficialSent,
+          totalDelivered: metaOfficialDelivered,
           totalInbound,
         },
       };
