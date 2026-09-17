@@ -7,7 +7,7 @@ interface BulkContactUploadModalProps {
   isOpen: boolean;
   onClose: () => void;
   existingContacts: Contact[];
-  onImportContacts: (contacts: Contact[]) => void;
+  onImportContacts: (contacts: Contact[]) => Promise<void> | void;
 }
 
 export const BulkContactUploadModal: React.FC<BulkContactUploadModalProps> = ({
@@ -99,12 +99,15 @@ export const BulkContactUploadModal: React.FC<BulkContactUploadModalProps> = ({
     if (file) processFile(file);
   };
 
-  const handleImport = () => {
-    if (!parseResult || parseResult.valid.length === 0) return;
+  const handleImport = async () => {
+    if (!parseResult || parseResult.valid.length === 0 || isImporting) return;
     setIsImporting(true);
     try {
-      onImportContacts(parseResult.valid);
+      await onImportContacts(parseResult.valid);
+      alert(`✅ Successfully imported ${parseResult.valid.length} contacts into your CRM database!`);
       onClose();
+    } catch (e: any) {
+      alert(`⚠️ Import error: ${e.message || 'Error saving contacts'}`);
     } finally {
       setIsImporting(false);
     }
@@ -372,9 +375,13 @@ export const BulkContactUploadModal: React.FC<BulkContactUploadModalProps> = ({
             className="btn-primary"
             disabled={!parseResult || parseResult.valid.length === 0 || isImporting}
             onClick={handleImport}
+            style={{
+              backgroundColor: isImporting ? '#047857' : '#059669',
+              minWidth: 260,
+            }}
           >
             {isImporting
-              ? 'Importing...'
+              ? `⏳ Saving ${parseResult?.valid.length || 0} Contacts to Database...`
               : `Import ${parseResult?.valid.length || 0} Contacts to CRM`}
           </button>
         </div>
