@@ -328,6 +328,14 @@ export class WhatsappIntegrationService {
             timestamp: m.createdAt.toISOString(),
             status: m.status,
             metaMessageId: m.metaMessageId,
+            templateId: m.templateId || payload.templateId || payload.templateName,
+            templateData: payload.templateData,
+            headerText: payload.headerText || payload.templateData?.header?.text,
+            headerType: payload.headerType || payload.templateData?.header?.type,
+            footerText: payload.footerText || payload.templateData?.footer,
+            buttons: payload.buttons || payload.templateData?.buttons,
+            isInternalNote: payload.isInternalNote || false,
+            authorName: payload.authorName,
           };
         });
 
