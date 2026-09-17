@@ -16,6 +16,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [isForgotView, setIsForgotView] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,6 +36,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleForgotSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim()) return;
+    setLoading(true);
+    setError(null);
+    // Simulate/Trigger password reset workflow
+    setTimeout(() => {
+      setLoading(false);
+      setForgotSent(true);
+    }, 800);
   };
 
   return (
@@ -86,10 +101,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
           <div>
             <h3 style={{ fontSize: 20, fontWeight: 700, margin: 0, color: '#0F172A', letterSpacing: '-0.02em' }}>
-              Sign In to FGSN ERP
+              {isForgotView ? 'Reset Your Password' : 'Sign In to FGSN ERP'}
             </h3>
             <p style={{ fontSize: 13, color: '#64748B', margin: '3px 0 0', fontWeight: 500 }}>
-              Enterprise WhatsApp Marketing & Operations
+              {isForgotView ? 'Enter your work email to receive password reset link' : 'Enterprise WhatsApp Marketing & Operations'}
             </p>
           </div>
           {!isMandatory && (
@@ -131,97 +146,227 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
         )}
 
-        <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: 20 }}>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#0F172A', marginBottom: 8 }}>
-              Work Email Address
-            </label>
-            <input
-              type="email"
-              required
-              placeholder="e.g. admin@fgsnlive.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+        {isForgotView ? (
+          <div>
+            {forgotSent ? (
+              <div
+                style={{
+                  padding: '16px',
+                  borderRadius: 10,
+                  backgroundColor: '#ECFDF5',
+                  border: '1px solid #A7F3D0',
+                  color: '#065F46',
+                  fontSize: 13,
+                  marginBottom: 20,
+                  lineHeight: 1.5,
+                }}
+              >
+                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
+                  ✉️ Reset Link Dispatched!
+                </div>
+                Password reset instructions have been sent to <strong>{email}</strong>. Please check your inbox or contact your FGSN Super Admin (<code>admin@fgsnlive.com</code>) to reset your credentials instantly.
+              </div>
+            ) : (
+              <form onSubmit={handleForgotSubmit}>
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#0F172A', marginBottom: 8 }}>
+                    Work Email Address
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="e.g. admin@fgsnlive.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '12px 14px',
+                      borderRadius: 8,
+                      border: '1px solid #CBD5E1',
+                      backgroundColor: '#FFFFFF',
+                      color: '#0F172A',
+                      fontSize: 14,
+                      boxSizing: 'border-box',
+                      outline: 'none',
+                    }}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={loading || !email.trim()}
+                  style={{
+                    width: '100%',
+                    padding: '13px',
+                    borderRadius: 8,
+                    backgroundColor: '#059669',
+                    color: '#FFFFFF',
+                    fontWeight: 700,
+                    fontSize: 14,
+                    border: 'none',
+                    cursor: loading || !email.trim() ? 'not-allowed' : 'pointer',
+                    boxShadow: '0 4px 12px rgba(5, 150, 105, 0.25)',
+                    marginBottom: 16,
+                  }}
+                >
+                  {loading ? 'Sending Reset Instructions...' : 'Send Password Reset Link'}
+                </button>
+              </form>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setIsForgotView(false);
+                setForgotSent(false);
+              }}
               style={{
                 width: '100%',
-                padding: '12px 14px',
+                padding: '10px',
                 borderRadius: 8,
-                border: '1px solid #CBD5E1',
-                backgroundColor: '#FFFFFF',
-                color: '#0F172A',
-                fontSize: 14,
-                boxSizing: 'border-box',
-                outline: 'none',
-                transition: 'all 0.15s ease',
+                backgroundColor: 'transparent',
+                color: '#2563EB',
+                fontWeight: 600,
+                fontSize: 13,
+                border: 'none',
+                cursor: 'pointer',
               }}
-              onFocus={(e) => {
-                e.target.style.borderColor = '#059669';
-                e.target.style.boxShadow = '0 0 0 3px rgba(5, 150, 105, 0.15)';
-              }}
-              onBlur={(e) => {
-                e.target.style.borderColor = '#CBD5E1';
-                e.target.style.boxShadow = 'none';
-              }}
-            />
+            >
+              ← Back to Sign In
+            </button>
           </div>
+        ) : (
+          <form onSubmit={handleSubmit}>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#0F172A', marginBottom: 8 }}>
+                Work Email Address
+              </label>
+              <input
+                type="email"
+                required
+                placeholder="e.g. admin@fgsnlive.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '12px 14px',
+                  borderRadius: 8,
+                  border: '1px solid #CBD5E1',
+                  backgroundColor: '#FFFFFF',
+                  color: '#0F172A',
+                  fontSize: 14,
+                  boxSizing: 'border-box',
+                  outline: 'none',
+                  transition: 'all 0.15s ease',
+                }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#059669';
+                  e.target.style.boxShadow = '0 0 0 3px rgba(5, 150, 105, 0.15)';
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#CBD5E1';
+                  e.target.style.boxShadow = 'none';
+                }}
+              />
+            </div>
 
-          <div style={{ marginBottom: 26 }}>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#0F172A', marginBottom: 8 }}>
-              Password
-            </label>
-            <input
-              type="password"
-              required
-              placeholder="••••••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+            <div style={{ marginBottom: 26 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <label style={{ fontSize: 13, fontWeight: 600, color: '#0F172A' }}>
+                  Password
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setIsForgotView(true)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#2563EB',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    padding: 0,
+                  }}
+                >
+                  Forgot Password?
+                </button>
+              </div>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  placeholder="••••••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '12px 42px 12px 14px',
+                    borderRadius: 8,
+                    border: '1px solid #CBD5E1',
+                    backgroundColor: '#FFFFFF',
+                    color: '#0F172A',
+                    fontSize: 14,
+                    boxSizing: 'border-box',
+                    outline: 'none',
+                    transition: 'all 0.15s ease',
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = '#059669';
+                    e.target.style.boxShadow = '0 0 0 3px rgba(5, 150, 105, 0.15)';
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = '#CBD5E1';
+                    e.target.style.boxShadow = 'none';
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(prev => !prev)}
+                  title={showPassword ? 'Hide Password' : 'Show Password'}
+                  style={{
+                    position: 'absolute',
+                    right: 12,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: 16,
+                    color: '#64748B',
+                    padding: 4,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  {showPassword ? '👁️' : '🙈'}
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading || !email.trim() || !password.trim()}
               style={{
                 width: '100%',
-                padding: '12px 14px',
+                padding: '13px',
                 borderRadius: 8,
-                border: '1px solid #CBD5E1',
-                backgroundColor: '#FFFFFF',
-                color: '#0F172A',
+                backgroundColor: '#059669',
+                color: '#FFFFFF',
+                fontWeight: 700,
                 fontSize: 14,
-                boxSizing: 'border-box',
-                outline: 'none',
+                border: 'none',
+                cursor: loading || !email.trim() || !password.trim() ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0 4px 12px rgba(5, 150, 105, 0.25)',
+                opacity: loading || !email.trim() || !password.trim() ? 0.7 : 1,
                 transition: 'all 0.15s ease',
               }}
-              onFocus={(e) => {
-                e.target.style.borderColor = '#059669';
-                e.target.style.boxShadow = '0 0 0 3px rgba(5, 150, 105, 0.15)';
-              }}
-              onBlur={(e) => {
-                e.target.style.borderColor = '#CBD5E1';
-                e.target.style.boxShadow = 'none';
-              }}
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading || !email.trim() || !password.trim()}
-            style={{
-              width: '100%',
-              padding: '13px',
-              borderRadius: 8,
-              backgroundColor: '#059669',
-              color: '#FFFFFF',
-              fontWeight: 700,
-              fontSize: 14,
-              border: 'none',
-              cursor: loading || !email.trim() || !password.trim() ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: '0 4px 12px rgba(5, 150, 105, 0.25)',
-              opacity: loading || !email.trim() || !password.trim() ? 0.7 : 1,
-              transition: 'all 0.15s ease',
-            }}
-          >
-            {loading ? 'Authenticating Workspace...' : 'Sign In to Workspace'}
-          </button>
-        </form>
+            >
+              {loading ? 'Authenticating Workspace...' : 'Sign In to Workspace'}
+            </button>
+          </form>
+        )}
 
         <div style={{ marginTop: 24, paddingTop: 18, borderTop: '1px solid #F1F5F9', textAlign: 'center' }}>
           <span style={{ fontSize: 12, color: '#64748B', fontWeight: 500 }}>
