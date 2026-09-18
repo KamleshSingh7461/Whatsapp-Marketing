@@ -286,41 +286,25 @@ export function Dashboard() {
     }
   });
 
-  const [conversations, setConversations] = useState<Conversation[]>(() => {
+  // Automated versioned cache buster: Ensures all PCs purge stale localStorage immediately
+  useEffect(() => {
+    const FGSN_CLIENT_CACHE_VERSION = 'v2.5_live_meta_clean';
     try {
-      const saved = localStorage.getItem('fgsn_saved_conversations');
-      if (!saved) return [];
-      const parsed: Conversation[] = JSON.parse(saved);
-      return parsed.filter(c => 
-        !['conv_1', 'conv_2', 'conv_3'].includes(c.id) &&
-        !c.lastMessage?.id?.startsWith('msg_init_') &&
-        !c.lastMessage?.content?.includes('WhatsApp session initialized with')
-      );
-    } catch (e) {
-      return [];
-    }
-  });
+      const cachedVersion = localStorage.getItem('fgsn_client_cache_version');
+      if (cachedVersion !== FGSN_CLIENT_CACHE_VERSION) {
+        localStorage.removeItem('fgsn_saved_messages');
+        localStorage.removeItem('fgsn_saved_conversations');
+        localStorage.removeItem('fgsn_saved_campaigns');
+        localStorage.removeItem('fgsn_saved_contacts');
+        localStorage.removeItem('fgsn_saved_flows');
+        localStorage.removeItem('fgsn_saved_templates');
+        localStorage.setItem('fgsn_client_cache_version', FGSN_CLIENT_CACHE_VERSION);
+      }
+    } catch (e) {}
+  }, []);
 
-  const [messagesByConvId, setMessagesByConvId] = useState<Record<string, Message[]>>(() => {
-    try {
-      const saved = localStorage.getItem('fgsn_saved_messages');
-      if (!saved) return {};
-      const parsed: Record<string, Message[]> = JSON.parse(saved);
-      delete parsed.conv_1;
-      delete parsed.conv_2;
-      delete parsed.conv_3;
-      const cleaned: Record<string, Message[]> = {};
-      Object.entries(parsed).forEach(([k, msgs]) => {
-        const realMsgs = msgs.filter(m => !m.id?.startsWith('msg_init_') && !m.content?.includes('WhatsApp session initialized with'));
-        if (realMsgs.length > 0) {
-          cleaned[k] = realMsgs;
-        }
-      });
-      return cleaned;
-    } catch (e) {
-      return {};
-    }
-  });
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [messagesByConvId, setMessagesByConvId] = useState<Record<string, Message[]>>({});
 
   // Verify Auth Session & Check Invite Token on Mount
   useEffect(() => {
@@ -617,17 +601,11 @@ export function Dashboard() {
   // Active cleanup: Purge any previously auto-generated placeholder conversations
   useEffect(() => {
     setConversations(prev => {
-      const cleaned = prev.filter(c => 
+      return prev.filter(c => 
         !['conv_1', 'conv_2', 'conv_3'].includes(c.id) &&
         !c.lastMessage?.id?.startsWith('msg_init_') &&
         !c.lastMessage?.content?.includes('WhatsApp session initialized with')
       );
-      if (cleaned.length !== prev.length) {
-        try {
-          localStorage.setItem('fgsn_saved_conversations', JSON.stringify(cleaned));
-        } catch (e) {}
-      }
-      return cleaned;
     });
 
     setMessagesByConvId(prev => {
@@ -642,11 +620,6 @@ export function Dashboard() {
           cleaned[k] = realMsgs;
         }
       });
-      if (changed) {
-        try {
-          localStorage.setItem('fgsn_saved_messages', JSON.stringify(cleaned));
-        } catch (e) {}
-      }
       return changed ? cleaned : prev;
     });
   }, []);
@@ -1452,6 +1425,38 @@ export function Dashboard() {
     );
   }
 
+  const handleForceResync = async () => {
+    try {
+      localStorage.removeItem('fgsn_saved_messages');
+      localStorage.removeItem('fgsn_saved_conversations');
+      localStorage.removeItem('fgsn_saved_campaigns');
+      localStorage.removeItem('fgsn_saved_contacts');
+      localStorage.removeItem('fgsn_saved_flows');
+      localStorage.removeItem('fgsn_saved_templates');
+      
+      const [ledger, s, t, c, cmp, fl] = await Promise.all([
+        getLiveMessagingLedgerApi().catch(() => null),
+        apiFetch<WhatsappStatus>('/whatsapp/status').catch(() => null),
+        apiFetch<Template[]>('/templates').catch(() => null),
+        getContactsApi().catch(() => null),
+        getCampaignsApi().catch(() => null),
+        getFlowsApi().catch(() => null),
+      ]);
+      if (ledger) {
+        if (Array.isArray(ledger.conversations)) setConversations(ledger.conversations);
+        if (ledger.messagesByConvId) setMessagesByConvId(ledger.messagesByConvId);
+        if (ledger.metrics) setServerMetrics(ledger.metrics);
+      }
+      if (s) setStatus(s);
+      if (t && Array.isArray(t)) setTemplates(t as any);
+      if (c && Array.isArray(c)) setContacts(c);
+      if (cmp && Array.isArray(cmp)) setCampaigns(cmp);
+      if (fl && Array.isArray(fl)) setFlows(fl);
+    } catch (e) {
+      console.warn('Force resync error:', e);
+    }
+  };
+
   // 3. Authenticated ERP Dashboard View
   return (
     <div className="app-layout">
@@ -1476,6 +1481,7 @@ export function Dashboard() {
           setCurrency={setCurrency}
           notificationsEnabled={notificationsEnabled}
           onRequestNotificationPermission={requestNotificationPermission}
+          onForceResync={handleForceResync}
           onOpenAuth={() => setIsAuthOpen(true)}
           onLogout={handleLogout}
           onToggleMobileSidebar={() => setIsMobileSidebarOpen(prev => !prev)}

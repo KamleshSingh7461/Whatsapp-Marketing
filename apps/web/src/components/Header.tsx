@@ -11,6 +11,7 @@ interface HeaderProps {
   setCurrency: (c: CurrencyCode) => void;
   notificationsEnabled?: boolean;
   onRequestNotificationPermission?: () => void;
+  onForceResync?: () => void;
   onOpenAuth: () => void;
   onLogout: () => void;
   onToggleMobileSidebar?: () => void;
@@ -24,6 +25,7 @@ export const Header: React.FC<HeaderProps> = ({
   setCurrency,
   notificationsEnabled,
   onRequestNotificationPermission,
+  onForceResync,
   onOpenAuth,
   onLogout,
   onToggleMobileSidebar,
@@ -97,6 +99,31 @@ export const Header: React.FC<HeaderProps> = ({
             Quarter
           </button>
         </div>
+
+        {/* Clear Cache & Instant Resync Button */}
+        {onForceResync && (
+          <button
+            className="corp-seg-item"
+            onClick={onForceResync}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              padding: '6px 12px',
+              borderRadius: 8,
+              fontSize: '0.78rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              background: '#F8FAFC',
+              color: '#0F172A',
+              border: '1px solid #CBD5E1',
+            }}
+            title="Purge local browser cache and force-sync fresh live data from server"
+          >
+            <span style={{ fontSize: 13 }}>🔄</span>
+            <span className="hide-on-compact">Resync Cloud</span>
+          </button>
+        )}
 
         {/* Desktop Browser Notification Toggle */}
         {onRequestNotificationPermission && (
