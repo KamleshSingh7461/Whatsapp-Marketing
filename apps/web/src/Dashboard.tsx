@@ -264,6 +264,14 @@ export function Dashboard() {
     }
   });
 
+  useEffect(() => {
+    try {
+      if (campaigns) {
+        localStorage.setItem('fgsn_saved_campaigns', JSON.stringify(campaigns));
+      }
+    } catch (e) {}
+  }, [campaigns]);
+
   const [flows, setFlows] = useState<AutomationFlow[]>(() => {
     try {
       const saved = localStorage.getItem('fgsn_saved_flows');
@@ -454,7 +462,15 @@ export function Dashboard() {
         if (s) setStatus(s);
         if (t && Array.isArray(t)) setTemplates(t as any);
         if (c && Array.isArray(c)) setContacts(c);
-        if (cmp && Array.isArray(cmp)) setCampaigns(cmp);
+        if (cmp && Array.isArray(cmp)) {
+          setCampaigns(prev => {
+            if (cmp.length === 0) return prev;
+            const serverMap = new Map(cmp.map((item: any) => [item.id, item]));
+            const serverNames = new Set(cmp.map((item: any) => item.name));
+            const localOnly = prev.filter(local => !serverMap.has(local.id) && !serverNames.has(local.name));
+            return [...cmp, ...localOnly];
+          });
+        }
         if (fl && Array.isArray(fl)) setFlows(fl);
       } catch (e) {
         console.warn('Real-time sync heartbeat error:', e);
@@ -1164,10 +1180,17 @@ export function Dashboard() {
   };
 
   const handleLaunchCampaign = async (newCmp: Campaign) => {
-    setCampaigns(prev => [newCmp, ...prev]);
+    let activeCmpId = newCmp.id;
+    setCampaigns(prev => {
+      const updated = [newCmp, ...prev.filter(c => c.id !== newCmp.id)];
+      try {
+        localStorage.setItem('fgsn_saved_campaigns', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
 
     try {
-      await createCampaignApi({
+      const serverCmp = await createCampaignApi({
         name: newCmp.name,
         templateName: newCmp.templateName,
         targetTags: newCmp.targetTags,
@@ -1175,6 +1198,11 @@ export function Dashboard() {
         stats: newCmp.stats,
         status: newCmp.status,
       });
+
+      if (serverCmp && serverCmp.id) {
+        activeCmpId = serverCmp.id;
+        setCampaigns(prev => prev.map(c => c.id === newCmp.id ? { ...c, id: serverCmp.id } : c));
+      }
     } catch (e) {
       console.warn('Failed to save campaign to backend DB:', e);
     }
@@ -1201,6 +1229,12 @@ export function Dashboard() {
         console.warn(`Failed to send WhatsApp message to ${contact.phone}:`, err);
       }
     }
+
+    // Update campaign status to COMPLETED once dispatch finishes
+    setCampaigns(prev => prev.map(c => (c.id === activeCmpId || c.id === newCmp.id) ? { ...c, status: 'COMPLETED' } : c));
+    try {
+      await updateCampaignApi(activeCmpId, { status: 'COMPLETED' });
+    } catch (e) {}
   };
 
   const handleCreateTemplate = async (newTpl: Partial<Template>): Promise<{ success: boolean; message?: string }> => {

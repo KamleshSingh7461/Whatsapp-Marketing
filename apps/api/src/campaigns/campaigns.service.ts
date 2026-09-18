@@ -29,6 +29,7 @@ export class CampaignsService {
             read: stats.read || 0,
             clickedOrReplied: stats.clickedOrReplied || 0,
             converted: stats.converted || 0,
+            failed: stats.failed || 0,
             revenue: stats.revenue || 0,
             cost: stats.cost || 0,
           },
