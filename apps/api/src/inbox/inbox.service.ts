@@ -28,6 +28,7 @@ export class InboxService {
         const rawPhone = c.contact?.phone || c.id;
         const cleanPhone = rawPhone.replace(/[^0-9]/g, '') || rawPhone;
 
+        const attrs = (c.contact?.attributes as any) || {};
         if (!unifiedMap.has(cleanPhone)) {
           unifiedMap.set(cleanPhone, {
             id: c.id,
@@ -40,8 +41,8 @@ export class InboxService {
             },
             windowExpiresAt: c.windowExpiresAt ? c.windowExpiresAt.toISOString() : new Date(Date.now() + 24 * 3600000).toISOString(),
             unreadCount: 0,
-            assignedAgent: (c as any).assignedAgent || 'Unassigned',
-            status: 'OPEN',
+            assignedAgent: attrs.assignedAgent || 'Unassigned',
+            status: attrs.status || 'OPEN',
             lastMessage: c.messages[0] ? {
               id: c.messages[0].id,
               conversationId: c.id,
@@ -60,6 +61,116 @@ export class InboxService {
     } catch (e: any) {
       this.logger.warn(`Could not query conversations from DB: ${e.message}`);
       return [];
+    }
+  }
+
+  async markConversationRead(conversationId: string) {
+    try {
+      const convIds = [conversationId];
+      if (conversationId.startsWith('conv_')) {
+        const phone = conversationId.replace('conv_', '').replace(/[^0-9]/g, '');
+        if (phone) {
+          const contact = await this.prisma.contact.findFirst({
+            where: { OR: [{ phone }, { phone: `+${phone}` }] },
+            include: { conversations: true },
+          });
+          if (contact && contact.conversations.length > 0) {
+            contact.conversations.forEach(c => convIds.push(c.id));
+          }
+        }
+      }
+
+      await this.prisma.message.updateMany({
+        where: {
+          conversationId: { in: convIds },
+          direction: MessageDirection.INBOUND,
+          status: { not: MessageStatus.READ },
+        },
+        data: {
+          status: MessageStatus.READ,
+        },
+      });
+
+      return { success: true };
+    } catch (e: any) {
+      this.logger.warn(`Failed to mark conversation ${conversationId} as read: ${e.message}`);
+      return { success: false, error: e.message };
+    }
+  }
+
+  async updateConversationStatus(conversationId: string, status: 'OPEN' | 'RESOLVED') {
+    try {
+      let contactId: string | null = null;
+      const conv = await this.prisma.conversation.findUnique({
+        where: { id: conversationId },
+        include: { contact: true },
+      });
+      if (conv?.contact) {
+        contactId = conv.contact.id;
+      } else if (conversationId.startsWith('conv_')) {
+        const phone = conversationId.replace('conv_', '').replace(/[^0-9]/g, '');
+        const contact = await this.prisma.contact.findFirst({
+          where: { OR: [{ phone }, { phone: `+${phone}` }] },
+        });
+        if (contact) contactId = contact.id;
+      }
+
+      if (contactId) {
+        const currentContact = await this.prisma.contact.findUnique({ where: { id: contactId } });
+        const existingAttrs = (currentContact?.attributes as any) || {};
+        await this.prisma.contact.update({
+          where: { id: contactId },
+          data: {
+            attributes: {
+              ...existingAttrs,
+              status,
+            },
+          },
+        });
+      }
+
+      return { success: true, status };
+    } catch (e: any) {
+      this.logger.warn(`Failed to update status for ${conversationId}: ${e.message}`);
+      return { success: false, error: e.message };
+    }
+  }
+
+  async updateConversationAgent(conversationId: string, agent: string) {
+    try {
+      let contactId: string | null = null;
+      const conv = await this.prisma.conversation.findUnique({
+        where: { id: conversationId },
+        include: { contact: true },
+      });
+      if (conv?.contact) {
+        contactId = conv.contact.id;
+      } else if (conversationId.startsWith('conv_')) {
+        const phone = conversationId.replace('conv_', '').replace(/[^0-9]/g, '');
+        const contact = await this.prisma.contact.findFirst({
+          where: { OR: [{ phone }, { phone: `+${phone}` }] },
+        });
+        if (contact) contactId = contact.id;
+      }
+
+      if (contactId) {
+        const currentContact = await this.prisma.contact.findUnique({ where: { id: contactId } });
+        const existingAttrs = (currentContact?.attributes as any) || {};
+        await this.prisma.contact.update({
+          where: { id: contactId },
+          data: {
+            attributes: {
+              ...existingAttrs,
+              assignedAgent: agent,
+            },
+          },
+        });
+      }
+
+      return { success: true, agent };
+    } catch (e: any) {
+      this.logger.warn(`Failed to update agent for ${conversationId}: ${e.message}`);
+      return { success: false, error: e.message };
     }
   }
 

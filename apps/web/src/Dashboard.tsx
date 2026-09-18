@@ -17,6 +17,9 @@ import {
   getFlowsApi,
   updateFlowStatusApi,
   getLiveMessagingLedgerApi,
+  markConversationReadApi,
+  updateConversationStatusApi,
+  assignConversationAgentApi,
 } from './lib/api';
 import { Sidebar, TabType } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -83,6 +86,16 @@ export function Dashboard() {
   // Clean Production Data States (Connected Live WABA)
   const [user, setUser] = useState<User | null>(null);
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
+  const [serverMetrics, setServerMetrics] = useState<{
+    totalOutbound: number;
+    totalDelivered: number;
+    totalInbound: number;
+    marketingDelivered?: number;
+    serviceDelivered?: number;
+    utilityDelivered?: number;
+    marketingCostINR?: number;
+    totalCostINR?: number;
+  } | null>(null);
 
   // Desktop Notifications & Audio Chime System
   const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(() => {
@@ -450,6 +463,9 @@ export function Dashboard() {
             Object.values(ledger.messagesByConvId).flat().forEach((sm: any) => seenMessageIds.current.add(sm.id));
             setMessagesByConvId(ledger.messagesByConvId);
           }
+          if (ledger.metrics) {
+            setServerMetrics(ledger.metrics);
+          }
         }
         if (s) setStatus(s);
         if (t && Array.isArray(t)) setTemplates(t as any);
@@ -473,22 +489,40 @@ export function Dashboard() {
     };
   }, [user]);
 
-  // Dynamically computed analytics from live state (Inbox + Broadcasts + Flows)
-  const allInboxMessages = Object.values(messagesByConvId).flat();
-  const liveOutboundSent = allInboxMessages.filter(m => m.direction === 'OUTBOUND').length;
-  const liveOutboundDelivered = allInboxMessages.filter(m => m.direction === 'OUTBOUND' && m.status !== 'FAILED').length;
-  const liveInboundReceived = allInboxMessages.filter(m => m.direction === 'INBOUND').length;
+  // Deduplicate messages strictly by unique ID so key aliases or re-indexes NEVER multiply counts
+  const uniqueMessagesMap = new Map<string, Message>();
+  Object.values(messagesByConvId).forEach(msgs => {
+    if (Array.isArray(msgs)) {
+      msgs.forEach(m => {
+        if (m && m.id) uniqueMessagesMap.set(m.id, m);
+      });
+    }
+  });
+  const allInboxMessages = Array.from(uniqueMessagesMap.values());
+
+  const liveOutboundSent = serverMetrics?.totalOutbound ?? allInboxMessages.filter(m => m.direction === 'OUTBOUND').length;
+  const liveOutboundDelivered = serverMetrics?.totalDelivered ?? allInboxMessages.filter(m => m.direction === 'OUTBOUND' && m.status !== 'FAILED').length;
+  const liveInboundReceived = serverMetrics?.totalInbound ?? allInboxMessages.filter(m => m.direction === 'INBOUND').length;
   const liveReadMessages = allInboxMessages.filter(m => m.status === 'READ').length;
 
-  const totalCampaignRevenue = campaigns.reduce((acc, c) => acc + c.stats.revenue, 0);
-  const totalFlowRevenue = flows.reduce((acc, f) => acc + f.stats.revenue, 0);
+  const marketingDeliveredCount = serverMetrics?.marketingDelivered ?? allInboxMessages.filter(m => m.direction === 'OUTBOUND' && m.status !== 'FAILED' && (m.templateId || m.templateData)).length;
+  const utilityDeliveredCount = serverMetrics?.utilityDelivered ?? 0;
+  const serviceDeliveredCount = serverMetrics?.serviceDelivered ?? Math.max(0, liveOutboundDelivered - marketingDeliveredCount - utilityDeliveredCount);
+
+  // Official Meta Cloud API Rate for India: ₹0.8629 INR per delivered marketing message
+  const calculatedMarketingCost = serverMetrics?.marketingCostINR ?? Number((marketingDeliveredCount * 0.8629).toFixed(2));
+  const calculatedUtilityCost = Number((utilityDeliveredCount * 0.115).toFixed(2));
+  const calculatedTotalSpend = calculatedMarketingCost + calculatedUtilityCost;
+
+  const totalCampaignRevenue = campaigns.reduce((acc, c) => acc + (c.stats?.revenue || 0), 0);
+  const totalFlowRevenue = flows.reduce((acc, f) => acc + (f.stats?.revenue || 0), 0);
   const totalRevenue = totalCampaignRevenue + totalFlowRevenue;
-  const totalSpend = campaigns.reduce((acc, c) => acc + c.stats.cost, 0);
+  const totalSpend = calculatedTotalSpend > 0 ? calculatedTotalSpend : campaigns.reduce((acc, c) => acc + (c.stats?.cost || 0), 0);
   
-  const totalSent = campaigns.reduce((acc, c) => acc + (c.stats?.sent || 0), 0) + liveOutboundSent;
-  const totalDelivered = campaigns.reduce((acc, c) => acc + (c.stats?.delivered || 0), 0) + liveOutboundDelivered;
-  const totalRead = campaigns.reduce((acc, c) => acc + (c.stats?.read || 0), 0) + liveReadMessages;
-  const totalEngaged = campaigns.reduce((acc, c) => acc + (c.stats?.clickedOrReplied || 0), 0) + liveInboundReceived;
+  const totalSent = liveOutboundSent;
+  const totalDelivered = liveOutboundDelivered;
+  const totalRead = liveReadMessages;
+  const totalEngaged = liveInboundReceived;
   const totalConverted = campaigns.reduce((acc, c) => acc + (c.stats?.converted || 0), 0) + flows.reduce((acc, f) => acc + (f.stats?.converted || 0), 0);
 
   // Free care service sessions: active 24-hour service conversations
@@ -508,8 +542,8 @@ export function Dashboard() {
     roiMultiplier: totalSpend > 0 ? Number((totalRevenue / totalSpend).toFixed(1)) : 0,
     averageOrderValue: totalConverted > 0 ? Number((totalRevenue / totalConverted).toFixed(2)) : 0,
     totalConversations: totalSent + conversations.length,
-    marketingCost: totalSpend,
-    utilityCost: 0,
+    marketingCost: calculatedMarketingCost,
+    utilityCost: calculatedUtilityCost,
     serviceCost: 0,
     freeServiceUsed: freeServiceUsed,
     cacValue: totalConverted > 0 ? Number((totalSpend / totalConverted).toFixed(2)) : 0,
@@ -1086,17 +1120,24 @@ export function Dashboard() {
     });
   };
 
-  const handleToggleResolve = (convId: string) => {
+  const handleToggleResolve = async (convId: string) => {
+    const target = conversations.find(c => c.id === convId);
+    const newStatus: 'OPEN' | 'RESOLVED' = target?.status === 'RESOLVED' ? 'OPEN' : 'RESOLVED';
     setConversations(prev =>
       prev.map(c =>
         c.id === convId
-          ? { ...c, status: c.status === 'RESOLVED' ? 'OPEN' : 'RESOLVED' }
+          ? { ...c, status: newStatus }
           : c
       )
     );
+    try {
+      await updateConversationStatusApi(convId, newStatus);
+    } catch (e) {
+      console.warn('Failed to update status on server:', e);
+    }
   };
 
-  const handleAssignAgent = (convId: string, agent: string) => {
+  const handleAssignAgent = async (convId: string, agent: string) => {
     setConversations(prev =>
       prev.map(c =>
         c.id === convId
@@ -1104,6 +1145,34 @@ export function Dashboard() {
           : c
       )
     );
+    try {
+      await assignConversationAgentApi(convId, agent);
+    } catch (e) {
+      console.warn('Failed to assign agent on server:', e);
+    }
+  };
+
+  const handleMarkConversationRead = async (convId: string) => {
+    setConversations(prev =>
+      prev.map(c =>
+        c.id === convId
+          ? { ...c, unreadCount: 0 }
+          : c
+      )
+    );
+    setMessagesByConvId(prev => {
+      const msgs = prev[convId];
+      if (!msgs) return prev;
+      return {
+        ...prev,
+        [convId]: msgs.map(m => m.direction === 'INBOUND' ? { ...m, status: 'READ' } : m),
+      };
+    });
+    try {
+      await markConversationReadApi(convId);
+    } catch (e) {
+      console.warn('Failed to mark conversation read on server:', e);
+    }
   };
 
   const handleToggleFlowStatus = async (flowId: string) => {
@@ -1437,6 +1506,7 @@ export function Dashboard() {
               onToggleResolve={handleToggleResolve}
               onAssignAgent={handleAssignAgent}
               onStartNewChat={handleStartNewChat}
+              onMarkConversationRead={handleMarkConversationRead}
             />
           )}
           {activeTab === 'automations' && canAccessTab(user.role, 'automations') && (

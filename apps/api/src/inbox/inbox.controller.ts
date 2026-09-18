@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { InboxService } from './inbox.service';
 
@@ -15,6 +15,21 @@ export class InboxController {
   @Get('messages/:conversationId')
   getMessages(@Param('conversationId') conversationId: string) {
     return this.inboxService.getMessages(conversationId);
+  }
+
+  @Post('conversations/:id/read')
+  markAsRead(@Param('id') id: string) {
+    return this.inboxService.markConversationRead(id);
+  }
+
+  @Patch('conversations/:id/status')
+  updateStatus(@Param('id') id: string, @Body() body: { status: 'OPEN' | 'RESOLVED' }) {
+    return this.inboxService.updateConversationStatus(id, body.status);
+  }
+
+  @Patch('conversations/:id/assign')
+  assignAgent(@Param('id') id: string, @Body() body: { agent: string }) {
+    return this.inboxService.updateConversationAgent(id, body.agent);
   }
 
   @Post('messages')
@@ -35,3 +50,4 @@ export class InboxController {
     return this.inboxService.recordMessage(dto);
   }
 }
+

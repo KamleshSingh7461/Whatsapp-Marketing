@@ -340,13 +340,16 @@ export class WhatsappIntegrationService {
         });
 
         const cleanPhone = phone.replace(/[^0-9]/g, '');
+        // Store under convId and also cleanPhone conv key for instant lookup without duplicating arrays across iteration
         messagesByConvId[convId] = msgs;
-        if (cleanPhone) {
+        if (cleanPhone && convId !== `conv_${cleanPhone}`) {
           messagesByConvId[`conv_${cleanPhone}`] = msgs;
-          messagesByConvId[`conv_+${cleanPhone}`] = msgs;
         }
 
         const lastMsg = msgs[msgs.length - 1];
+        const attrs = (c.contact?.attributes as any) || {};
+        const unreadCount = msgs.filter(m => m.direction === 'INBOUND' && m.status !== 'READ').length;
+
         formattedConvs.push({
           id: convId,
           contact: {
@@ -363,8 +366,9 @@ export class WhatsappIntegrationService {
             timestamp: lastMsg.timestamp,
             sender: lastMsg.sender,
           } : undefined,
-          unreadCount: msgs.filter(m => m.direction === 'INBOUND' && m.status !== 'READ').length,
-          status: 'OPEN',
+          unreadCount,
+          assignedAgent: attrs.assignedAgent || 'Unassigned',
+          status: attrs.status || 'OPEN',
           windowExpiresAt: c.windowExpiresAt ? c.windowExpiresAt.toISOString() : undefined,
         });
       }
@@ -372,6 +376,26 @@ export class WhatsappIntegrationService {
       // Query official Meta WABA Analytics live from Meta Graph API
       let metaOfficialSent = totalOutbound;
       let metaOfficialDelivered = totalDelivered;
+
+      // Calculate official Meta message breakdown
+      let marketingDelivered = 0;
+      let serviceDelivered = 0;
+      let utilityDelivered = 0;
+
+      for (const c of convs) {
+        for (const m of c.messages || []) {
+          if (m.direction === 'OUTBOUND' && m.status !== 'FAILED') {
+            const p = (m.payloadJson as any) || {};
+            if (m.templateId || p.templateId || p.templateName || p.templateData) {
+              marketingDelivered++;
+            } else {
+              serviceDelivered++;
+            }
+          }
+        }
+      }
+
+      const marketingCostINR = Number((marketingDelivered * 0.8629).toFixed(2));
 
       try {
         const wabaId = this.config.get<string>('META_WABA_ID') || '1845046976654799';
@@ -410,6 +434,11 @@ export class WhatsappIntegrationService {
           totalOutbound: metaOfficialSent,
           totalDelivered: metaOfficialDelivered,
           totalInbound,
+          marketingDelivered,
+          serviceDelivered,
+          utilityDelivered,
+          marketingCostINR,
+          totalCostINR: marketingCostINR,
         },
       };
     } catch (e: any) {

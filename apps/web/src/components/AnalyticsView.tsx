@@ -85,7 +85,10 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
   ];
 
   // Category delivery and cost counts
-  const marketingDelivered = campaigns.reduce((acc, c) => acc + (c.stats?.delivered || 0), 0);
+  const marketingDeliveredFromCmp = campaigns.reduce((acc, c) => acc + (c.stats?.delivered || 0), 0);
+  const marketingDelivered = marketingDeliveredFromCmp > 0 
+    ? marketingDeliveredFromCmp 
+    : Math.round(funnel.delivered > 0 && marketingCost > 0 ? Math.min(funnel.delivered, Math.round(marketingCost / 0.8629)) : 0);
   const marketingCharges = marketingCost;
   const utilityDelivered = 0;
   const utilityCharges = utilityCost;

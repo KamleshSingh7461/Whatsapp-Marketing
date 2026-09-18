@@ -27,9 +27,10 @@ export class WebhooksService {
         const value = change.value;
         if (!value) continue;
 
+        const contactsList = value.contacts || [];
         if (value.messages && Array.isArray(value.messages)) {
           for (const message of value.messages) {
-            await this.recordInboundMessage(message);
+            await this.recordInboundMessage(message, contactsList);
           }
         }
 
@@ -47,11 +48,18 @@ export class WebhooksService {
     return waba?.phoneNumberId;
   }
 
-  private async recordInboundMessage(message: any) {
+  private async recordInboundMessage(message: any, contactsList: any[] = []) {
     const rawFrom = String(message.from || '').replace(/[^0-9]/g, '');
     if (!rawFrom) return;
     const phone = rawFrom.length === 10 ? '91' + rawFrom : rawFrom;
     const phoneWithPlus = '+' + phone;
+
+    // In Meta's official API specification, the WhatsApp user's profile name is sent in value.contacts[].profile.name
+    const matchedMetaContact = contactsList.find((c: any) => {
+      const waId = String(c.wa_id || '').replace(/[^0-9]/g, '');
+      return waId === rawFrom || waId === phone;
+    });
+    const metaProfileName = matchedMetaContact?.profile?.name || message.profile?.name;
 
     let contact = await this.prisma.contact.findFirst({
       where: {
@@ -63,12 +71,13 @@ export class WebhooksService {
     });
 
     if (contact) {
-      if (contact.phone !== phone) {
+      const newDisplayName = (metaProfileName && !metaProfileName.startsWith('+')) ? metaProfileName : contact.displayName;
+      if (contact.phone !== phone || (metaProfileName && contact.displayName !== metaProfileName)) {
         contact = await this.prisma.contact.update({
           where: { id: contact.id },
           data: {
             phone: phone,
-            displayName: message.profile?.name && !message.profile.name.startsWith('+') ? message.profile.name : contact.displayName,
+            displayName: newDisplayName,
             optedIn: true,
             optedInAt: new Date(),
           },
@@ -78,7 +87,7 @@ export class WebhooksService {
       contact = await this.prisma.contact.create({
         data: {
           phone,
-          displayName: message.profile?.name || `+${phone}`,
+          displayName: metaProfileName || `+${phone}`,
           optedIn: true,
           optedInAt: new Date(),
           tags: ['WhatsApp Inbound'],
@@ -136,6 +145,7 @@ export class WebhooksService {
         metaMessageId: message.id,
         payloadJson: {
           body: textContent,
+          authorName: contact.displayName || metaProfileName || 'Customer',
           raw: message,
         },
       },

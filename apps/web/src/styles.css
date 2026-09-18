@@ -1627,6 +1627,30 @@ body {
   border-bottom-right-radius: 2px;
 }
 
+.message-sender-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+  line-height: 1.2;
+}
+
+.message-sender-header.inbound-sender {
+  color: #059669; /* Meta WhatsApp Green */
+}
+
+.message-sender-header.outbound-sender {
+  color: #0284C7; /* Team Agent Blue */
+  justify-content: flex-end;
+}
+
+.template-card-bubble .message-sender-header {
+  padding: 0.5rem 0.9rem 0;
+  margin-bottom: 0;
+}
+
 /* WhatsApp Template Cards & Action Buttons Styling */
 .template-card-bubble {
   padding: 0 !important;

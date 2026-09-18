@@ -138,8 +138,37 @@ export async function getLiveMessagingLedgerApi() {
   return apiFetch<{
     conversations: any[];
     messagesByConvId: Record<string, any[]>;
-    metrics: { totalOutbound: number; totalDelivered: number; totalInbound: number };
+    metrics: {
+      totalOutbound: number;
+      totalDelivered: number;
+      totalInbound: number;
+      marketingDelivered?: number;
+      serviceDelivered?: number;
+      utilityDelivered?: number;
+      marketingCostINR?: number;
+      totalCostINR?: number;
+    };
   }>('/whatsapp/ledger');
+}
+
+export async function markConversationReadApi(conversationId: string) {
+  return apiFetch<{ success: boolean }>(`/inbox/conversations/${conversationId}/read`, {
+    method: 'POST',
+  });
+}
+
+export async function updateConversationStatusApi(conversationId: string, status: 'OPEN' | 'RESOLVED') {
+  return apiFetch<{ success: boolean; status: string }>(`/inbox/conversations/${conversationId}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+}
+
+export async function assignConversationAgentApi(conversationId: string, agent: string) {
+  return apiFetch<{ success: boolean; agent: string }>(`/inbox/conversations/${conversationId}/assign`, {
+    method: 'PATCH',
+    body: JSON.stringify({ agent }),
+  });
 }
 
 export async function testWebhookPingApi() {

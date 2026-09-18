@@ -16,6 +16,7 @@ interface InboxViewProps {
   onToggleResolve?: (convId: string) => void;
   onAssignAgent?: (convId: string, agent: string) => void;
   onStartNewChat?: (phone: string, name?: string, text?: string, templateName?: string) => Promise<string | void>;
+  onMarkConversationRead?: (convId: string) => void;
 }
 
 const CANNED_RESPONSES = [
@@ -48,6 +49,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
   onToggleResolve,
   onAssignAgent,
   onStartNewChat,
+  onMarkConversationRead,
 }) => {
   const [mobileView, setMobileView] = useState<'list' | 'chat' | 'crm'>('list');
   const [selectedConvId, setSelectedConvId] = useState<string>(conversations[0]?.id || '');
@@ -135,6 +137,9 @@ export const InboxView: React.FC<InboxViewProps> = ({
   const handleSelectConversation = (id: string) => {
     setSelectedConvId(id);
     setMobileView('chat');
+    if (onMarkConversationRead) {
+      onMarkConversationRead(id);
+    }
   };
 
   const handleSend = (e: React.FormEvent) => {
@@ -202,6 +207,15 @@ export const InboxView: React.FC<InboxViewProps> = ({
 
   const myName = currentUser?.name || 'FGSN Super Admin';
 
+  const isMine = (c: Conversation) => {
+    if (!c.assignedAgent || c.assignedAgent === 'Unassigned') return false;
+    return (
+      c.assignedAgent === myName ||
+      c.assignedAgent === currentUser?.name ||
+      c.assignedAgent === currentUser?.email
+    );
+  };
+
   const filteredConversations = conversations.filter(c => {
     const lastContent = c.lastMessage?.content || '';
     const matchesSearch =
@@ -212,9 +226,9 @@ export const InboxView: React.FC<InboxViewProps> = ({
     if (!matchesSearch) return false;
 
     if (filter === 'ALL') return true;
-    if (filter === 'MINE') return c.assignedAgent === myName || (!c.assignedAgent && currentUser?.role === 'ADMIN');
+    if (filter === 'MINE') return isMine(c);
     if (filter === 'UNASSIGNED') return !c.assignedAgent || c.assignedAgent === 'Unassigned';
-    if (filter === 'OPEN') return c.status === 'OPEN';
+    if (filter === 'OPEN') return c.status === 'OPEN' || !c.status;
     if (filter === 'RESOLVED') return c.status === 'RESOLVED';
     return true;
   });
@@ -269,7 +283,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
                 onClick={() => setFilter('OPEN')}
                 title="View active open chats"
               >
-                Open <span className="pill-count">({conversations.filter(c => c.status === 'OPEN').length})</span>
+                Open <span className="pill-count">({conversations.filter(c => c.status === 'OPEN' || !c.status).length})</span>
               </button>
               <button
                 className={`filter-btn ${filter === 'ALL' ? 'active' : ''}`}
@@ -293,7 +307,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
                 onClick={() => setFilter('MINE')}
                 title="Assigned to me"
               >
-                👤 Mine <span className="pill-count">({conversations.filter(c => c.assignedAgent === myName || (!c.assignedAgent && currentUser?.role === 'ADMIN')).length})</span>
+                👤 Mine <span className="pill-count">({conversations.filter(c => isMine(c)).length})</span>
               </button>
               <button
                 className={`filter-btn sub-btn ${filter === 'UNASSIGNED' ? 'active' : ''}`}
@@ -362,7 +376,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
                       {conv.contact.tags[0] && (
                         <span className="tag-pill-corporate">{conv.contact.tags[0]}</span>
                       )}
-                      {conv.unreadCount > 0 && (
+                      {conv.unreadCount > 0 && !isSelected && (
                         <span className="unread-counter-pill">{conv.unreadCount}</span>
                       )}
                       {conv.status === 'RESOLVED' && (
@@ -552,9 +566,21 @@ export const InboxView: React.FC<InboxViewProps> = ({
               const footerText = msg.footerText || (msg as any).templateData?.footer || matchedTemplate?.bodyJson?.footer;
               const buttons = msg.buttons || (msg as any).templateData?.buttons || matchedTemplate?.bodyJson?.buttons;
 
+              const customerDisplayName = activeConversation?.contact?.displayName || msg.authorName || (msg as any).senderName || 'Customer';
+              const agentDisplayName = msg.authorName || (msg as any).senderName || 'FGSN Team';
+
               return (
                 <div key={msg.id} className={`message-row ${isOutbound ? 'outbound' : 'inbound'}`}>
                   <div className={`message-bubble ${isOutbound ? 'outbound-bubble' : 'inbound-bubble'} ${matchedTemplate || headerText || buttons ? 'template-card-bubble' : ''}`}>
+                    {/* Clear Sender Name Header in Chat Log */}
+                    <div className={`message-sender-header ${isOutbound ? 'outbound-sender' : 'inbound-sender'}`}>
+                      {isOutbound ? (
+                        <span>👔 {agentDisplayName}</span>
+                      ) : (
+                        <span>👤 {customerDisplayName}</span>
+                      )}
+                    </div>
+
                     {/* Optional Template Media or Text Header */}
                     {headerType === 'IMAGE' && (
                       <div className="whatsapp-bubble-media-header">
