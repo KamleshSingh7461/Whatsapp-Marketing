@@ -225,6 +225,23 @@ export const CloseIcon: React.FC<{ size?: number; color?: string }> = ({ size = 
   </svg>
 );
 
+/** The curved reply arrow WhatsApp shows on a template's quick-reply button. */
+export const ReplyArrowIcon: React.FC<{ size?: number; color?: string }> = ({ size = 16, color = '#027eb5' }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="9 14 4 9 9 4" />
+    <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
+  </svg>
+);
+
+/** The "opens a link" arrow for a template's URL button. */
+export const ExternalLinkIcon: React.FC<{ size?: number; color?: string }> = ({ size = 16, color = '#027eb5' }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+    <polyline points="15 3 21 3 21 9" />
+    <line x1="10" y1="14" x2="21" y2="3" />
+  </svg>
+);
+
 export const CopyIcon: React.FC<{ size?: number; color?: string }> = ({ size = 16, color = '#54656f' }) => (
   <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
     <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />

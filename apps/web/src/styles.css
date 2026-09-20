@@ -12836,3 +12836,57 @@ td {
     flex: 1 1 0;
   }
 }
+
+/* ==========================================================================
+   TEMPLATE CARDS IN CHATS: header, footer and buttons under a template message, as on the phone
+   ========================================================================== */
+.wa-bubble.has-template {
+  min-width: min(260px, 90%);
+}
+
+.wa-bubble-tpl-header {
+  margin: 0 0 4px;
+  font-size: 14.8px;
+  font-weight: 600;
+  line-height: 20px;
+  color: #111b21;
+}
+
+.wa-bubble-tpl-footer {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  line-height: 17px;
+  color: #667781;
+}
+
+.wa-bubble-btns {
+  clear: both;
+  display: flex;
+  flex-direction: column;
+  margin: 8px -9px -8px;
+  border-top: 1px solid rgba(11, 20, 26, 0.1);
+}
+
+.wa-bubble-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 9px 10px;
+  color: #027eb5;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  cursor: default;
+}
+
+.wa-bubble-btn + .wa-bubble-btn {
+  border-top: 1px solid rgba(11, 20, 26, 0.1);
+}
+
+.wa-bubble-btn span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

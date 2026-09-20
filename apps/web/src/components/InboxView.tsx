@@ -24,7 +24,10 @@ import {
   TagIcon,
   ChatsNavIcon,
   ContactsNavIcon,
+  ReplyArrowIcon,
+  ExternalLinkIcon,
 } from './WhatsAppIcons';
+import { templateParts } from '../lib/templateMatch';
 
 interface InboxViewProps {
   conversations: Conversation[];
@@ -982,9 +985,13 @@ export const InboxView: React.FC<InboxViewProps> = ({
                 ? msg.content
                 : null;
 
+              // A message sent from a template shows the template's header, footer and buttons, as it does on the phone.
+              const tpl = templateParts(msg, templates);
+              const hasTemplateCard = tpl.buttons.length > 0 || !!tpl.headerText || !!tpl.footerText;
+
               return (
                 <div key={msg.id} className={`wa-bubble-row ${isOutbound ? 'outbound' : 'inbound'}`}>
-                  <div className={`wa-bubble ${isOutbound ? 'outbound-bubble' : 'inbound-bubble'} ${hasImage ? 'has-media' : ''}`}>
+                  <div className={`wa-bubble ${isOutbound ? 'outbound-bubble' : 'inbound-bubble'} ${hasImage ? 'has-media' : ''} ${hasTemplateCard ? 'has-template' : ''}`}>
                     {/* Image Attachment Rendering */}
                     {hasImage && imageUrl && (
                       <div className="wa-bubble-media-wrap">
@@ -998,9 +1005,15 @@ export const InboxView: React.FC<InboxViewProps> = ({
                       </div>
                     )}
 
+                    {/* Template header (text) */}
+                    {tpl.headerText && <p className="wa-bubble-tpl-header">{tpl.headerText}</p>}
+
                     {/* Message Content / Caption */}
                     {caption && <p className="wa-bubble-text" style={{ marginTop: hasImage ? 4 : 0 }}>{caption}</p>}
                     {!caption && !hasImage && <p className="wa-bubble-text">{msg.content}</p>}
+
+                    {/* Template footer */}
+                    {tpl.footerText && <p className="wa-bubble-tpl-footer">{tpl.footerText}</p>}
 
                     {/* Meta line: Time + Checkmark */}
                     <div className="wa-bubble-meta">
@@ -1009,6 +1022,26 @@ export const InboxView: React.FC<InboxViewProps> = ({
                         <DoubleCheckIcon isRead={isRead} size={15} />
                       )}
                     </div>
+
+                    {/* Template buttons: shown for the team's reference; the customer taps them on their phone */}
+                    {tpl.buttons.length > 0 && (
+                      <div className="wa-bubble-btns" aria-label="Template buttons">
+                        {tpl.buttons.map((b, i) => (
+                          <div key={i} className="wa-bubble-btn" title="The customer taps this button on their phone">
+                            {b.kind === 'url' ? (
+                              <ExternalLinkIcon size={15} />
+                            ) : b.kind === 'phone' ? (
+                              <PhoneCallIcon size={15} color="#027eb5" />
+                            ) : b.kind === 'copy' ? (
+                              <CopyIcon size={15} color="#027eb5" />
+                            ) : (
+                              <ReplyArrowIcon size={15} />
+                            )}
+                            <span>{b.text}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
