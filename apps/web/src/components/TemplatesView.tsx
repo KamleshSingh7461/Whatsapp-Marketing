@@ -2,6 +2,21 @@ import React, { useState } from 'react';
 import { Template, TemplateCategory, User } from '../types';
 import { canCreateTemplates } from '../lib/permissions';
 import fgsnLogo from '../assets/logo.png';
+import { TemplateIcon } from './WhatsAppIcons';
+
+const TEMPLATE_STATUS: Record<string, { label: string; tone: 'done' | 'live' | 'idle' | 'fail' }> = {
+  APPROVED: { label: 'Approved', tone: 'done' },
+  PENDING: { label: 'In review', tone: 'live' },
+  REJECTED: { label: 'Rejected', tone: 'fail' },
+  PAUSED: { label: 'Paused', tone: 'idle' },
+  DRAFT: { label: 'Draft', tone: 'idle' },
+};
+
+const CATEGORY_LABEL: Record<string, string> = {
+  MARKETING: 'Marketing',
+  UTILITY: 'Utility',
+  AUTHENTICATION: 'Authentication',
+};
 
 interface TemplatesViewProps {
   templates: Template[];
@@ -35,7 +50,9 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
 }) => {
   const [name, setName] = useState('');
   const [testModalTemplate, setTestModalTemplate] = useState<Template | null>(null);
-  const [testPhone, setTestPhone] = useState('+91 86558 51749');
+  // Deliberately empty: the WhatsApp Business number itself cannot receive messages from itself,
+  // so pre-filling it guaranteed a failed test.
+  const [testPhone, setTestPhone] = useState('');
   const [isSendingTest, setIsSendingTest] = useState(false);
   const [testFeedback, setTestFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [language, setLanguage] = useState('en_US');
@@ -300,17 +317,23 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
   };
 
   return (
-    <div className="view-container">
-      <div className="page-header-row">
-        <div>
-          <h2 className="view-title">Template Studio & Meta WhatsApp Manager</h2>
-          <p className="view-subtitle">Author, configure variables, and submit compliant WhatsApp Cloud API message templates with real-time iPhone & Android preview</p>
-        </div>
+    <div className="wa-tpl-page">
+      <div className="wa-bc-toolbar">
+        <p className="wa-bc-lede">
+          Design a message, preview it exactly as customers will see it, and submit it to Meta for approval.
+        </p>
+        <a className="wa-tpl-jump" href="#wa-tpl-list" onClick={(e) => {
+          e.preventDefault();
+          document.getElementById('wa-tpl-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }}>
+          Submitted templates
+          <span className="wa-bc-count">{templates.length}</span>
+        </a>
       </div>
 
       <div className="template-grid-split">
         {/* Left: Template Builder Form */}
-        <div className="panel-card template-editor-card">
+        <div className="panel-card template-editor-card wa-tpl-card">
           <div className="template-section-header">
             <div>
               <h3 className="panel-title" style={{ margin: 0 }}>Template Configuration</h3>
@@ -672,42 +695,25 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
 
             {/* Status Feedback Banner */}
             {feedback && (
-              <div
-                style={{
-                  marginTop: 12,
-                  padding: '10px 14px',
-                  borderRadius: 8,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  background: feedback.type === 'success' ? '#ECFDF5' : '#FEF2F2',
-                  border: `1px solid ${feedback.type === 'success' ? '#A7F3D0' : '#FECACA'}`,
-                  color: feedback.type === 'success' ? '#047857' : '#DC2626',
-                }}
-              >
-                {feedback.type === 'success' ? '✓ ' : '⚠️ '}
+              <div className={`wa-tpl-alert ${feedback.type === 'success' ? 'is-success' : 'is-error'}`} role={feedback.type === 'error' ? 'alert' : 'status'}>
                 {feedback.message}
               </div>
             )}
 
             {canCreateTemplates(currentUser?.role) ? (
-              <button
-                type="submit"
-                className="btn-primary"
-                disabled={isSubmitting}
-                style={{ marginTop: 14, width: '100%', padding: '12px 18px', fontSize: '0.92rem' }}
-              >
-                {isSubmitting ? '⏳ Submitting to Meta Graph API...' : '🚀 Save & Submit Template to Meta Cloud API'}
+              <button type="submit" className="wa-bc-primary wa-tpl-submit" disabled={isSubmitting}>
+                {isSubmitting ? 'Submitting to Meta…' : 'Save & submit to Meta for approval'}
               </button>
             ) : (
-              <div style={{ marginTop: 14, padding: '10px 14px', background: '#F1F5F9', borderRadius: 8, color: '#64748B', fontSize: 13, textAlign: 'center', fontWeight: 600 }}>
-                🔒 Template Submission Restricted (Admin / Marketer Role Required)
+              <div className="wa-tpl-locked">
+                Only Admins and Marketing Managers can submit templates.
               </div>
             )}
           </form>
         </div>
 
         {/* Right: Realistic Device Preview with Whole Message Viewport */}
-        <div className="panel-card phone-simulator-panel">
+        <div className="panel-card phone-simulator-panel wa-tpl-card">
           <div className="simulator-header">
             <div className="simulator-badge-row">
               <span className="live-preview-chip">
@@ -1042,68 +1048,80 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
         </div>
       </div>
 
-      {/* Templates Table */}
-      <div className="panel-card" style={{ marginTop: 24 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h3 className="panel-title" style={{ margin: 0 }}>Submitted Message Templates</h3>
-          <span style={{ fontSize: 12, color: '#64748B', fontWeight: 600 }}>Total: {templates.length} Templates</span>
+      {/* Submitted templates */}
+      <section className="wa-bc-card" id="wa-tpl-list" style={{ marginTop: 18 }}>
+        <div className="wa-bc-card-head">
+          <h3 className="wa-bc-card-title">Submitted templates</h3>
+          <span className="wa-bc-count">{templates.length} total</span>
         </div>
-        <table className="corporate-table">
-          <thead>
-            <tr>
-              <th>Template Identifier</th>
-              <th>Category</th>
-              <th>Status</th>
-              <th>Language</th>
-              <th>Created Date</th>
-              <th>Action / Internal Verification</th>
-            </tr>
-          </thead>
-          <tbody>
-            {templates.length === 0 ? (
+
+        {templates.length === 0 ? (
+          <div className="wa-bc-empty">
+            <div className="wa-bc-empty-icon">
+              <TemplateIcon size={30} color="#008069" />
+            </div>
+            <h4>No templates yet</h4>
+            <p>
+              Build your first template above and submit it to Meta. Approved templates can be used in broadcasts and to start conversations.
+            </p>
+          </div>
+        ) : (
+          <table className="wa-bc-table wa-tpl-table">
+            <thead>
               <tr>
-                <td colSpan={6} style={{ textAlign: 'center', color: '#64748B', padding: '2.5rem 1rem' }}>
-                  <p style={{ fontWeight: 600, fontSize: '0.88rem', marginBottom: 4 }}>No message templates submitted</p>
-                  <span style={{ fontSize: '0.78rem' }}>Use the Template Creator above to design and submit your first WhatsApp template to Meta for instant approval.</span>
-                </td>
+                <th>Template</th>
+                <th>Status</th>
+                <th>Category</th>
+                <th>Language</th>
+                <th>Created</th>
+                <th>Action</th>
               </tr>
-            ) : (
-              templates.map((t) => (
-                <tr key={t.id}>
-                  <td>
-                    <strong>{t.name}</strong>
-                    {t.warning && <div className="text-warning-sm">{t.warning}</div>}
-                  </td>
-                  <td>
-                    <span className="status-chip neutral">{t.category}</span>
-                  </td>
-                  <td>
-                    <span className={`status-chip ${t.status === 'APPROVED' ? 'success' : t.status === 'PENDING' ? 'warning' : 'danger'}`}>
-                      {t.status}
-                    </span>
-                  </td>
-                  <td>{t.language}</td>
-                  <td>{new Date(t.createdAt).toLocaleDateString()}</td>
-                  <td>
-                    <button
-                      type="button"
-                      className="btn-primary sm"
-                      style={{ padding: '5px 10px', fontSize: '0.74rem', borderRadius: 6, display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                      onClick={() => {
-                        setTestModalTemplate(t);
-                        setTestFeedback(null);
-                      }}
-                      title="Send test message of this approved template to internal team number"
-                    >
-                      <span>🚀</span> Send Test to Team
-                    </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {templates.map((t) => {
+                const statusMeta = TEMPLATE_STATUS[t.status] || TEMPLATE_STATUS.DRAFT;
+                const canTest = t.status === 'APPROVED';
+                const snippet = String(t.bodyJson?.body || '').replace(/\s+/g, ' ').trim();
+                const created = new Date(t.createdAt);
+                return (
+                  <tr key={t.id}>
+                    <td data-label="Template">
+                      <div className="wa-bc-name">{t.name}</div>
+                      {snippet && <div className="wa-tpl-snippet">{snippet}</div>}
+                      {t.warning && <div className="wa-tpl-warn">{t.warning}</div>}
+                    </td>
+                    <td data-label="Status">
+                      <span className={`wa-bc-status tone-${statusMeta.tone}`}>
+                        <span className="wa-bc-status-dot" />
+                        {statusMeta.label}
+                      </span>
+                    </td>
+                    <td data-label="Category">
+                      <span className="wa-bc-tag">{CATEGORY_LABEL[t.category] || t.category}</span>
+                    </td>
+                    <td data-label="Language">{t.language}</td>
+                    <td data-label="Created">{isNaN(created.getTime()) ? '—' : created.toLocaleDateString()}</td>
+                    <td data-label="Action">
+                      <button
+                        type="button"
+                        className="wa-bc-act"
+                        disabled={!canTest}
+                        title={canTest ? 'Send this template to a team member to check it on a real phone' : 'Only approved templates can be sent'}
+                        onClick={() => {
+                          setTestModalTemplate(t);
+                          setTestFeedback(null);
+                        }}
+                      >
+                        Send test
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </section>
 
       {/* Internal Team Verification Test Modal */}
       {testModalTemplate && (
@@ -1155,13 +1173,14 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
                 <input
                   type="text"
                   required
-                  placeholder="e.g. +91 86558 51749"
+                  placeholder="e.g. +91 98765 43210"
                   value={testPhone}
                   onChange={(e) => setTestPhone(e.target.value)}
                   className="form-input"
+                  autoFocus
                 />
                 <span className="field-hint" style={{ fontSize: '0.74rem', color: '#64748B', marginTop: 4, display: 'block' }}>
-                  Verify approved template appearance live on your phone before running broad customer campaign broadcasts.
+                  Use a team member's own WhatsApp number, not the business number. Check the template on a real phone before broadcasting it to customers.
                 </span>
               </div>
 

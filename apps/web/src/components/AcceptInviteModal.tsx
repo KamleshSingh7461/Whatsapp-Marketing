@@ -1,12 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import fgsnLogo from '../assets/logo.png';
 import { registerInviteApi, validateInviteApi } from '../lib/api';
+import { LockIcon, VerifiedBadgeIcon, WhatsAppLogoIcon } from './WhatsAppIcons';
 
 interface AcceptInviteModalProps {
   token: string;
   onSuccess: (user: any) => void;
   onCancel: () => void;
 }
+
+const ROLE_LABELS: Record<string, string> = {
+  ADMIN: 'Operations Admin',
+  MARKETER: 'Marketing Manager',
+  AGENT: 'Support Agent',
+  VIEWER: 'Viewer',
+};
 
 export const AcceptInviteModal: React.FC<AcceptInviteModalProps> = ({
   token,
@@ -66,101 +74,145 @@ export const AcceptInviteModal: React.FC<AcceptInviteModalProps> = ({
     }
   };
 
+  const canSubmit = !submitting && !!name.trim() && !!password.trim() && !!confirmPassword.trim();
+  const roleLabel = inviteDetails ? ROLE_LABELS[inviteDetails.role] || inviteDetails.role : '';
+
+  const errorBox = error && (
+    <div className="wa-auth-error" role="alert">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="10" />
+        <line x1="12" y1="8" x2="12" y2="12" />
+        <line x1="12" y1="16" x2="12.01" y2="16" />
+      </svg>
+      <span>{error}</span>
+    </div>
+  );
+
   return (
-    <div className="modal-overlay" style={{ zIndex: 10000 }}>
-      <div className="modal-card auth-card" style={{ maxWidth: 480, width: '90%' }}>
-        <div className="modal-header" style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <img src={fgsnLogo} alt="FGSN" style={{ width: 42, height: 42, objectFit: 'contain' }} />
-            <div>
-              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Accept Workspace Invitation</h3>
-              <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>
-                FGSN WhatsApp ERP Access
+    <div className="wa-auth-screen wa-app-font">
+      <div className="wa-auth-band" aria-hidden="true" />
+
+      <div className="wa-auth-shell">
+        <header className="wa-auth-brand">
+          <div className="wa-auth-logo">
+            <img src={fgsnLogo} alt="Freedom Global Sports Network" />
+          </div>
+          <div className="wa-auth-brand-text">
+            <span className="wa-auth-brand-name">
+              Freedom Global Sports{' '}
+              <span className="wa-auth-nowrap">
+                Network
+                <VerifiedBadgeIcon size={18} color="#25D366" />
+              </span>
+            </span>
+            <span className="wa-auth-brand-sub">
+              <WhatsAppLogoIcon size={13} color="#ffffff" />
+              WhatsApp Business ERP
+            </span>
+          </div>
+        </header>
+
+        <main className="wa-auth-card">
+          {validating ? (
+            <>
+              <h1 className="wa-auth-title">Checking your invitation…</h1>
+              <p className="wa-auth-subtitle">This only takes a moment.</p>
+            </>
+          ) : error && !inviteDetails ? (
+            <>
+              <h1 className="wa-auth-title">Invitation problem</h1>
+              <p className="wa-auth-subtitle">We couldn't open this invitation.</p>
+              {errorBox}
+              <button type="button" className="wa-auth-btn" onClick={onCancel}>
+                Back to sign in
+              </button>
+            </>
+          ) : (
+            <>
+              <h1 className="wa-auth-title">Join your workspace</h1>
+              <p className="wa-auth-subtitle">
+                {inviteDetails?.invitedByName || 'An administrator'} invited you as{' '}
+                <strong>{roleLabel}</strong>. Set up your account to get started.
               </p>
-            </div>
+
+              {errorBox}
+
+              <form onSubmit={handleSubmit} noValidate>
+                <div className="wa-auth-field">
+                  <label htmlFor="wa-invite-email">Work email</label>
+                  <input
+                    id="wa-invite-email"
+                    type="email"
+                    className="wa-auth-input"
+                    autoComplete="username"
+                    disabled
+                    value={inviteDetails?.email || ''}
+                    readOnly
+                  />
+                </div>
+
+                <div className="wa-auth-field">
+                  <label htmlFor="wa-invite-name">Full name</label>
+                  <input
+                    id="wa-invite-name"
+                    type="text"
+                    className="wa-auth-input"
+                    autoComplete="name"
+                    required
+                    placeholder="e.g. Elena Vance"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                  />
+                </div>
+
+                <div className="wa-auth-field">
+                  <label htmlFor="wa-invite-password">Create password</label>
+                  <input
+                    id="wa-invite-password"
+                    type="password"
+                    className="wa-auth-input"
+                    autoComplete="new-password"
+                    required
+                    placeholder="At least 8 characters"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                </div>
+
+                <div className="wa-auth-field">
+                  <label htmlFor="wa-invite-confirm">Confirm password</label>
+                  <input
+                    id="wa-invite-confirm"
+                    type="password"
+                    className="wa-auth-input"
+                    autoComplete="new-password"
+                    required
+                    placeholder="Re-enter your password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                  />
+                </div>
+
+                <button type="submit" className="wa-auth-btn" disabled={!canSubmit}>
+                  {submitting ? 'Setting up your account…' : 'Create account and join'}
+                </button>
+
+                <button type="button" className="wa-auth-link wa-auth-link-center" onClick={onCancel}>
+                  Cancel
+                </button>
+              </form>
+            </>
+          )}
+
+          <div className="wa-auth-secure">
+            <LockIcon size={12} color="#8696a0" />
+            <span>Secured with the official Meta WhatsApp Cloud API</span>
           </div>
-          <button className="close-btn" onClick={onCancel}>✕</button>
-        </div>
+        </main>
 
-        {validating ? (
-          <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>
-            Validating invitation token...
-          </div>
-        ) : error && !inviteDetails ? (
-          <div style={{ padding: 16, background: '#fef2f2', color: '#dc2626', borderRadius: 8, fontSize: 13 }}>
-            <strong>Invitation Error:</strong> {error}
-            <div style={{ marginTop: 12 }}>
-              <button className="btn-secondary" onClick={onCancel}>Return to Login</button>
-            </div>
-          </div>
-        ) : (
-          <form onSubmit={handleSubmit}>
-            {error && (
-              <div style={{ padding: 10, background: '#fef2f2', color: '#dc2626', borderRadius: 6, fontSize: 12, marginBottom: 14 }}>
-                {error}
-              </div>
-            )}
-
-            <div style={{ background: 'var(--bg-secondary)', padding: '10px 14px', borderRadius: 8, fontSize: 12, marginBottom: 16 }}>
-              <div>Invited By: <strong>{inviteDetails?.invitedByName || 'Administrator'}</strong></div>
-              <div>Assigned Role: <span className="badge badge-primary" style={{ padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700 }}>{inviteDetails?.role}</span></div>
-            </div>
-
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Work Email</label>
-              <input
-                type="email"
-                disabled
-                value={inviteDetails?.email || ''}
-                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', opacity: 0.8 }}
-              />
-            </div>
-
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Full Name</label>
-              <input
-                type="text"
-                required
-                placeholder="e.g. John Doe"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid var(--border-color)' }}
-              />
-            </div>
-
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Create Password</label>
-              <input
-                type="password"
-                required
-                placeholder="At least 8 characters"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid var(--border-color)' }}
-              />
-            </div>
-
-            <div style={{ marginBottom: 20 }}>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Confirm Password</label>
-              <input
-                type="password"
-                required
-                placeholder="Re-enter password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid var(--border-color)' }}
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={submitting || !name.trim() || !password.trim()}
-              style={{ width: '100%', padding: 12, background: 'var(--primary-color)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'pointer' }}
-            >
-              {submitting ? 'Setting up Account...' : 'Complete Registration & Join'}
-            </button>
-          </form>
-        )}
+        <footer className="wa-auth-footer">
+          Powered by <strong>Freedom Global Sports Network</strong>
+        </footer>
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import fgsnLogo from '../assets/logo.png';
+import { LockIcon, VerifiedBadgeIcon, WhatsAppLogoIcon } from './WhatsAppIcons';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -7,6 +8,25 @@ interface AuthModalProps {
   onLogin: (email: string, pass: string) => Promise<void>;
   isMandatory?: boolean;
 }
+
+const SUPER_ADMIN_CONTACT = 'admin@fgsnlive.com';
+
+/** Turns transport-level failures into something a support agent can act on. */
+function friendlyAuthError(err: any): string {
+  const raw = String(err?.message || '');
+  if (/failed to fetch|networkerror|load failed|econnrefused|API error 5\d\d/i.test(raw)) {
+    return 'Cannot reach the FGSN server right now. Check your connection and try again.';
+  }
+  return raw || 'Sign in failed. Please check your email and password.';
+}
+
+const EyeIcon: React.FC<{ off?: boolean }> = ({ off }) => (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" />
+    <circle cx="12" cy="12" r="3" />
+    {off && <line x1="3" y1="3" x2="21" y2="21" />}
+  </svg>
+);
 
 export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
@@ -18,361 +38,173 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isForgotView, setIsForgotView] = useState(false);
-  const [forgotSent, setForgotSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
+  const canSubmit = !!email.trim() && !!password.trim() && !loading;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canSubmit) return;
     setError(null);
     setLoading(true);
     try {
-      await onLogin(email, password);
+      await onLogin(email.trim(), password);
       onClose();
     } catch (err: any) {
-      setError(err.message || 'Authentication failed. Please verify email & password.');
+      setError(friendlyAuthError(err));
     } finally {
       setLoading(false);
     }
   };
 
-  const handleForgotSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email.trim()) return;
-    setLoading(true);
-    setError(null);
-    // Simulate/Trigger password reset workflow
-    setTimeout(() => {
-      setLoading(false);
-      setForgotSent(true);
-    }, 800);
-  };
+  const resetMailto = `mailto:${SUPER_ADMIN_CONTACT}?subject=${encodeURIComponent('FGSN ERP password reset request')}`;
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        width: '100vw',
-        height: '100vh',
-        backgroundColor: '#F8FAFC',
-        backgroundImage: 'radial-gradient(at 0% 0%, rgba(5, 150, 105, 0.08) 0px, transparent 50%), radial-gradient(at 100% 100%, rgba(37, 99, 235, 0.06) 0px, transparent 50%)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 999999,
-        padding: 20,
-        boxSizing: 'border-box',
-        fontFamily: 'var(--font-sans)',
-      }}
-    >
-      <div
-        style={{
-          maxWidth: 440,
-          width: '100%',
-          backgroundColor: '#FFFFFF',
-          borderRadius: '16px',
-          border: '1px solid #E2E8F0',
-          boxShadow: '0 20px 25px -5px rgba(15, 23, 42, 0.08), 0 8px 10px -6px rgba(15, 23, 42, 0.04)',
-          padding: '36px 32px',
-          color: '#0F172A',
-        }}
-      >
-        {/* Brand Header */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 28 }}>
-          <div
-            style={{
-              width: 52,
-              height: 52,
-              borderRadius: 14,
-              backgroundColor: '#ECFDF5',
-              border: '1px solid #A7F3D0',
-              padding: 8,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-            }}
-          >
-            <img src={fgsnLogo} alt="FGSN Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+    <div className="wa-auth-screen wa-app-font">
+      <div className="wa-auth-band" aria-hidden="true" />
+
+      <div className="wa-auth-shell">
+        {/* Brand header — mirrors the sidebar brand block */}
+        <header className="wa-auth-brand">
+          <div className="wa-auth-logo">
+            <img src={fgsnLogo} alt="Freedom Global Sports Network" />
           </div>
-          <div>
-            <h3 style={{ fontSize: 20, fontWeight: 700, margin: 0, color: '#0F172A', letterSpacing: '-0.02em' }}>
-              {isForgotView ? 'Reset Your Password' : 'Sign In to FGSN ERP'}
-            </h3>
-            <p style={{ fontSize: 13, color: '#64748B', margin: '3px 0 0', fontWeight: 500 }}>
-              {isForgotView ? 'Enter your work email to receive password reset link' : 'Enterprise WhatsApp Marketing & Operations'}
-            </p>
+          <div className="wa-auth-brand-text">
+            <span className="wa-auth-brand-name">
+              Freedom Global Sports{' '}
+              <span className="wa-auth-nowrap">
+                Network
+                <VerifiedBadgeIcon size={18} color="#25D366" />
+              </span>
+            </span>
+            <span className="wa-auth-brand-sub">
+              <WhatsAppLogoIcon size={13} color="#ffffff" />
+              WhatsApp Business ERP
+            </span>
           </div>
+        </header>
+
+        <main className="wa-auth-card">
           {!isMandatory && (
-            <button
-              onClick={onClose}
-              style={{
-                marginLeft: 'auto',
-                background: 'none',
-                border: 'none',
-                color: '#64748B',
-                cursor: 'pointer',
-                fontSize: 16,
-                padding: 4,
-              }}
-            >
+            <button type="button" className="wa-auth-close" onClick={onClose} aria-label="Close">
               ✕
             </button>
           )}
-        </div>
 
-        {error && (
-          <div
-            style={{
-              padding: '12px 14px',
-              borderRadius: 8,
-              backgroundColor: '#FEF2F2',
-              border: '1px solid #FECACA',
-              color: '#DC2626',
-              fontSize: 13,
-              marginBottom: 20,
-              fontWeight: 500,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-            }}
-          >
-            <span>⚠️</span>
-            <span>{error}</span>
-          </div>
-        )}
+          {isForgotView ? (
+            <>
+              <h1 className="wa-auth-title">Reset your password</h1>
+              <p className="wa-auth-subtitle">
+                For security, password resets are handled by your FGSN Super Admin.
+              </p>
 
-        {isForgotView ? (
-          <div>
-            {forgotSent ? (
-              <div
-                style={{
-                  padding: '16px',
-                  borderRadius: 10,
-                  backgroundColor: '#ECFDF5',
-                  border: '1px solid #A7F3D0',
-                  color: '#065F46',
-                  fontSize: 13,
-                  marginBottom: 20,
-                  lineHeight: 1.5,
-                }}
-              >
-                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
-                  ✉️ Reset Link Dispatched!
-                </div>
-                Password reset instructions have been sent to <strong>{email}</strong>. Please check your inbox or contact your FGSN Super Admin (<code>admin@fgsnlive.com</code>) to reset your credentials instantly.
+              <div className="wa-auth-info">
+                Email <a href={resetMailto}>{SUPER_ADMIN_CONTACT}</a> from your work address and
+                they will set a new password for you.
               </div>
-            ) : (
-              <form onSubmit={handleForgotSubmit}>
-                <div style={{ marginBottom: 20 }}>
-                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#0F172A', marginBottom: 8 }}>
-                    Work Email Address
-                  </label>
+
+              <a className="wa-auth-btn" href={resetMailto}>
+                Email Super Admin
+              </a>
+
+              <button
+                type="button"
+                className="wa-auth-link wa-auth-link-center"
+                onClick={() => setIsForgotView(false)}
+              >
+                ← Back to sign in
+              </button>
+            </>
+          ) : (
+            <>
+              <h1 className="wa-auth-title">Sign in to your workspace</h1>
+              <p className="wa-auth-subtitle">
+                Use your FGSN work account to manage chats, broadcasts and templates.
+              </p>
+
+              {error && (
+                <div className="wa-auth-error" role="alert">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="8" x2="12" y2="12" />
+                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
+                  <span>{error}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleSubmit} noValidate>
+                <div className="wa-auth-field">
+                  <label htmlFor="wa-auth-email">Work email</label>
                   <input
+                    id="wa-auth-email"
                     type="email"
+                    className="wa-auth-input"
+                    autoComplete="username"
+                    autoFocus
                     required
-                    placeholder="e.g. admin@fgsnlive.com"
+                    placeholder="you@fgsnlive.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '12px 14px',
-                      borderRadius: 8,
-                      border: '1px solid #CBD5E1',
-                      backgroundColor: '#FFFFFF',
-                      color: '#0F172A',
-                      fontSize: 14,
-                      boxSizing: 'border-box',
-                      outline: 'none',
-                    }}
                   />
                 </div>
-                <button
-                  type="submit"
-                  disabled={loading || !email.trim()}
-                  style={{
-                    width: '100%',
-                    padding: '13px',
-                    borderRadius: 8,
-                    backgroundColor: '#059669',
-                    color: '#FFFFFF',
-                    fontWeight: 700,
-                    fontSize: 14,
-                    border: 'none',
-                    cursor: loading || !email.trim() ? 'not-allowed' : 'pointer',
-                    boxShadow: '0 4px 12px rgba(5, 150, 105, 0.25)',
-                    marginBottom: 16,
-                  }}
-                >
-                  {loading ? 'Sending Reset Instructions...' : 'Send Password Reset Link'}
+
+                <div className="wa-auth-field">
+                  <div className="wa-auth-label-row">
+                    <label htmlFor="wa-auth-password">Password</label>
+                    <button
+                      type="button"
+                      className="wa-auth-link"
+                      onClick={() => {
+                        setError(null);
+                        setIsForgotView(true);
+                      }}
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
+                  <div className="wa-auth-password-wrap">
+                    <input
+                      id="wa-auth-password"
+                      type={showPassword ? 'text' : 'password'}
+                      className="wa-auth-input"
+                      autoComplete="current-password"
+                      required
+                      placeholder="Enter your password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className="wa-auth-eye"
+                      onClick={() => setShowPassword((prev) => !prev)}
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      title={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      <EyeIcon off={showPassword} />
+                    </button>
+                  </div>
+                </div>
+
+                <button type="submit" className="wa-auth-btn" disabled={!canSubmit}>
+                  {loading ? 'Signing in…' : 'Sign in'}
                 </button>
               </form>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                setIsForgotView(false);
-                setForgotSent(false);
-              }}
-              style={{
-                width: '100%',
-                padding: '10px',
-                borderRadius: 8,
-                backgroundColor: 'transparent',
-                color: '#2563EB',
-                fontWeight: 600,
-                fontSize: 13,
-                border: 'none',
-                cursor: 'pointer',
-              }}
-            >
-              ← Back to Sign In
-            </button>
+            </>
+          )}
+
+          <div className="wa-auth-secure">
+            <LockIcon size={12} color="#8696a0" />
+            <span>Secured with the official Meta WhatsApp Cloud API</span>
           </div>
-        ) : (
-          <form onSubmit={handleSubmit}>
-            <div style={{ marginBottom: 20 }}>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#0F172A', marginBottom: 8 }}>
-                Work Email Address
-              </label>
-              <input
-                type="email"
-                required
-                placeholder="e.g. admin@fgsnlive.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '12px 14px',
-                  borderRadius: 8,
-                  border: '1px solid #CBD5E1',
-                  backgroundColor: '#FFFFFF',
-                  color: '#0F172A',
-                  fontSize: 14,
-                  boxSizing: 'border-box',
-                  outline: 'none',
-                  transition: 'all 0.15s ease',
-                }}
-                onFocus={(e) => {
-                  e.target.style.borderColor = '#059669';
-                  e.target.style.boxShadow = '0 0 0 3px rgba(5, 150, 105, 0.15)';
-                }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = '#CBD5E1';
-                  e.target.style.boxShadow = 'none';
-                }}
-              />
-            </div>
+        </main>
 
-            <div style={{ marginBottom: 26 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <label style={{ fontSize: 13, fontWeight: 600, color: '#0F172A' }}>
-                  Password
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setIsForgotView(true)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: '#2563EB',
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    padding: 0,
-                  }}
-                >
-                  Forgot Password?
-                </button>
-              </div>
-              <div style={{ position: 'relative' }}>
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  placeholder="••••••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '12px 42px 12px 14px',
-                    borderRadius: 8,
-                    border: '1px solid #CBD5E1',
-                    backgroundColor: '#FFFFFF',
-                    color: '#0F172A',
-                    fontSize: 14,
-                    boxSizing: 'border-box',
-                    outline: 'none',
-                    transition: 'all 0.15s ease',
-                  }}
-                  onFocus={(e) => {
-                    e.target.style.borderColor = '#059669';
-                    e.target.style.boxShadow = '0 0 0 3px rgba(5, 150, 105, 0.15)';
-                  }}
-                  onBlur={(e) => {
-                    e.target.style.borderColor = '#CBD5E1';
-                    e.target.style.boxShadow = 'none';
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(prev => !prev)}
-                  title={showPassword ? 'Hide Password' : 'Show Password'}
-                  style={{
-                    position: 'absolute',
-                    right: 12,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    fontSize: 16,
-                    color: '#64748B',
-                    padding: 4,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  {showPassword ? '👁️' : '🙈'}
-                </button>
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading || !email.trim() || !password.trim()}
-              style={{
-                width: '100%',
-                padding: '13px',
-                borderRadius: 8,
-                backgroundColor: '#059669',
-                color: '#FFFFFF',
-                fontWeight: 700,
-                fontSize: 14,
-                border: 'none',
-                cursor: loading || !email.trim() || !password.trim() ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 4px 12px rgba(5, 150, 105, 0.25)',
-                opacity: loading || !email.trim() || !password.trim() ? 0.7 : 1,
-                transition: 'all 0.15s ease',
-              }}
-            >
-              {loading ? 'Authenticating Workspace...' : 'Sign In to Workspace'}
-            </button>
-          </form>
-        )}
-
-        <div style={{ marginTop: 24, paddingTop: 18, borderTop: '1px solid #F1F5F9', textAlign: 'center' }}>
-          <span style={{ fontSize: 12, color: '#64748B', fontWeight: 500 }}>
-            Powered by <strong>Freedom Global Sports Network</strong> • Enterprise ERP
-          </span>
-        </div>
+        <footer className="wa-auth-footer">
+          Powered by <strong>Freedom Global Sports Network</strong>
+        </footer>
       </div>
     </div>
   );

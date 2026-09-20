@@ -1,6 +1,7 @@
-import React from 'react';
-import { Campaign, Contact, Conversation, RevenueAnalytics } from '../types';
-import { CurrencyCode, formatCurrency, formatRate, getCurrencySymbol } from '../lib/currency';
+import React, { useEffect, useState } from 'react';
+import { Campaign, Contact, Conversation, MetaInsights, RevenueAnalytics } from '../types';
+import { CurrencyCode, formatFromINR } from '../lib/currency';
+import { getMetaInsightsApi } from '../lib/api';
 
 interface AnalyticsViewProps {
   analytics: RevenueAnalytics;
@@ -11,6 +12,82 @@ interface AnalyticsViewProps {
   onCurrencyChange?: (currency: CurrencyCode) => void;
 }
 
+const META_PRICING_URL = 'https://developers.facebook.com/documentation/business-messaging/whatsapp/pricing';
+
+const RANGES = [
+  { days: 0, label: 'Today so far' },
+  { days: 7, label: 'Last 7 days' },
+  { days: 28, label: 'Last 28 days' },
+  { days: 90, label: 'Last 90 days' },
+] as const;
+
+/** Message types in the order WhatsApp Manager lists them, with a plain-words description. */
+const CATEGORY_DEFS = [
+  { key: 'MARKETING', label: 'Marketing', note: 'Promotions and offers you send to start a conversation' },
+  { key: 'UTILITY', label: 'Utility', note: 'Updates such as order status or account alerts' },
+  { key: 'AUTHENTICATION', label: 'Authentication', note: 'One-time login codes (OTP)' },
+  { key: 'AUTHENTICATION_INTERNATIONAL', label: 'Authentication – international', note: 'Login codes sent to numbers in other countries' },
+  { key: 'SERVICE', label: 'Service', note: 'Your replies within 24 hours of a customer writing to you' },
+] as const;
+
+interface TypeRow {
+  key: string;
+  label: string;
+  note: string;
+  delivered: number;
+  free: number;
+  paid: number;
+  cost: number;
+}
+
+interface Figures {
+  source: 'meta' | 'estimate';
+  sent: number;
+  delivered: number;
+  received: number;
+  rows: TypeRow[];
+  freeService: number;
+  /** null when this app cannot tell (estimate mode). */
+  freeEntry: number | null;
+  paid: number;
+  totalCost: number;
+}
+
+const Icon: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {children}
+  </svg>
+);
+
+/** "x out of every 100", never above 100 and never negative. */
+const per100 = (part: number, whole: number) =>
+  whole > 0 ? Math.max(0, Math.min(100, Math.round((part / whole) * 100))) : 0;
+
+const n = (value: number) => value.toLocaleString();
+
+/** "2026-09-18" -> "18 Sep 2026". The server already worked the day out in the business timezone. */
+const day = (ymd: string) =>
+  new Date(`${ymd}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+
+// Same rule the Contacts page uses for its "YES leads" filter.
+const isYesLead = (c: Contact) =>
+  (c.tags || []).some(t => {
+    const l = t.toLowerCase();
+    return l.includes('yes') || l.includes('hot lead');
+  });
+
+const WORDS: Array<{ term: string; meaning: string }> = [
+  { term: 'Sent / delivered', meaning: 'Sent means the message left your account. Delivered means it arrived on the customer’s phone (the two grey ticks in WhatsApp).' },
+  { term: 'Broadcast', meaning: 'One message you send to many customers at the same time.' },
+  { term: 'Template', meaning: 'A ready-made message that Meta (the company behind WhatsApp) has approved. WhatsApp only lets a business message a customer first with a template.' },
+  { term: 'Marketing, Utility, Authentication, Service', meaning: 'The kinds of message Meta prices differently. Marketing is promotions. Utility is updates such as order status. Authentication is login codes. Service is your reply when a customer writes to you first.' },
+  { term: 'Free customer service', meaning: 'Replies you send within 24 hours of a customer writing to you. Meta does not charge for these today.' },
+  { term: 'Free entry point', meaning: 'When a customer starts a chat by tapping a Click-to-WhatsApp ad, Meta keeps messages free for 72 hours.' },
+  { term: 'Agreed to receive messages', meaning: 'The customer gave permission to be messaged on WhatsApp (also called “opted in”). Broadcasts only go to these people.' },
+  { term: '24-hour window', meaning: 'When a customer writes to you, you can reply freely for the next 24 hours. After that you need a template to start again.' },
+  { term: 'Approximate', meaning: 'Meta says these figures can differ slightly from your invoice because of how data is processed. Your invoice is always the final word.' },
+];
+
 export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
   analytics,
   currency,
@@ -18,579 +95,487 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
   campaigns = [],
   contacts = [],
 }) => {
-  const {
-    funnel,
-    dailyTrend,
-    marketingCost,
-    utilityCost,
-    serviceCost,
-    regionalPricing,
-    channelComparison,
-    freeServiceUsed,
-  } = analytics;
+  const { funnel, marketingCost, utilityCost, serviceCost } = analytics;
 
-  // Conversion rates (guarded for zero-state)
-  const deliveryRate = funnel.sent > 0 ? ((funnel.delivered / funnel.sent) * 100).toFixed(1) : '0.0';
-  const openRate = funnel.delivered > 0 ? ((funnel.read / funnel.delivered) * 100).toFixed(1) : '0.0';
-  const clickReplyRate = funnel.read > 0 ? ((funnel.engaged / funnel.read) * 100).toFixed(1) : '0.0';
-  const finalConversionRate = funnel.engaged > 0 ? ((funnel.converted / funnel.engaged) * 100).toFixed(1) : '0.0';
-  const overallSentToConverted = funnel.sent > 0 ? ((funnel.converted / funnel.sent) * 100).toFixed(1) : '0.0';
+  // Meta's own numbers, the same ones WhatsApp Manager > Insights shows.
+  const [days, setDays] = useState<number>(28);
+  const [meta, setMeta] = useState<MetaInsights | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
 
-  // Total cost breakdown
-  const totalCost = marketingCost + utilityCost + serviceCost;
-  const mktPercent = totalCost > 0 ? Math.round((marketingCost / totalCost) * 100) : 0;
-  const utilPercent = totalCost > 0 ? Math.round((utilityCost / totalCost) * 100) : 0;
-  const srvPercent = totalCost > 0 ? 100 - mktPercent - utilPercent : 0;
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    const load = async () => {
+      try {
+        const res = await getMetaInsightsApi(days);
+        if (alive) setMeta(res.available ? res : null);
+      } catch {
+        if (alive) setMeta(null);
+      } finally {
+        if (alive) setLoading(false);
+      }
+    };
+    load();
+    const timer = setInterval(load, 5 * 60 * 1000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [days]);
 
-  const maxRevenue = Math.max(...dailyTrend.map(d => d.revenue), 1000);
-  const symbol = getCurrencySymbol(currency);
+  const money = (amountInINR: number) => formatFromINR(amountInINR, currency, 2);
 
-  // Real-time live support calculations
-  const totalConvs = conversations.length;
-  const resolvedConvs = conversations.filter(c => c.status === 'RESOLVED').length;
-  const openConvs = conversations.filter(c => c.status === 'OPEN' || !c.status).length;
-  const resolutionRate = totalConvs > 0 ? ((resolvedConvs / totalConvs) * 100).toFixed(1) : '0.0';
-  const activeWindowCount = conversations.filter(c => c.windowExpiresAt && new Date(c.windowExpiresAt).getTime() > Date.now()).length;
-  const windowCompliance = totalConvs > 0 ? Math.round((activeWindowCount / totalConvs) * 100) : 100;
+  // ---- The figures: from Meta when we have them, otherwise estimated from this app's own records ----
+  let figures: Figures;
+  if (meta) {
+    const rows: TypeRow[] = CATEGORY_DEFS.map(def => {
+      const b = meta.pricing[def.key] || {};
+      const free = (b.FREE_CUSTOMER_SERVICE?.volume || 0) + (b.FREE_ENTRY_POINT?.volume || 0);
+      const paid = b.REGULAR?.volume || 0;
+      const cost = Object.values(b).reduce((acc, x) => acc + (x.cost || 0), 0);
+      return { key: def.key, label: def.label, note: def.note, delivered: free + paid, free, paid, cost };
+    });
+    const known = new Set<string>(CATEGORY_DEFS.map(d => d.key));
+    const other = Object.entries(meta.pricing).filter(([k]) => !known.has(k));
+    if (other.length > 0) {
+      let free = 0;
+      let paid = 0;
+      let cost = 0;
+      for (const [, b] of other) {
+        free += (b.FREE_CUSTOMER_SERVICE?.volume || 0) + (b.FREE_ENTRY_POINT?.volume || 0);
+        paid += b.REGULAR?.volume || 0;
+        cost += Object.values(b).reduce((acc, x) => acc + (x.cost || 0), 0);
+      }
+      if (free + paid > 0 || cost > 0) {
+        rows.push({ key: 'OTHER', label: 'Other', note: 'Other message types Meta reports', delivered: free + paid, free, paid, cost });
+      }
+    }
+    const sumType = (type: string) =>
+      Object.values(meta.pricing).reduce((acc, b) => acc + (b[type]?.volume || 0), 0);
+    figures = {
+      source: 'meta',
+      sent: meta.sent,
+      delivered: meta.delivered,
+      received: meta.received,
+      rows,
+      freeService: sumType('FREE_CUSTOMER_SERVICE'),
+      freeEntry: sumType('FREE_ENTRY_POINT'),
+      paid: rows.reduce((acc, r) => acc + r.paid, 0),
+      totalCost: Math.round(rows.reduce((acc, r) => acc + r.cost, 0) * 100) / 100,
+    };
+  } else {
+    const marketingFromCampaigns = campaigns.reduce((acc, c) => acc + (c.stats?.delivered || 0), 0);
+    const marketingCount =
+      marketingFromCampaigns > 0
+        ? marketingFromCampaigns
+        : Math.round(
+            funnel.delivered > 0 && marketingCost > 0
+              ? Math.min(funnel.delivered, Math.round(marketingCost / 0.8629))
+              : 0,
+          );
+    // Utility cost is delivered utility messages x 0.115 (see Dashboard.tsx), so the count is worked back from it.
+    const utilityCount = utilityCost > 0 ? Math.round(utilityCost / 0.115) : 0;
+    const serviceCount = Math.max(0, funnel.delivered - marketingCount - utilityCount);
+    const rows: TypeRow[] = [
+      { key: 'MARKETING', label: 'Marketing', note: CATEGORY_DEFS[0].note, delivered: marketingCount, free: 0, paid: marketingCount, cost: marketingCost },
+      { key: 'UTILITY', label: 'Utility', note: CATEGORY_DEFS[1].note, delivered: utilityCount, free: 0, paid: utilityCount, cost: utilityCost },
+      { key: 'SERVICE', label: 'Service', note: CATEGORY_DEFS[4].note, delivered: serviceCount, free: serviceCount, paid: 0, cost: serviceCost },
+    ];
+    figures = {
+      source: 'estimate',
+      sent: funnel.sent,
+      delivered: funnel.delivered,
+      received: funnel.engaged,
+      rows,
+      freeService: serviceCount,
+      freeEntry: null,
+      paid: marketingCount + utilityCount,
+      totalCost: marketingCost + utilityCost + serviceCost,
+    };
+  }
 
-  // Real-time live audience & campaign calculations
-  const totalContactsCount = contacts.length;
-  const igLeadsCount = contacts.filter(c => c.tags?.some(t => t.toLowerCase().includes('instagram') || t.toLowerCase().includes('lead') || t.toLowerCase().includes('academic')) || c.optInSource === 'CLICK_TO_WHATSAPP_AD').length;
-  const vipCount = contacts.filter(c => c.rfmSegment === 'CHAMPIONS').length;
-  const frequentCount = contacts.filter(c => c.rfmSegment === 'LOYAL_CUSTOMERS').length;
-  const newLeadsCount = contacts.filter(c => c.rfmSegment === 'NEW_LEADS' || !c.rfmSegment).length;
+  const freeTotal = figures.freeService + (figures.freeEntry || 0);
+  const totals = figures.rows.reduce(
+    (acc, r) => ({ delivered: acc.delivered + r.delivered, free: acc.free + r.free, paid: acc.paid + r.paid, cost: acc.cost + r.cost }),
+    { delivered: 0, free: 0, paid: 0, cost: 0 },
+  );
+  const reachedPer100 = per100(figures.delivered, figures.sent);
+  const waiting = loading && !meta; // first load: don't flash estimates that Meta's numbers will replace
+  const period = !meta
+    ? 'all time'
+    : meta.days === 0
+      ? `today so far (${day(meta.startDay)})`
+      : `the last ${meta.days} days (${day(meta.startDay)} to ${day(meta.endDay)})`;
+  const sentence = meta ? `In ${period} you sent` : 'So far you have sent';
 
-  const audienceStreams = [
-    {
-      name: 'Instagram & Meta Lead Generation',
-      tag: 'Ad Generated',
-      count: igLeadsCount,
-      share: totalContactsCount > 0 ? Math.round((igLeadsCount / totalContactsCount) * 100) : 0,
-      revenue: analytics.totalRevenue > 0 ? analytics.totalRevenue * 0.7 : 0,
-    },
-    {
-      name: 'New WhatsApp Inbound Leads',
-      tag: 'Organic',
-      count: newLeadsCount,
-      share: totalContactsCount > 0 ? Math.round((newLeadsCount / totalContactsCount) * 100) : 0,
-      revenue: analytics.totalRevenue > 0 ? analytics.totalRevenue * 0.2 : 0,
-    },
-    {
-      name: 'VIP & High Intent Contacts',
-      tag: 'VIP Tier',
-      count: vipCount + frequentCount,
-      share: totalContactsCount > 0 ? Math.round(((vipCount + frequentCount) / totalContactsCount) * 100) : 0,
-      revenue: analytics.totalRevenue > 0 ? analytics.totalRevenue * 0.1 : 0,
-    },
-  ];
+  // ---- Chats and contacts: always from this app's own records ----
+  const totalChats = conversations.length;
+  const finishedChats = conversations.filter(c => c.status === 'RESOLVED').length;
+  const openChats = conversations.filter(c => c.status === 'OPEN' || !c.status).length;
+  const freeReplyChats = conversations.filter(
+    c => c.windowExpiresAt && new Date(c.windowExpiresAt).getTime() > Date.now(),
+  ).length;
 
-  // Category delivery and cost counts
-  const marketingDeliveredFromCmp = campaigns.reduce((acc, c) => acc + (c.stats?.delivered || 0), 0);
-  const marketingDelivered = marketingDeliveredFromCmp > 0 
-    ? marketingDeliveredFromCmp 
-    : Math.round(funnel.delivered > 0 && marketingCost > 0 ? Math.min(funnel.delivered, Math.round(marketingCost / 0.8629)) : 0);
-  const marketingCharges = marketingCost;
-  const utilityDelivered = 0;
-  const utilityCharges = utilityCost;
-  const serviceDelivered = Math.max(0, funnel.delivered - marketingDelivered - utilityDelivered);
-  const serviceFreeMessages = Math.min(serviceDelivered, 1000);
-  const servicePaidMessages = Math.max(0, serviceDelivered - 1000);
-  const serviceCharges = serviceCost;
+  const totalContacts = contacts.length;
+  const agreedContacts = contacts.filter(c => c.optedIn).length;
+  const yesContacts = contacts.filter(isYesLead).length;
 
   return (
-    <div className="view-container">
-      {/* Executive Page Header (Single Global Currency is in Top Navbar) */}
-      <div className="page-header-row">
-        <div>
-          <h2 className="view-title">Executive Revenue & Marketing Attribution</h2>
-          <p className="view-subtitle">
-            Commercial return on investment, live broadcast sales attribution, and Meta Cloud API cost distribution.
-          </p>
-        </div>
-
-        <div className="analytics-quick-badges">
-          <span className="live-pill-badge success">
-            <span className="live-dot" />
-            Meta WABA Quality: GREEN
-          </span>
-          <span className="live-pill-badge neutral">
-            Active Currency: <strong>{currency}</strong>
-          </span>
-        </div>
-      </div>
-
-      {funnel.sent === 0 && (
-        <div className="corporate-guide-box" style={{ background: '#F8FAFC', borderLeft: '4px solid #059669', marginBottom: 20 }}>
-          <h3 className="guide-title">Enterprise Analytics Initialized</h3>
-          <p style={{ fontSize: '0.84rem', color: '#475569' }}>
-            Live delivery efficiency, read rates, and attributed sales will stream here automatically as broadcast campaigns and automated workflows are dispatched.
-          </p>
-        </div>
-      )}
-
-      {/* 4 Core Financial KPI Metric Cards */}
-      <div className="metrics-grid">
-        <div className="metric-card">
-          <div className="metric-header">
-            <span className="metric-label">Attributed Revenue</span>
-            <span className="metric-trend-badge positive">+{analytics.revenueGrowth}%</span>
-          </div>
-          <div className="metric-primary-value">
-            {formatCurrency(analytics.totalRevenue, currency)}
-          </div>
-          <div className="metric-footer-text">
-            Average Order Value: <strong>{formatCurrency(analytics.averageOrderValue, currency, 2)}</strong>
-          </div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-header">
-            <span className="metric-label">Marketing Return on Spend</span>
-            <span className="metric-trend-badge highlight">{analytics.roiMultiplier.toFixed(1)}x ROI</span>
-          </div>
-          <div className="metric-primary-value">{analytics.roiMultiplier.toFixed(1)}x</div>
-          <div className="metric-footer-text">
-            {analytics.totalSpend > 0
-              ? `${formatCurrency(analytics.totalRevenue / analytics.totalSpend, currency, 2)} return per ${formatCurrency(1, currency)} spent on Meta API`
-              : 'Zero spend recorded (100% Free Service Tier)'}
-          </div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-header">
-            <span className="metric-label">LTV to CAC Ratio</span>
-            <span className="metric-trend-badge neutral">{analytics.cacValue > 0 ? (analytics.ltvValue / analytics.cacValue).toFixed(1) : '0.0'}x</span>
-          </div>
-          <div className="metric-primary-value">
-            {formatCurrency(analytics.ltvValue, currency)} <span className="sub-unit">LTV</span>
-          </div>
-          <div className="metric-footer-text">
-            {analytics.cacValue > 0
-              ? `Customer Acquisition Cost: ${formatCurrency(analytics.cacValue, currency, 2)}`
-              : 'Organic & Care Inbound (₹0 CAC)'}
-          </div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-header">
-            <span className="metric-label">Free Care Quota Remaining</span>
-            <span className="metric-trend-badge positive">{Math.max(0, 1000 - freeServiceUsed)} left</span>
-          </div>
-          <div className="metric-primary-value">{Math.max(0, 1000 - freeServiceUsed)} <span className="sub-unit">/ 1,000</span></div>
-          <div className="metric-footer-text">
-            Standard Meta 1,000 monthly zero-cost customer care sessions
-          </div>
-        </div>
-      </div>
-
-      {/* Official Meta WABA Delivery & Category Insights */}
-      <div className="panel-card" style={{ marginBottom: 24, border: '1px solid #E2E8F0' }}>
-        <div className="panel-header" style={{ borderBottom: '1px solid #F1F5F9', paddingBottom: 12 }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <h3 className="panel-title">Meta Cloud API Message Delivery & Category Insights</h3>
-              <span className="status-chip success" style={{ fontSize: '0.72rem' }}>Quality Rating: High (Score 3)</span>
+    <div className="wa-bc-page wa-an-page">
+      <div className="wa-bc-toolbar wa-an-toolbar">
+        <p className="wa-bc-lede">
+          A simple summary of your WhatsApp messaging, using the same figures as WhatsApp Manager: how many messages
+          went out, what they cost, and who replied.
+        </p>
+        <div className="wa-an-controls">
+          {(meta || loading) && (
+            <div className="wa-an-range" role="group" aria-label="Time period">
+              {RANGES.map(r => (
+                <button
+                  key={r.days}
+                  type="button"
+                  className={days === r.days ? 'is-active' : ''}
+                  aria-pressed={days === r.days}
+                  onClick={() => setDays(r.days)}
+                >
+                  {r.label}
+                </button>
+              ))}
             </div>
-            <p className="panel-desc">Official Meta WABA delivery ledger, category breakdown, free tier utilization, and billing charges</p>
-          </div>
-          <span className="text-secondary" style={{ fontSize: '0.75rem' }}>Note: Approximate data based on Meta Cloud Webhooks</span>
+          )}
+          {!waiting && (
+            <span className={`wa-bc-status ${figures.source === 'meta' ? 'tone-done' : 'tone-live'}`}>
+              <span className="wa-bc-status-dot" />
+              {figures.source === 'meta' ? 'Numbers from Meta' : 'Estimates from this app'}
+            </span>
+          )}
         </div>
+      </div>
 
-        {/* 4 Summary Mini-Cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, padding: '16px 0', borderBottom: '1px solid #F1F5F9' }}>
-          <div style={{ background: '#F8FAFC', padding: '12px 14px', borderRadius: 8, border: '1px solid #E2E8F0' }}>
-            <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block', fontWeight: 600 }}>MESSAGES SENT</span>
-            <strong style={{ fontSize: '1.4rem', color: '#0F172A' }}>{funnel.sent}</strong>
-            <span style={{ fontSize: '0.72rem', color: '#10B981', display: 'block', marginTop: 2 }}>Outbound Dispatched</span>
-          </div>
-
-          <div style={{ background: '#F8FAFC', padding: '12px 14px', borderRadius: 8, border: '1px solid #E2E8F0' }}>
-            <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block', fontWeight: 600 }}>MESSAGES DELIVERED</span>
-            <strong style={{ fontSize: '1.4rem', color: '#059669' }}>{funnel.delivered}</strong>
-            <span style={{ fontSize: '0.72rem', color: '#059669', display: 'block', marginTop: 2 }}>{deliveryRate}% Carrier Delivery</span>
-          </div>
-
-          <div style={{ background: '#F8FAFC', padding: '12px 14px', borderRadius: 8, border: '1px solid #E2E8F0' }}>
-            <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block', fontWeight: 600 }}>MESSAGES RECEIVED</span>
-            <strong style={{ fontSize: '1.4rem', color: '#2563EB' }}>{funnel.engaged}</strong>
-            <span style={{ fontSize: '0.72rem', color: '#2563EB', display: 'block', marginTop: 2 }}>Inbound Customer Inquiries</span>
-          </div>
-
-          <div style={{ background: '#F8FAFC', padding: '12px 14px', borderRadius: 8, border: '1px solid #E2E8F0' }}>
-            <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block', fontWeight: 600 }}>APPROXIMATE CHARGES</span>
-            <strong style={{ fontSize: '1.4rem', color: '#0F172A' }}>{formatCurrency(totalCost, currency, 2)}</strong>
-            <span style={{ fontSize: '0.72rem', color: totalCost === 0 ? '#059669' : '#64748B', display: 'block', marginTop: 2 }}>
-              {totalCost === 0 ? 'Zero-Cost Free Tier Active' : 'Billed to WABA Balance'}
+      {figures.source === 'estimate' && !waiting && (
+        <div className="wa-an-notice is-warn" role="status">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="16" x2="12" y2="12" />
+            <line x1="12" y1="8" x2="12.01" y2="8" />
+          </svg>
+          <div>
+            <strong>Could not reach Meta’s reports</strong>
+            <span>
+              These are estimates worked out from this app’s own records, covering all time. They may not match WhatsApp
+              Manager exactly. The page tries again by itself every few minutes.
             </span>
           </div>
         </div>
+      )}
 
-        {/* Detailed Category Table */}
-        <div style={{ marginTop: 14 }}>
-          <h4 style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1E293B', marginBottom: 8 }}>Official Meta Category & Billing Ledger</h4>
-          <table className="corporate-table mini" style={{ fontSize: '0.8rem' }}>
-            <thead>
-              <tr>
-                <th>Category</th>
-                <th>Delivered Volume</th>
-                <th>Free Messages</th>
-                <th>Paid Messages</th>
-                <th>Approximate Charges ({currency})</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><strong>Service (Customer Care)</strong></td>
-                <td>{serviceDelivered}</td>
-                <td>{serviceFreeMessages} <span style={{ fontSize: '0.7rem', color: '#059669' }}>(Free Care Window)</span></td>
-                <td>{servicePaidMessages}</td>
-                <td><strong>{formatCurrency(serviceCharges, currency, 2)}</strong></td>
-                <td><span className="status-chip success">1,000 Free Tier</span></td>
-              </tr>
-              <tr>
-                <td><strong>Marketing (Broadcasts & Promos)</strong></td>
-                <td>{marketingDelivered}</td>
-                <td>0</td>
-                <td>{marketingDelivered}</td>
-                <td><strong>{formatCurrency(marketingCharges, currency, 2)}</strong></td>
-                <td><span className="status-chip neutral">{marketingDelivered > 0 ? 'Active' : 'Standby'}</span></td>
-              </tr>
-              <tr>
-                <td><strong>Utility (Order Updates & Tracking)</strong></td>
-                <td>{utilityDelivered}</td>
-                <td>0</td>
-                <td>{utilityDelivered}</td>
-                <td><strong>{formatCurrency(utilityCharges, currency, 2)}</strong></td>
-                <td><span className="status-chip neutral">{utilityDelivered > 0 ? 'Active' : 'Standby'}</span></td>
-              </tr>
-              <tr>
-                <td><strong>Authentication & OTP</strong></td>
-                <td>0</td>
-                <td>0</td>
-                <td>0</td>
-                <td><strong>{formatCurrency(0, currency, 2)}</strong></td>
-                <td><span className="status-chip neutral">Standby</span></td>
-              </tr>
-              <tr>
-                <td><strong>Authentication – International</strong></td>
-                <td>0</td>
-                <td>0</td>
-                <td>0</td>
-                <td><strong>{formatCurrency(0, currency, 2)}</strong></td>
-                <td><span className="status-chip neutral">Standby</span></td>
-              </tr>
-              <tr>
-                <td><strong>AI Provider & Voice Calls</strong></td>
-                <td>0 calls (0s)</td>
-                <td>0</td>
-                <td>0</td>
-                <td><strong>{formatCurrency(0, currency, 2)}</strong></td>
-                <td><span className="status-chip neutral">Standby</span></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Conversion Funnel + Trajectory Charts */}
-      <div className="charts-double-row">
-        {/* Conversion Funnel Column */}
-        <div className="panel-card">
-          <div className="panel-header">
-            <div>
-              <h3 className="panel-title">End-to-End Conversion Funnel</h3>
-              <p className="panel-desc">Recipient stage drop-off from broadcast dispatch to order checkout</p>
-            </div>
-            <span className="status-chip success">{overallSentToConverted}% Net Conversion</span>
-          </div>
-
-          <div className="funnel-container">
-            {/* Step 1: Sent */}
-            <div className="funnel-step">
-              <div className="funnel-info">
-                <span className="step-name">1. Messages Dispatched</span>
-                <span className="step-count">{funnel.sent.toLocaleString()}</span>
+      {/* 1. All messages */}
+      <h3 className="wa-an-section-title">All messages</h3>
+      {waiting ? (
+        <div className="wa-an-loading" role="status">Loading your numbers from Meta…</div>
+      ) : (
+        <>
+          <p className="wa-an-section-sub">
+            {figures.sent > 0
+              ? `${sentence} ${n(figures.sent)} messages, and ${n(figures.delivered)} arrived on customers’ phones.`
+              : `${meta ? `No messages were sent in ${period}.` : 'No messages have been sent yet.'} Numbers fill in by themselves once you send a broadcast or reply to a chat.`}
+          </p>
+          <div className="wa-bc-kpis wa-an-kpis-3">
+            <div className="wa-bc-kpi">
+              <div className="wa-bc-kpi-icon tone-green">
+                <Icon>
+                  <line x1="22" y1="2" x2="11" y2="13" />
+                  <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                </Icon>
               </div>
-              <div className="funnel-track">
-                <div className="funnel-bar f-step-1" style={{ width: funnel.sent > 0 ? '100%' : '0%' }} />
+              <div className="wa-bc-kpi-body">
+                <span className="wa-bc-kpi-label">Messages sent</span>
+                <strong className="wa-bc-kpi-value">{n(figures.sent)}</strong>
+                <span className="wa-bc-kpi-foot">Left your account for customers</span>
               </div>
-              <div className="step-dropoff">{funnel.sent > 0 ? '100% baseline volume' : 'No messages dispatched yet'}</div>
             </div>
 
-            {/* Step 2: Delivered */}
-            <div className="funnel-step">
-              <div className="funnel-info">
-                <span className="step-name">2. Successfully Delivered</span>
-                <span className="step-count">{funnel.delivered.toLocaleString()} ({deliveryRate}%)</span>
+            <div className="wa-bc-kpi">
+              <div className="wa-bc-kpi-icon tone-teal">
+                <Icon>
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                  <polyline points="22 4 12 14.01 9 11.01" />
+                </Icon>
               </div>
-              <div className="funnel-track">
-                <div className="funnel-bar f-step-2" style={{ width: `${deliveryRate}%` }} />
+              <div className="wa-bc-kpi-body">
+                <span className="wa-bc-kpi-label">Messages delivered</span>
+                <strong className="wa-bc-kpi-value">{n(figures.delivered)}</strong>
+                <span className="wa-bc-kpi-foot">{reachedPer100} out of every 100 sent arrived</span>
               </div>
-              <div className="step-dropoff">Carrier network delivery efficiency</div>
             </div>
 
-            {/* Step 3: Read */}
-            <div className="funnel-step">
-              <div className="funnel-info">
-                <span className="step-name">3. Read & Opened</span>
-                <span className="step-count">{funnel.read.toLocaleString()} ({openRate}% of delivered)</span>
+            <div className="wa-bc-kpi">
+              <div className="wa-bc-kpi-icon tone-slate">
+                <Icon>
+                  <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+                </Icon>
               </div>
-              <div className="funnel-track">
-                <div className="funnel-bar f-step-3" style={{ width: `${openRate}%` }} />
-              </div>
-              <div className="step-dropoff">Recipient open confirmation rate</div>
-            </div>
-
-            {/* Step 4: Clicked / Engaged */}
-            <div className="funnel-step">
-              <div className="funnel-info">
-                <span className="step-name">4. CTA Clicked / Inbound Replies</span>
-                <span className="step-count">{funnel.engaged.toLocaleString()} ({clickReplyRate}% CTR)</span>
-              </div>
-              <div className="funnel-track">
-                <div className="funnel-bar f-step-4" style={{ width: `${clickReplyRate}%` }} />
-              </div>
-              <div className="step-dropoff">Interactive quick-reply button clicks and customer replies</div>
-            </div>
-
-            {/* Step 5: Converted */}
-            <div className="funnel-step highlight-step">
-              <div className="funnel-info">
-                <span className="step-name">5. Purchases & Conversions</span>
-                <span className="step-count text-primary-brand">{funnel.converted.toLocaleString()} Orders ({finalConversionRate}%)</span>
-              </div>
-              <div className="funnel-track">
-                <div className="funnel-bar f-step-5" style={{ width: `${finalConversionRate}%` }} />
+              <div className="wa-bc-kpi-body">
+                <span className="wa-bc-kpi-label">Messages received</span>
+                <strong className="wa-bc-kpi-value">{n(figures.received)}</strong>
+                <span className="wa-bc-kpi-foot">From this app’s chat records</span>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Daily Revenue Trajectory */}
-        <div className="panel-card">
-          <div className="panel-header">
-            <div>
-              <h3 className="panel-title">Revenue & Dispatch Trajectory</h3>
-              <p className="panel-desc">Daily revenue compared against broadcast message volume</p>
+          <p className="wa-an-note">
+            {meta && meta.days === 0
+              ? 'Today’s figures are still growing as Meta adds to them. '
+              : 'Days run up to yesterday, the same as WhatsApp Manager. Choose “Today so far” to include today, which Meta is still adding to. '}
+            Messages received are counted from this app’s own chat records, because Meta’s reports do not include
+            them, so that one number can differ from WhatsApp Manager (for example on a test server that does not
+            receive customer messages).
+          </p>
+
+          {/* 2. Free, paid and charges */}
+          <h3 className="wa-an-section-title">Free and paid messages</h3>
+          <p className="wa-an-section-sub">
+            Meta charges for some delivered messages and not for others. Here is the split
+            {figures.source === 'meta' ? ` for ${period}` : ''}.
+          </p>
+          <div className="wa-bc-kpis wa-an-kpis-3">
+            <div className="wa-bc-kpi">
+              <div className="wa-bc-kpi-icon tone-green">
+                <Icon>
+                  <polyline points="20 12 20 22 4 22 4 12" />
+                  <rect x="2" y="7" width="20" height="5" />
+                  <line x1="12" y1="22" x2="12" y2="7" />
+                  <path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z" />
+                  <path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z" />
+                </Icon>
+              </div>
+              <div className="wa-bc-kpi-body">
+                <span className="wa-bc-kpi-label">Free messages delivered</span>
+                <strong className="wa-bc-kpi-value">{n(freeTotal)}</strong>
+                <ul className="wa-an-lines">
+                  <li><span>Free customer service</span><strong>{n(figures.freeService)}</strong></li>
+                  <li><span>Free entry point</span><strong>{figures.freeEntry === null ? 'Not tracked' : n(figures.freeEntry)}</strong></li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="wa-bc-kpi">
+              <div className="wa-bc-kpi-icon tone-amber">
+                <Icon>
+                  <rect x="1" y="4" width="22" height="16" rx="2" />
+                  <line x1="1" y1="10" x2="23" y2="10" />
+                </Icon>
+              </div>
+              <div className="wa-bc-kpi-body">
+                <span className="wa-bc-kpi-label">Paid messages delivered</span>
+                <strong className="wa-bc-kpi-value">{n(figures.paid)}</strong>
+                <span className="wa-bc-kpi-foot">Messages Meta charges for</span>
+              </div>
+            </div>
+
+            <div className="wa-bc-kpi">
+              <div className="wa-bc-kpi-icon tone-slate">
+                <Icon>
+                  <rect x="2" y="6" width="20" height="12" rx="2" />
+                  <circle cx="12" cy="12" r="2.5" />
+                  <path d="M6 12h.01M18 12h.01" />
+                </Icon>
+              </div>
+              <div className="wa-bc-kpi-body">
+                <span className="wa-bc-kpi-label">Approximate total charges</span>
+                <strong className="wa-bc-kpi-value">{money(figures.totalCost)}</strong>
+                <span className="wa-bc-kpi-foot">
+                  {figures.totalCost === 0 ? 'Nothing to pay for this period' : 'Your invoice can differ slightly'}
+                </span>
+              </div>
             </div>
           </div>
 
-          <div className="chart-legend-corporate">
-            <span className="legend-item"><span className="legend-box brand" /> Revenue ({symbol})</span>
-            <span className="legend-item"><span className="legend-box blue" /> Volume Sent</span>
-            <span className="legend-item"><span className="legend-box slate" /> Meta Cost ({symbol})</span>
-          </div>
-
-          <div className="trend-bar-chart">
-            {dailyTrend.map((item, idx) => {
-              const heightPercent = maxRevenue > 0 ? Math.round((item.revenue / maxRevenue) * 100) : 0;
-              return (
-                <div className="trend-column" key={idx}>
-                  <div className="bar-tooltip">
-                    <strong>{item.date}</strong>
-                    <div>Revenue: {formatCurrency(item.revenue, currency)}</div>
-                    <div>Conversions: {item.conversions}</div>
-                    <div>Cost: {formatCurrency(item.cost, currency, 2)}</div>
-                  </div>
-                  <div className="column-bars">
-                    <div className="bar-revenue" style={{ height: `${heightPercent}%` }} />
-                  </div>
-                  <span className="column-label">{item.date}</span>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Meta Cost Breakdown by Category */}
-          <div className="cost-breakdown-box">
-            <h4 className="cost-title">Meta API Spend Distribution by Category</h4>
-            <div className="stacked-cost-bar">
-              <div
-                className="cost-segment marketing"
-                style={{ width: `${mktPercent}%` }}
-                title={`Marketing: ${formatCurrency(marketingCost, currency)}`}
-              />
-              <div
-                className="cost-segment utility"
-                style={{ width: `${utilPercent}%` }}
-                title={`Utility: ${formatCurrency(utilityCost, currency)}`}
-              />
-              <div
-                className="cost-segment service"
-                style={{ width: `${srvPercent}%` }}
-                title={`Service: ${formatCurrency(serviceCost, currency)}`}
-              />
+          {/* 3. By type */}
+          <h3 className="wa-an-section-title">Delivered messages by type</h3>
+          <p className="wa-an-section-sub">
+            Meta prices each kind of message differently. This shows how many of each were delivered and what they cost.
+          </p>
+          <section className="wa-bc-card wa-an-card">
+            <div className="wa-an-table-wrap">
+              <table className="wa-an-table">
+                <thead>
+                  <tr>
+                    <th>Type of message</th>
+                    <th>Delivered</th>
+                    <th>Free</th>
+                    <th>Paid</th>
+                    <th>Approximate cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {figures.rows.map(row => (
+                    <tr key={row.key}>
+                      <td data-label="Type of message">
+                        <strong>{row.label}</strong>
+                        <span className="wa-an-sub">{row.note}</span>
+                      </td>
+                      <td data-label="Delivered">{n(row.delivered)}</td>
+                      <td data-label="Free">{n(row.free)}</td>
+                      <td data-label="Paid">{n(row.paid)}</td>
+                      <td data-label="Approximate cost"><strong>{money(row.cost)}</strong></td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td data-label="Type of message"><strong>All types</strong></td>
+                    <td data-label="Delivered"><strong>{n(totals.delivered)}</strong></td>
+                    <td data-label="Free"><strong>{n(totals.free)}</strong></td>
+                    <td data-label="Paid"><strong>{n(totals.paid)}</strong></td>
+                    <td data-label="Approximate cost"><strong>{money(totals.cost)}</strong></td>
+                  </tr>
+                </tfoot>
+              </table>
             </div>
-            <div className="cost-legend-row">
-              <div className="cost-legend-tag">
-                <span className="tag-dot mkt" /> Marketing ({mktPercent}% — {formatCurrency(marketingCost, currency)})
-              </div>
-              <div className="cost-legend-tag">
-                <span className="tag-dot util" /> Utility & Tracking ({utilPercent}% — {formatCurrency(utilityCost, currency)})
-              </div>
-              <div className="cost-legend-tag">
-                <span className="tag-dot srv" /> Customer Care ({srvPercent}% — {formatCurrency(serviceCost, currency)})
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
 
-      {/* Live Audience Cohorts & Real Support Operations Performance */}
-      <div className="charts-double-row" style={{ marginTop: 24 }}>
-        {/* Audience Cohorts & Inbound Sources */}
-        <div className="panel-card">
-          <div className="panel-header">
-            <div>
-              <h3 className="panel-title">Audience Cohorts & Lead Sources</h3>
-              <p className="panel-desc">Distribution of verified contacts across Instagram ads and organic opt-ins</p>
-            </div>
-            <span className="status-chip success">{totalContactsCount} Total Contacts</span>
-          </div>
-
-          <div className="revenue-streams-list">
-            {audienceStreams.map((stream, idx) => (
-              <div key={idx} className="revenue-stream-item">
-                <div className="stream-meta-row">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <strong style={{ fontSize: '0.86rem', color: '#0F172A' }}>{stream.name}</strong>
-                    <span className="stream-tag-pill">{stream.tag}</span>
-                  </div>
-                  <strong style={{ fontSize: '0.88rem', color: '#0F172A' }}>
-                    {stream.count} Contacts
-                  </strong>
-                </div>
-                <div className="stream-progress-track">
-                  <div className="stream-progress-fill" style={{ width: `${stream.share}%` }} />
-                </div>
-                <div className="stream-sub-info">
-                  <span>{stream.share}% of verified audience</span>
-                  <span>{stream.revenue > 0 ? formatCurrency(stream.revenue, currency) : 'Direct Channel'}</span>
-                </div>
+            {figures.source === 'meta' ? (
+              <p className="wa-an-foot-note">
+                These come straight from Meta’s reports, the same ones behind WhatsApp Manager, then Insights. Meta says
+                they are approximate and can differ slightly from your invoice. Amounts are in rupees as billed by Meta.
+              </p>
+            ) : (
+              <div className="wa-an-heads-up" role="note">
+                <strong>Heads-up: pricing is changing.</strong> From 1 October 2026 Meta starts charging per message for
+                replies sent inside the 24-hour window. These estimates do not include those charges, so your Meta
+                invoice can be higher after that date. See{' '}
+                <a href={META_PRICING_URL} target="_blank" rel="noreferrer">Meta’s official price list</a> for current
+                rates.
               </div>
-            ))}
+            )}
+          </section>
+        </>
+      )}
+
+      {/* 4. Chats */}
+      <h3 className="wa-an-section-title">Your chats</h3>
+      <p className="wa-an-section-sub">Conversations with customers in the Chats tab right now.</p>
+      <div className="wa-bc-kpis">
+        <div className="wa-bc-kpi">
+          <div className="wa-bc-kpi-icon tone-green">
+            <Icon>
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </Icon>
+          </div>
+          <div className="wa-bc-kpi-body">
+            <span className="wa-bc-kpi-label">All chats</span>
+            <strong className="wa-bc-kpi-value">{n(totalChats)}</strong>
+            <span className="wa-bc-kpi-foot">People you are in touch with</span>
           </div>
         </div>
 
-        {/* Live Support SLA & 24h Window Performance */}
-        <div className="panel-card">
-          <div className="panel-header">
-            <div>
-              <h3 className="panel-title">Live Operations & WhatsApp Support Performance</h3>
-              <p className="panel-desc">Real-time performance across active 24h customer care sessions</p>
-            </div>
-            <span className="status-chip success">{totalConvs} Active Sessions</span>
+        <div className="wa-bc-kpi">
+          <div className="wa-bc-kpi-icon tone-amber">
+            <Icon>
+              <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
+              <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+            </Icon>
           </div>
+          <div className="wa-bc-kpi-body">
+            <span className="wa-bc-kpi-label">Still open</span>
+            <strong className="wa-bc-kpi-value">{n(openChats)}</strong>
+            <span className="wa-bc-kpi-foot">Not marked as finished yet</span>
+          </div>
+        </div>
 
-          <div className="sla-metrics-grid">
-            <div className="sla-card">
-              <span className="sla-title">Active Conversations</span>
-              <span className="sla-value text-primary-brand">{totalConvs}</span>
-              <span className="sla-sub">{openConvs} awaiting agent reply</span>
-            </div>
+        <div className="wa-bc-kpi">
+          <div className="wa-bc-kpi-icon tone-teal">
+            <Icon>
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+              <polyline points="22 4 12 14.01 9 11.01" />
+            </Icon>
+          </div>
+          <div className="wa-bc-kpi-body">
+            <span className="wa-bc-kpi-label">Finished</span>
+            <strong className="wa-bc-kpi-value">{n(finishedChats)}</strong>
+            <span className="wa-bc-kpi-foot">{per100(finishedChats, totalChats)} out of every 100 chats</span>
+          </div>
+        </div>
 
-            <div className="sla-card">
-              <span className="sla-title">Chat Resolution Rate</span>
-              <span className="sla-value text-primary-brand">{resolutionRate}%</span>
-              <span className="sla-sub">{resolvedConvs} of {totalConvs} resolved</span>
-            </div>
-
-            <div className="sla-card">
-              <span className="sla-title">24h Window Compliance</span>
-              <span className="sla-value text-primary-brand">{windowCompliance}%</span>
-              <span className="sla-sub">{activeWindowCount} within active window</span>
-            </div>
-
-            <div className="sla-card">
-              <span className="sla-title">Meta Account Health</span>
-              <span className="sla-value" style={{ color: '#059669' }}>High / Green</span>
-              <span className="sla-sub">0 spam reports / 0 blocks</span>
-            </div>
+        <div className="wa-bc-kpi">
+          <div className="wa-bc-kpi-icon tone-slate">
+            <Icon>
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </Icon>
+          </div>
+          <div className="wa-bc-kpi-body">
+            <span className="wa-bc-kpi-label">You can reply freely to</span>
+            <strong className="wa-bc-kpi-value">{n(freeReplyChats)}</strong>
+            <span className="wa-bc-kpi-foot">Wrote to you in the last 24 hours</span>
           </div>
         </div>
       </div>
 
-      {/* Cross-Channel Benchmarks & Regional Rate Matrix */}
-      <div className="charts-double-row" style={{ marginTop: 24 }}>
-        {/* Channel Benchmarks Table */}
-        <div className="panel-card">
-          <div className="panel-header">
-            <div>
-              <h3 className="panel-title">Cross-Channel ROI Benchmark</h3>
-              <p className="panel-desc">WhatsApp performance metrics against traditional enterprise channels</p>
-            </div>
+      {/* 5. Contacts */}
+      <h3 className="wa-an-section-title">Your contacts</h3>
+      <p className="wa-an-section-sub">The people saved in Contacts &amp; CRM.</p>
+      <div className="wa-bc-kpis wa-an-kpis-3">
+        <div className="wa-bc-kpi">
+          <div className="wa-bc-kpi-icon tone-green">
+            <Icon>
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </Icon>
           </div>
-
-          <table className="corporate-table">
-            <thead>
-              <tr>
-                <th>Channel</th>
-                <th>Open Rate</th>
-                <th>CTR</th>
-                <th>Conversion Rate</th>
-                <th>ROI Multiple</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="featured-row">
-                <td><strong className="text-primary-brand">WhatsApp Business</strong></td>
-                <td><strong>{channelComparison.whatsapp.openRate}%</strong></td>
-                <td><strong>{channelComparison.whatsapp.ctr}%</strong></td>
-                <td><strong>{channelComparison.whatsapp.conversionRate}%</strong></td>
-                <td><span className="status-chip success">{channelComparison.whatsapp.roi}x</span></td>
-              </tr>
-              <tr>
-                <td>SMS Marketing</td>
-                <td>{channelComparison.sms.openRate}%</td>
-                <td>{channelComparison.sms.ctr}%</td>
-                <td>{channelComparison.sms.conversionRate}%</td>
-                <td>{channelComparison.sms.roi}x</td>
-              </tr>
-              <tr>
-                <td>Email Marketing</td>
-                <td>{channelComparison.email.openRate}%</td>
-                <td>{channelComparison.email.ctr}%</td>
-                <td>{channelComparison.email.conversionRate}%</td>
-                <td>{channelComparison.email.roi}x</td>
-              </tr>
-            </tbody>
-          </table>
+          <div className="wa-bc-kpi-body">
+            <span className="wa-bc-kpi-label">People in your contacts</span>
+            <strong className="wa-bc-kpi-value">{n(totalContacts)}</strong>
+            <span className="wa-bc-kpi-foot">Everyone saved so far</span>
+          </div>
         </div>
 
-        {/* Regional Pricing Matrix */}
-        <div className="panel-card">
-          <div className="panel-header">
-            <div>
-              <h3 className="panel-title">Meta Cloud API Regional Rates ({currency})</h3>
-              <p className="panel-desc">Per-conversation rate schedule across primary operating markets</p>
-            </div>
+        <div className="wa-bc-kpi">
+          <div className="wa-bc-kpi-icon tone-teal">
+            <Icon>
+              <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="8.5" cy="7" r="4" />
+              <polyline points="17 11 19 13 23 9" />
+            </Icon>
           </div>
+          <div className="wa-bc-kpi-body">
+            <span className="wa-bc-kpi-label">Agreed to receive messages</span>
+            <strong className="wa-bc-kpi-value">{n(agreedContacts)}</strong>
+            <span className="wa-bc-kpi-foot">Only these people get broadcasts</span>
+          </div>
+        </div>
 
-          <table className="corporate-table mini">
-            <thead>
-              <tr>
-                <th>Region</th>
-                <th>Marketing</th>
-                <th>Utility</th>
-                <th>Service</th>
-                <th>Auth (OTP)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {regionalPricing.map((r) => (
-                <tr key={r.code}>
-                  <td><strong>{r.country}</strong></td>
-                  <td>{formatRate(r.marketingRate, currency, 4)}</td>
-                  <td>{formatRate(r.utilityRate, currency, 4)}</td>
-                  <td>{formatRate(r.serviceRate, currency, 4)}</td>
-                  <td>{formatRate(r.authRate, currency, 4)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="wa-bc-kpi">
+          <div className="wa-bc-kpi-icon tone-amber">
+            <Icon>
+              <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3" />
+            </Icon>
+          </div>
+          <div className="wa-bc-kpi-body">
+            <span className="wa-bc-kpi-label">Replied “Yes”</span>
+            <strong className="wa-bc-kpi-value">{n(yesContacts)}</strong>
+            <span className="wa-bc-kpi-foot">Interested. Call these people first</span>
+          </div>
         </div>
       </div>
+
+      {/* 6. Words used on this page */}
+      <details className="wa-bc-card wa-an-card wa-an-words">
+        <summary>
+          <span>Words used on this page</span>
+          <span className="wa-an-words-hint">Tap to open</span>
+        </summary>
+        <dl className="wa-an-words-list">
+          {WORDS.map(w => (
+            <div key={w.term}>
+              <dt>{w.term}</dt>
+              <dd>{w.meaning}</dd>
+            </div>
+          ))}
+        </dl>
+      </details>
     </div>
   );
 };

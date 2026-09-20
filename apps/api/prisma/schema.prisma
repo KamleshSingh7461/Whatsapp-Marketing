@@ -60,12 +60,26 @@ enum MessageStatus {
   FAILED
 }
 
+// PAUSED and CANCELLED are appended at the end on purpose: Postgres appends new enum values,
+// so keeping the same order in the schema means migrate diff reports no drift.
 enum CampaignStatus {
   DRAFT
   SCHEDULED
   SENDING
   COMPLETED
   FAILED
+  PAUSED
+  CANCELLED
+}
+
+enum RecipientStatus {
+  QUEUED
+  SENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+  CANCELLED
 }
 
 model User {
@@ -156,6 +170,8 @@ model Contact {
   updatedAt   DateTime  @updatedAt
 
   conversations Conversation[]
+  replyLeads    ReplyLead[]
+  callLeads     CallLead[]
 }
 
 model Conversation {
@@ -197,8 +213,39 @@ model Campaign {
   scheduledAt DateTime?
   segmentJson Json? // filter/segment definition, e.g. { tags: ["vip"] }
   stats       Json? // { queued, sent, delivered, read, failed }
+  // Server-side sending (see CampaignSenderService). All nullable, so existing rows are untouched.
+  pauseReason String?
+  startedAt   DateTime?
+  completedAt DateTime?
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
+
+  recipients CampaignRecipient[]
+}
+
+// One row per contact per server-sent campaign. This is the durable send queue AND the delivery
+// record: the worker claims QUEUED rows, and Meta delivery webhooks advance them to DELIVERED / READ.
+model CampaignRecipient {
+  id            String          @id @default(cuid())
+  campaign      Campaign        @relation(fields: [campaignId], references: [id])
+  campaignId    String
+  contactId     String?
+  phone         String
+  displayName   String? // snapshot used to fill {{1}}
+  status        RecipientStatus @default(QUEUED)
+  metaMessageId String?
+  errorCode     String?
+  errorMessage  String?
+  attempts      Int             @default(0)
+  sentAt        DateTime?
+  deliveredAt   DateTime?
+  readAt        DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@unique([campaignId, phone])
+  @@index([campaignId, status])
+  @@index([metaMessageId])
 }
 
 model AutomationFlow {
@@ -209,6 +256,96 @@ model AutomationFlow {
   stats     Json?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// "When a customer taps a button on one of our templates, do this." A rule names the template and the
+// button label; it does not depend on what the button says, so new templates and languages work.
+model ReplyRule {
+  id           String   @id @default(cuid())
+  name         String
+  templateName String? // Meta template name; null means "any template"
+  buttonText   String // the button label the customer tapped, compared without case or extra spaces
+  tags         String[] // added to the contact
+  replyText    String? // optional automatic reply, sent as a normal message inside the 24-hour window
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  leads     ReplyLead[]
+  callLeads CallLead[]
+
+  @@index([active])
+}
+
+// One row per customer button tap that a rule handled. This is what the call sheet is built from.
+model ReplyLead {
+  id            String    @id @default(cuid())
+  rule          ReplyRule @relation(fields: [ruleId], references: [id])
+  ruleId        String
+  contact       Contact   @relation(fields: [contactId], references: [id])
+  contactId     String
+  metaMessageId String // the customer's reply message id; makes webhook retries harmless
+  templateName  String? // which template they replied to, if we could tell
+  buttonText    String // the label they actually tapped
+  repliedAt     DateTime  @default(now())
+
+  @@unique([metaMessageId, ruleId])
+  @@index([ruleId, repliedAt])
+  @@index([contactId])
+}
+
+// Where a lead is in the follow-up call.
+enum CallStatus {
+  CALL_PENDING
+  CALLED_NOT_PICKED
+  CALL_DONE
+  FOLLOW_UP_PENDING
+}
+
+// The call sheet: one row per PERSON per rule (a person who taps twice is still one row to call), created the
+// first time they tap and kept up to date by the team. ReplyLead above stays as the per-tap record.
+model CallLead {
+  id                  String     @id @default(cuid())
+  rule                ReplyRule  @relation(fields: [ruleId], references: [id])
+  ruleId              String
+  contact             Contact    @relation(fields: [contactId], references: [id])
+  contactId           String
+  templateName        String?
+  buttonText          String
+  firstTapAt          DateTime   @default(now())
+  lastTapAt           DateTime   @default(now())
+  tapCount            Int        @default(1)
+  callStatus          CallStatus @default(CALL_PENDING)
+  remarks             String? // the remark that came with the latest status update
+  statusUpdatedAt     DateTime?
+  statusUpdatedById   String?
+  statusUpdatedByName String?
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  updates CallLeadUpdate[]
+
+  @@unique([ruleId, contactId])
+  @@index([ruleId, callStatus])
+  @@index([contactId])
+}
+
+// Every status change with who made it and when. Append-only: this is what managers oversee.
+// byUserId is deliberately not a foreign key, so removing a team member never deletes or blocks their history.
+model CallLeadUpdate {
+  id        String     @id @default(cuid())
+  lead      CallLead   @relation(fields: [leadId], references: [id])
+  leadId    String
+  status    CallStatus
+  remarks   String?
+  byUserId  String
+  byName    String
+  byRole    Role
+  createdAt DateTime   @default(now())
+
+  @@index([leadId, createdAt])
+  @@index([byUserId, createdAt])
+  @@index([createdAt])
 }
 
 // Append-only. Never update or delete rows — write new entries only.

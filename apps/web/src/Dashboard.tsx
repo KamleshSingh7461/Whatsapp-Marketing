@@ -14,6 +14,9 @@ import {
   getCampaignsApi,
   createCampaignApi,
   updateCampaignApi,
+  getServerSendStatusApi,
+  launchCampaignApi,
+  campaignActionApi,
   getFlowsApi,
   updateFlowStatusApi,
   getLiveMessagingLedgerApi,
@@ -26,6 +29,7 @@ import { Header } from './components/Header';
 import { AnalyticsView } from './components/AnalyticsView';
 import { InboxView } from './components/InboxView';
 import { AutomationsView } from './components/AutomationsView';
+import { CallSheetsView } from './components/CallSheetsView';
 import { CampaignsView } from './components/CampaignsView';
 import { TemplatesView } from './components/TemplatesView';
 import { ContactsView } from './components/ContactsView';
@@ -34,6 +38,7 @@ import { AuthModal } from './components/AuthModal';
 import { AcceptInviteModal } from './components/AcceptInviteModal';
 import { CurrencyCode } from './lib/currency';
 import { canAccessTab, getDefaultTabForRole } from './lib/permissions';
+import { resolveCampaignRecipients } from './lib/campaignAudience';
 import {
   AutomationFlow,
   Campaign,
@@ -65,7 +70,7 @@ export function Dashboard() {
   // Navigation & Control States
   const [activeTab, setActiveTabState] = useState<TabType>(() => {
     const hash = window.location.hash.replace('#', '');
-    const validTabs: TabType[] = ['analytics', 'inbox', 'automations', 'campaigns', 'templates', 'contacts', 'settings'];
+    const validTabs: TabType[] = ['analytics', 'inbox', 'automations', 'calls', 'campaigns', 'templates', 'contacts', 'settings'];
     if (validTabs.includes(hash as TabType)) return hash as TabType;
     const saved = localStorage.getItem('fgsn_active_tab') as TabType;
     if (saved && validTabs.includes(saved)) return saved;
@@ -272,6 +277,9 @@ export function Dashboard() {
     } catch (e) {}
   }, [campaigns]);
 
+  // True when the server owns broadcast sending (survives closing the browser).
+  const [serverSendEnabled, setServerSendEnabled] = useState<boolean>(false);
+
   const [flows, setFlows] = useState<AutomationFlow[]>(() => {
     try {
       const saved = localStorage.getItem('fgsn_saved_flows');
@@ -334,17 +342,6 @@ export function Dashboard() {
       if (!existingToken) {
         setUser(null);
         setIsAuthOpen(true);
-        return;
-      }
-      if (existingToken === 'local_superadmin_session') {
-        setUser({
-          id: 'usr_superadmin',
-          email: 'admin@fgsnlive.com',
-          name: 'FGSN Super Admin',
-          role: 'ADMIN',
-          isSuperAdmin: true,
-        });
-        setIsAuthOpen(false);
         return;
       }
       try {
@@ -419,6 +416,17 @@ export function Dashboard() {
     syncContactsWithServer();
   }, [user]);
 
+  // Merge the server's campaign list into local state. Server rows win; browser-only rows are kept.
+  const mergeServerCampaigns = (cmp: any[]) => {
+    setCampaigns(prev => {
+      if (cmp.length === 0) return prev;
+      const serverMap = new Map(cmp.map((item: any) => [item.id, item]));
+      const serverNames = new Set(cmp.map((item: any) => item.name));
+      const localOnly = prev.filter(local => !serverMap.has(local.id) && !serverNames.has(local.name));
+      return [...cmp, ...localOnly];
+    });
+  };
+
   // Single Unified Atomic Heartbeat Sync Loop (5s) for Live Ledger, Contacts, Status & Meta Metrics
   useEffect(() => {
     if (!getToken()) return;
@@ -426,13 +434,14 @@ export function Dashboard() {
 
     async function syncAllRealTimeData() {
       try {
-        const [ledger, s, t, c, cmp, fl] = await Promise.all([
+        const [ledger, s, t, c, cmp, fl, ss] = await Promise.all([
           getLiveMessagingLedgerApi().catch(() => null),
           apiFetch<WhatsappStatus>('/whatsapp/status').catch(() => null),
           apiFetch<Template[]>('/templates').catch(() => null),
           getContactsApi().catch(() => null),
           getCampaignsApi().catch(() => null),
           getFlowsApi().catch(() => null),
+          getServerSendStatusApi().catch(() => null),
         ]);
 
         if (!isMounted) return;
@@ -462,15 +471,8 @@ export function Dashboard() {
         if (s) setStatus(s);
         if (t && Array.isArray(t)) setTemplates(t as any);
         if (c && Array.isArray(c)) setContacts(c);
-        if (cmp && Array.isArray(cmp)) {
-          setCampaigns(prev => {
-            if (cmp.length === 0) return prev;
-            const serverMap = new Map(cmp.map((item: any) => [item.id, item]));
-            const serverNames = new Set(cmp.map((item: any) => item.name));
-            const localOnly = prev.filter(local => !serverMap.has(local.id) && !serverNames.has(local.name));
-            return [...cmp, ...localOnly];
-          });
-        }
+        if (cmp && Array.isArray(cmp)) mergeServerCampaigns(cmp);
+        if (ss) setServerSendEnabled(!!ss.enabled);
         if (fl && Array.isArray(fl)) setFlows(fl);
       } catch (e) {
         console.warn('Real-time sync heartbeat error:', e);
@@ -488,6 +490,26 @@ export function Dashboard() {
       window.removeEventListener('focus', handleFocus);
     };
   }, [user]);
+
+  // Live progress: while any server-sent broadcast is actively sending, refresh the campaign list
+  // every 2s (the general heartbeat above is 5s). Stops on its own once nothing is sending.
+  const hasActiveServerBroadcast = campaigns.some(c => c.serverSend && c.status === 'SENDING');
+  useEffect(() => {
+    if (!hasActiveServerBroadcast || !getToken()) return;
+    let alive = true;
+    const timer = setInterval(async () => {
+      try {
+        const cmp = await getCampaignsApi();
+        if (alive && Array.isArray(cmp)) mergeServerCampaigns(cmp);
+      } catch {
+        // the next tick or the 5s heartbeat will try again
+      }
+    }, 2000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [hasActiveServerBroadcast]);
 
   // Deduplicate messages strictly by unique ID so key aliases or re-indexes NEVER multiply counts
   const uniqueMessagesMap = new Map<string, Message>();
@@ -641,7 +663,7 @@ export function Dashboard() {
   }, []);
 
   // Handlers
-  const handleSendMessage = async (convId: string, text: string, isInternalNote?: boolean) => {
+  const handleSendMessage = async (convId: string, text: string, isInternalNote?: boolean, mediaUrl?: string) => {
     const conv = conversations.find(c => c.id === convId);
     const phone = conv?.contact?.phone;
 
@@ -651,6 +673,8 @@ export function Dashboard() {
       direction: 'OUTBOUND',
       status: isInternalNote ? 'DELIVERED' : 'SENT',
       content: text,
+      mediaUrl: mediaUrl,
+      mediaType: mediaUrl ? 'image' : undefined,
       isInternalNote: !!isInternalNote,
       authorName: user?.name || 'Agent',
       timestamp: new Date().toISOString(),
@@ -677,6 +701,8 @@ export function Dashboard() {
           conversationId: convId,
           direction: 'OUTBOUND',
           text,
+          mediaUrl,
+          mediaType: mediaUrl ? 'image' : undefined,
           isInternalNote: !!isInternalNote,
           authorName: user?.name || 'Agent',
           phone,
@@ -867,45 +893,12 @@ export function Dashboard() {
       timestamp: new Date().toISOString(),
     };
 
-    const cleanLower = text.trim().toLowerCase();
-    const isYesReply =
-      cleanLower === 'yes' ||
-      cleanLower.startsWith('yes ') ||
-      cleanLower.endsWith(' yes') ||
-      cleanLower === 'yes!' ||
-      cleanLower === 'yess' ||
-      cleanLower === 'yeah';
-
-    let autoBotMsg: Message | null = null;
-    if (isYesReply) {
-      const autoText = `Alright, let’s say it’s time for you to get started. \nOur student subject matter expert will call you shortly do you have a preferred time that we can connect?`;
-      autoBotMsg = {
-        id: `msg_auto_${Date.now()}`,
-        conversationId: convId,
-        direction: 'OUTBOUND',
-        status: 'DELIVERED',
-        content: autoText,
-        authorName: 'FGSN Auto-Reply Bot',
-        timestamp: new Date(Date.now() + 500).toISOString(),
-      };
-
-      // Tag contact as Hot Lead - Yes Opt-In
-      setContacts(prev =>
-        prev.map(ct => {
-          if (ct.phone === conv?.contact?.phone || ct.id === conv?.contact?.id) {
-            const existingTags = ct.tags || [];
-            const newTags = Array.from(new Set([...existingTags, 'Hot Lead - Yes Opt-In', 'Hot Lead']));
-            saveContactApi({ phone: ct.phone, displayName: ct.displayName, tags: newTags, optedIn: ct.optedIn }).catch(() => null);
-            return { ...ct, tags: newTags };
-          }
-          return ct;
-        })
-      );
-    }
+    // This test tool only adds the message to the chat. Tags, automatic replies and call-sheet entries come from
+    // reply rules on the server, and only for real taps on a template button, so a simulated reply must not fake them.
 
     setMessagesByConvId(prev => ({
       ...prev,
-      [convId]: [...(prev[convId] || []), newInboundMsg, ...(autoBotMsg ? [autoBotMsg] : [])],
+      [convId]: [...(prev[convId] || []), newInboundMsg],
     }));
 
     // Reset 24-hour session window to +24 hrs from now!
@@ -916,7 +909,7 @@ export function Dashboard() {
         c.id === convId
           ? {
               ...c,
-              lastMessage: autoBotMsg || newInboundMsg,
+              lastMessage: newInboundMsg,
               windowExpiresAt: newWindowExpiry,
               status: 'OPEN',
               unreadCount: 0,
@@ -929,19 +922,35 @@ export function Dashboard() {
     );
   };
 
-  const handleStartNewChat = async (phone: string, name?: string, text?: string, templateName?: string): Promise<string> => {
+  const handleStartNewChat = async (phone: string, name?: string, text?: string, templateName?: string, tags?: string[]): Promise<string> => {
     const cleanPhone = phone.replace(/[^0-9]/g, '');
+    // Last line of defence: the dialog only allows valid numbers, but nothing that is not a real phone number
+    // may ever become a contact or a message recipient (an empty number used to create a blank contact).
+    if (cleanPhone.length < 7 || cleanPhone.length > 15) {
+      alert('That is not a valid phone number, so no chat was started.');
+      return '';
+    }
     const convId = `conv_${cleanPhone}`;
 
     const contactName = name?.trim() || `+${cleanPhone}`;
+    const contactTags = tags && tags.length > 0 ? tags : ['New Lead'];
     const newContact: Contact = {
       id: `cnt_${cleanPhone}`,
       phone: cleanPhone,
       displayName: contactName,
-      avatarUrl: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80`,
+      avatarUrl: undefined,
       optedIn: true,
-      tags: ['New Lead'],
+      tags: contactTags,
     };
+
+    // Auto-save new recipient to Contacts directory in backend database
+    bulkSaveContactsApi([
+      {
+        phone: cleanPhone,
+        displayName: contactName,
+        tags: contactTags,
+      },
+    ]).catch(err => console.warn('Could not auto-save contact to backend DB:', err));
 
     const initialText = text || (templateName ? `[Template: ${templateName}]` : 'Hello! How can we assist you today?');
     const newMsg: Message = {
@@ -967,14 +976,22 @@ export function Dashboard() {
     };
 
     setContacts(prev => {
-      const exists = prev.some(c => c.phone === cleanPhone);
-      return exists ? prev : [newContact, ...prev];
+      const exists = prev.some(c => c.phone.replace(/[^0-9]/g, '') === cleanPhone);
+      if (exists) {
+        return prev.map(c => c.phone.replace(/[^0-9]/g, '') === cleanPhone
+          ? { ...c, tags: Array.from(new Set([...(c.tags || []), ...contactTags])) }
+          : c
+        );
+      }
+      return [newContact, ...prev];
     });
 
     setConversations(prev => {
-      const exists = prev.some(c => c.id === convId || c.contact?.phone === cleanPhone);
+      const exists = prev.some(c => c.id === convId || c.contact?.phone.replace(/[^0-9]/g, '') === cleanPhone);
       return exists
-        ? prev.map(c => (c.id === convId || c.contact?.phone === cleanPhone ? { ...c, lastMessage: newMsg } : c))
+        ? prev.map(c => (c.id === convId || c.contact?.phone.replace(/[^0-9]/g, '') === cleanPhone
+            ? { ...c, lastMessage: newMsg, contact: { ...c.contact, tags: Array.from(new Set([...(c.contact.tags || []), ...contactTags])) } }
+            : c))
         : [newConv, ...prev];
     });
 
@@ -1180,6 +1197,41 @@ export function Dashboard() {
   };
 
   const handleLaunchCampaign = async (newCmp: Campaign) => {
+    // Who gets messaged is decided here, once, from the same audience definition the launch modal
+    // counts with. An audience that matches nobody sends to nobody: it must never widen to
+    // "all contacts", and contacts who have not opted in are never included.
+    const recipientsList = resolveCampaignRecipients(contacts, newCmp.targetTags);
+    if (recipientsList.length === 0) {
+      alert('This broadcast was not sent: no opted-in contacts match the selected audience.');
+      return;
+    }
+
+    // Preferred path: hand the whole broadcast to the server. It queues every recipient in the
+    // database and sends in the background, so closing this tab cannot stop it, and progress is
+    // tracked live on this page. Only used when the server reports the worker is enabled;
+    // otherwise we fall through to the browser-side loop below, exactly as before.
+    let serverMode = false;
+    try {
+      serverMode = !!(await getServerSendStatusApi()).enabled;
+    } catch {
+      serverMode = false;
+    }
+    if (serverMode) {
+      try {
+        const created = await launchCampaignApi({
+          name: newCmp.name,
+          templateName: newCmp.templateName,
+          language: templates.find(t => t.name === newCmp.templateName)?.language,
+          category: newCmp.category,
+          targetTags: newCmp.targetTags,
+        });
+        setCampaigns(prev => [created, ...prev.filter(c => c.id !== created.id)]);
+      } catch (err: any) {
+        alert(`This broadcast was not sent.\n\n${err?.message || 'The server rejected the request.'}`);
+      }
+      return;
+    }
+
     let activeCmpId = newCmp.id;
     setCampaigns(prev => {
       const updated = [newCmp, ...prev.filter(c => c.id !== newCmp.id)];
@@ -1207,11 +1259,7 @@ export function Dashboard() {
       console.warn('Failed to save campaign to backend DB:', e);
     }
 
-    // Send real Meta WhatsApp Cloud API messages to all target contacts in the campaign!
-    const targetContacts = contacts.filter(c => c.optedIn && (newCmp.targetTags.length === 0 || c.tags.some(t => newCmp.targetTags.includes(t))));
-
-    // If no contacts matched target tags or tags list empty, send to all contacts in database
-    const recipientsList = targetContacts.length > 0 ? targetContacts : contacts;
+    // Send real Meta WhatsApp Cloud API messages to the resolved recipients
     const matchingTpl = templates.find(t => t.name === newCmp.templateName);
     const templateLang = matchingTpl?.language || 'en_US';
 
@@ -1235,6 +1283,16 @@ export function Dashboard() {
     try {
       await updateCampaignApi(activeCmpId, { status: 'COMPLETED' });
     } catch (e) {}
+  };
+
+  // Pause / resume / cancel / retry for a server-sent broadcast.
+  const handleCampaignAction = async (id: string, action: 'pause' | 'resume' | 'cancel' | 'retry-failed') => {
+    try {
+      const updated = await campaignActionApi(id, action);
+      setCampaigns(prev => prev.map(c => (c.id === id ? { ...c, ...updated } : c)));
+    } catch (err: any) {
+      alert(err?.message || `Could not ${action} this broadcast.`);
+    }
   };
 
   const handleCreateTemplate = async (newTpl: Partial<Template>): Promise<{ success: boolean; message?: string }> => {
@@ -1377,27 +1435,9 @@ export function Dashboard() {
   };
 
   const handleLogin = async (email: string, pass: string) => {
-    try {
-      const data = await loginApi(email, pass);
-      setUser(data.user);
-      setIsAuthOpen(false);
-    } catch (err: any) {
-      const cleanEmail = email.trim().toLowerCase();
-      if (cleanEmail === 'admin@fgsnlive.com' && pass === 'FGSN@Admin2026!') {
-        const localAdmin: User = {
-          id: 'usr_superadmin',
-          email: 'admin@fgsnlive.com',
-          name: 'FGSN Super Admin',
-          role: 'ADMIN',
-          isSuperAdmin: true,
-        };
-        setUser(localAdmin);
-        setToken('local_superadmin_session');
-        setIsAuthOpen(false);
-        return;
-      }
-      throw err;
-    }
+    const data = await loginApi(email, pass);
+    setUser(data.user);
+    setIsAuthOpen(false);
   };
 
   const handleLogout = () => {
@@ -1503,25 +1543,27 @@ export function Dashboard() {
         user={user}
         isOpenMobile={isMobileSidebarOpen}
         onCloseMobile={() => setIsMobileSidebarOpen(false)}
+        onLogout={handleLogout}
       />
 
       {/* Main Content Area */}
-      <main className="main-content">
-        <Header
-          user={user}
-          timeframe={timeframe}
-          setTimeframe={setTimeframe}
-          currency={currency}
-          setCurrency={setCurrency}
-          notificationsEnabled={notificationsEnabled}
-          onRequestNotificationPermission={requestNotificationPermission}
-          onForceResync={handleForceResync}
-          onOpenAuth={() => setIsAuthOpen(true)}
-          onLogout={handleLogout}
-          onToggleMobileSidebar={() => setIsMobileSidebarOpen(prev => !prev)}
-        />
+      <main className={`main-content ${activeTab === 'inbox' ? 'inbox-full-mode' : ''}`}>
+        {activeTab !== 'inbox' && (
+          <Header
+            activeTab={activeTab}
+            user={user}
+            currency={currency}
+            setCurrency={setCurrency}
+            notificationsEnabled={notificationsEnabled}
+            onRequestNotificationPermission={requestNotificationPermission}
+            onForceResync={handleForceResync}
+            onOpenAuth={() => setIsAuthOpen(true)}
+            onLogout={handleLogout}
+            onToggleMobileSidebar={() => setIsMobileSidebarOpen(prev => !prev)}
+          />
+        )}
 
-        <div className="view-body">
+        <div className={`view-body ${activeTab === 'inbox' ? 'inbox-full-mode' : ''}`}>
           {activeTab === 'analytics' && canAccessTab(user.role, 'analytics') && (
             <AnalyticsView
               analytics={currentAnalytics}
@@ -1547,14 +1589,20 @@ export function Dashboard() {
               onAssignAgent={handleAssignAgent}
               onStartNewChat={handleStartNewChat}
               onMarkConversationRead={handleMarkConversationRead}
+              onToggleMobileSidebar={() => setIsMobileSidebarOpen(prev => !prev)}
             />
           )}
           {activeTab === 'automations' && canAccessTab(user.role, 'automations') && (
             <AutomationsView
               flows={flows}
+              templates={templates}
               currency={currency}
               onToggleStatus={handleToggleFlowStatus}
+              onNavigate={setActiveTab}
             />
+          )}
+          {activeTab === 'calls' && canAccessTab(user.role, 'calls') && (
+            <CallSheetsView onNavigate={setActiveTab} />
           )}
           {activeTab === 'campaigns' && canAccessTab(user.role, 'campaigns') && (
             <CampaignsView
@@ -1564,6 +1612,8 @@ export function Dashboard() {
               currency={currency}
               currentUser={user}
               onLaunchCampaign={handleLaunchCampaign}
+              serverSendEnabled={serverSendEnabled}
+              onCampaignAction={handleCampaignAction}
             />
           )}
           {activeTab === 'templates' && canAccessTab(user.role, 'templates') && (

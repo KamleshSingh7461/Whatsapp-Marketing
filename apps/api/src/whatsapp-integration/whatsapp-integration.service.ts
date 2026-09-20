@@ -3,6 +3,15 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { encryptToken } from '../common/crypto/token-cipher';
 import { ConnectWhatsappDto } from './dto/connect-whatsapp.dto';
+import {
+  buildWindow,
+  clampDays,
+  groupPricing,
+  localDay,
+  MetaInsightsResult,
+  MetaInsightsUnavailable,
+  sumMessageAnalytics,
+} from './meta-insights';
 
 const SINGLETON_ID = 'primary';
 
@@ -317,6 +326,15 @@ export class WhatsappIntegrationService {
             (payload.templateName ? `Template: ${payload.templateName}` : null) ||
             (payload.templateData?.name ? `Template: ${payload.templateData.name}` : null) ||
             'WhatsApp Message';
+          const mediaUrl =
+            payload.mediaUrl ||
+            payload.imageUrl ||
+            payload.image?.link ||
+            (payload.image?.id ? `/api/whatsapp/media/${payload.image.id}` : undefined);
+
+          const mediaType =
+            payload.mediaType ||
+            (payload.image || payload.raw?.type === 'image' || mediaUrl ? 'image' : undefined);
 
           return {
             id: m.id,
@@ -325,6 +343,8 @@ export class WhatsappIntegrationService {
             senderName: isOutbound ? (payload.authorName || 'FGSN Team') : (c.contact.displayName || `+${phone}`),
             direction: m.direction,
             content: extractedContent,
+            mediaUrl: mediaUrl,
+            mediaType: mediaType,
             timestamp: m.createdAt.toISOString(),
             status: m.status,
             metaMessageId: m.metaMessageId,
@@ -449,5 +469,107 @@ export class WhatsappIntegrationService {
         metrics: { totalOutbound: 0, totalDelivered: 0, totalInbound: 0 },
       };
     }
+  }
+
+  /**
+   * The same figures WhatsApp Manager shows under Insights > "Message delivery insights", read from
+   * Meta's own reports so they match it. Never throws: when Meta cannot be reached the caller gets
+   * `available: false` and falls back to its own estimates.
+   */
+  async getMetaInsights(daysInput?: unknown): Promise<MetaInsightsResult | MetaInsightsUnavailable> {
+    const days = clampDays(daysInput);
+    const wabaId = this.config.get<string>('META_WABA_ID') || '1845046976654799';
+    const systemToken = this.config.get<string>('META_SYSTEM_USER_TOKEN');
+    // pricing_analytics needs a recent Graph version; kept separate from the version used elsewhere.
+    const apiVersion = this.config.get<string>('META_INSIGHTS_API_VERSION') || 'v25.0';
+
+    if (!systemToken || !wabaId) {
+      return { available: false, days, reason: 'not_configured' };
+    }
+
+    // Same days WhatsApp Manager uses: whole calendar days ending yesterday (0 = today so far).
+    const offsetMinutes = Number(this.config.get<string>('META_INSIGHTS_UTC_OFFSET_MINUTES') ?? 330) || 330;
+    const { start, end } = buildWindow(Math.floor(Date.now() / 1000), days, offsetMinutes);
+    const base = `https://graph.facebook.com/${apiVersion}/${wabaId}`;
+    const headers = { Authorization: `Bearer ${systemToken}` };
+
+    try {
+      const [analyticsRes, pricingRes, received] = await Promise.all([
+        fetch(`${base}?fields=analytics.start(${start}).end(${end}).granularity(DAY)`, { headers }),
+        fetch(
+          `${base}?fields=pricing_analytics.start(${start}).end(${end}).granularity(DAILY).dimensions(PRICING_CATEGORY,PRICING_TYPE)`,
+          { headers },
+        ),
+        this.prisma.message.count({
+          where: {
+            direction: 'INBOUND',
+            createdAt: { gte: new Date(start * 1000), lte: new Date(end * 1000) },
+          },
+        }),
+      ]);
+
+      if (!analyticsRes.ok || !pricingRes.ok) {
+        // Log Meta's status only, never the request headers or token.
+        this.logger.warn(
+          `Meta insights request failed (analytics ${analyticsRes.status}, pricing_analytics ${pricingRes.status})`,
+        );
+        return { available: false, days, reason: 'meta_error' };
+      }
+
+      const analyticsJson: any = await analyticsRes.json();
+      const pricingJson: any = await pricingRes.json();
+      const { sent, delivered } = sumMessageAnalytics(analyticsJson?.analytics?.data_points);
+
+      return {
+        available: true,
+        days,
+        startDay: localDay(start, offsetMinutes),
+        endDay: localDay(end, offsetMinutes),
+        sent,
+        delivered,
+        received,
+        pricing: groupPricing(pricingJson?.pricing_analytics?.data),
+      };
+    } catch (e: any) {
+      this.logger.warn(`Meta insights fetch failed: ${e?.message ?? e}`);
+      return { available: false, days, reason: 'meta_error' };
+    }
+  }
+
+  async getMediaStream(mediaId: string): Promise<{ buffer: Buffer; contentType: string }> {
+    const systemToken = this.config.get<string>('META_SYSTEM_USER_TOKEN');
+    const apiVersion = this.config.get<string>('META_GRAPH_API_VERSION') || 'v21.0';
+    if (!systemToken) {
+      throw new Error('Meta API system user token is not configured');
+    }
+
+    // 1. Fetch media URL from Meta Graph API
+    const metaRes = await fetch(`https://graph.facebook.com/${apiVersion}/${mediaId}`, {
+      headers: { Authorization: `Bearer ${systemToken}` },
+    });
+    if (!metaRes.ok) {
+      const errText = await metaRes.text();
+      throw new Error(`Meta Graph API media query failed: ${errText}`);
+    }
+
+    const metaData: any = await metaRes.json();
+    const downloadUrl = metaData.url;
+    if (!downloadUrl) {
+      throw new Error('No media download URL returned from Meta Graph API');
+    }
+
+    // 2. Fetch binary media using Authorization header
+    const binRes = await fetch(downloadUrl, {
+      headers: { Authorization: `Bearer ${systemToken}` },
+    });
+    if (!binRes.ok) {
+      throw new Error(`Failed to download media binary from Meta: ${binRes.statusText}`);
+    }
+
+    const arrayBuf = await binRes.arrayBuffer();
+    return {
+      buffer: Buffer.from(arrayBuf),
+      contentType: metaData.mime_type || 'image/jpeg',
+    };
   }
 }

@@ -12,6 +12,7 @@ import { InboxModule } from './inbox/inbox.module';
 import { ContactsModule } from './contacts/contacts.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
 import { AutomationsModule } from './automations/automations.module';
+import { ReplyRulesModule } from './reply-rules/reply-rules.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { AutomationsModule } from './automations/automations.module';
     ContactsModule,
     CampaignsModule,
     AutomationsModule,
+    ReplyRulesModule,
     AuthModule,
     WhatsappIntegrationModule,
     TemplatesModule,

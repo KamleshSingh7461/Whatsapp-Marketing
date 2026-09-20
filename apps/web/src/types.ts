@@ -8,7 +8,7 @@ export type TemplateCategory = 'MARKETING' | 'UTILITY' | 'AUTHENTICATION';
 
 export type TemplateStatus = 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'PAUSED';
 
-export type CampaignStatus = 'DRAFT' | 'SCHEDULED' | 'SENDING' | 'COMPLETED' | 'FAILED';
+export type CampaignStatus = 'DRAFT' | 'SCHEDULED' | 'SENDING' | 'COMPLETED' | 'FAILED' | 'PAUSED' | 'CANCELLED';
 
 export type CustomerSentiment = 'POSITIVE' | 'NEUTRAL' | 'FRUSTRATED';
 
@@ -98,6 +98,24 @@ export interface Conversation {
   sentiment?: CustomerSentiment;
 }
 
+/** Live, measured progress of a server-sent campaign (derived from its recipient rows). */
+export interface CampaignProgress {
+  total: number;
+  queued: number;
+  sending: number;
+  /** Accepted by Meta, no delivery receipt yet. */
+  sent: number;
+  delivered: number;
+  read: number;
+  failed: number;
+  cancelled: number;
+  /** Handed to Meta successfully: sent + delivered + read. */
+  accepted: number;
+  /** Finished one way or another: accepted + failed + cancelled. */
+  processed: number;
+  percentDone: number;
+}
+
 export interface Campaign {
   id: string;
   name: string;
@@ -107,6 +125,13 @@ export interface Campaign {
   status: CampaignStatus;
   scheduledAt?: string | null;
   sentAt?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  /** True when the server owns the sending (survives closing the browser). */
+  serverSend?: boolean;
+  /** e.g. 'DAILY_LIMIT' while a sending campaign is waiting for Meta's daily cap to free up. */
+  pauseReason?: string | null;
+  progress?: CampaignProgress;
   targetTags: string[];
   totalRecipients: number;
   stats: {
@@ -194,4 +219,101 @@ export interface User {
   email: string;
   role: Role;
   isSuperAdmin?: boolean;
+}
+
+/** Totals per Meta pricing category and pricing type, from GET /whatsapp/insights. */
+export type MetaPricingBreakdown = Record<string, Record<string, { volume: number; cost: number }>>;
+
+export interface MetaInsights {
+  available: true;
+  days: number;
+  /** First and last calendar day covered, "YYYY-MM-DD" in the business timezone. */
+  startDay: string;
+  endDay: string;
+  sent: number;
+  delivered: number;
+  received: number;
+  pricing: MetaPricingBreakdown;
+}
+
+export type MetaInsightsResponse = MetaInsights | { available: false; days: number; reason: string };
+
+/** "When a customer taps this button on this template, do this." Managed on the Automations page. */
+export interface ReplyRule {
+  id: string;
+  name: string;
+  /** null means "any template" */
+  templateName: string | null;
+  buttonText: string;
+  tags: string[];
+  replyText: string | null;
+  active: boolean;
+  createdAt: string;
+  /** People on this rule's call sheet (one per person). */
+  leadCount: number;
+  lastLeadAt: string | null;
+  callStatusCounts: Record<CallStatus, number>;
+}
+
+export interface ReplyRuleInput {
+  name: string;
+  templateName: string | null;
+  buttonText: string;
+  tags: string[];
+  replyText: string | null;
+  active?: boolean;
+}
+
+export type CallStatus = 'CALL_PENDING' | 'CALLED_NOT_PICKED' | 'CALL_DONE' | 'FOLLOW_UP_PENDING';
+
+/** One person on a rule's call sheet. A person who taps twice is still one row. */
+export interface CallLeadRow {
+  id: string;
+  ruleId: string;
+  contact: { id: string; displayName: string | null; phone: string; tags: string[] };
+  templateName: string | null;
+  buttonText: string;
+  firstTapAt: string;
+  lastTapAt: string;
+  tapCount: number;
+  status: CallStatus;
+  remarks: string | null;
+  updatedAt: string | null;
+  updatedBy: string | null;
+}
+
+export interface CallLeadHistoryEntry {
+  id: string;
+  status: CallStatus;
+  remarks: string | null;
+  byName: string;
+  byRole: string;
+  createdAt: string;
+}
+
+export interface CallOverview {
+  days: 1 | 7 | 30;
+  since: string;
+  people: Array<{
+    userId: string;
+    name: string;
+    role: string;
+    updates: number;
+    leadsTouched: number;
+    byStatus: Record<CallStatus, number>;
+    lastActiveAt: string;
+  }>;
+  pipeline: Record<CallStatus, number>;
+  recent: Array<{
+    id: string;
+    at: string;
+    status: CallStatus;
+    remarks: string | null;
+    byName: string;
+    byRole: string;
+    leadId: string;
+    ruleName: string;
+    contactName: string;
+    phone: string;
+  }>;
 }

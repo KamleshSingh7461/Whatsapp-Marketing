@@ -1,12 +1,41 @@
 import React from 'react';
-import { User } from '../types';
-import { CurrencyCode } from '../lib/currency';
-import fgsnLogo from '../assets/logo.png';
+import { Role, User } from '../types';
+import { CURRENCIES, CurrencyCode } from '../lib/currency';
+import { TabType } from './Sidebar';
+
+// Titles match the sidebar labels so a page is called the same thing everywhere.
+const TAB_TITLES: Record<TabType, { title: string; subtitle: string }> = {
+  inbox: { title: 'Chats', subtitle: 'Customer conversations' },
+  campaigns: { title: 'Broadcasts', subtitle: 'Send approved messages to many customers' },
+  templates: { title: 'Templates', subtitle: 'Message formats approved by Meta' },
+  contacts: { title: 'Contacts & CRM', subtitle: 'Your customers and their permissions' },
+  automations: { title: 'Automations', subtitle: 'Replies sent automatically' },
+  calls: { title: 'Call sheets', subtitle: 'Follow up with customers who tapped a button' },
+  analytics: { title: 'Analytics', subtitle: 'Messages, replies and costs' },
+  settings: { title: 'WABA Settings', subtitle: 'Team, billing and Meta connection' },
+};
+
+// Only the pages that show amounts of money need a currency choice.
+const TABS_WITH_MONEY: TabType[] = ['analytics', 'campaigns', 'contacts'];
+
+const ROLE_LABELS: Record<Role, string> = {
+  ADMIN: 'Admin',
+  MARKETER: 'Marketer',
+  AGENT: 'Support agent',
+  VIEWER: 'Viewer',
+};
+
+const CURRENCY_CODES: CurrencyCode[] = ['INR', 'USD', 'EUR', 'GBP'];
+
+const Icon: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {children}
+  </svg>
+);
 
 interface HeaderProps {
+  activeTab?: TabType;
   user: User | null;
-  timeframe: '7d' | '30d' | '90d';
-  setTimeframe: (t: '7d' | '30d' | '90d') => void;
   currency: CurrencyCode;
   setCurrency: (c: CurrencyCode) => void;
   notificationsEnabled?: boolean;
@@ -18,9 +47,8 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({
+  activeTab = 'analytics',
   user,
-  timeframe,
-  setTimeframe,
   currency,
   setCurrency,
   notificationsEnabled,
@@ -30,153 +58,129 @@ export const Header: React.FC<HeaderProps> = ({
   onLogout,
   onToggleMobileSidebar,
 }) => {
+  const tabInfo = TAB_TITLES[activeTab] || { title: 'Workspace', subtitle: 'WhatsApp Business' };
+  const showCurrency = TABS_WITH_MONEY.includes(activeTab);
+  const initials = (user?.name || '')
+    .split(' ')
+    .filter(Boolean)
+    .map(n => n[0])
+    .join('')
+    .slice(0, 2);
+  const roleLabel = user ? (user.isSuperAdmin ? 'Super admin' : ROLE_LABELS[user.role] || user.role) : '';
+
   return (
-    <header className="top-header">
-      <div className="header-left">
+    <header className="wa-hd">
+      <div className="wa-hd-left">
         {onToggleMobileSidebar && (
           <button
-            className="mobile-hamburger-btn"
+            type="button"
+            className="wa-hd-icon wa-hd-menu"
             onClick={onToggleMobileSidebar}
-            title="Open Navigation Menu"
-            aria-label="Toggle navigation menu"
+            title="Open menu"
+            aria-label="Open menu"
           >
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <Icon>
               <line x1="3" y1="12" x2="21" y2="12" />
               <line x1="3" y1="6" x2="21" y2="6" />
               <line x1="3" y1="18" x2="21" y2="18" />
-            </svg>
+            </Icon>
           </button>
         )}
 
-        <div className="header-brand-corporate">
-          <div className="header-logo-mini">
-            <img src={fgsnLogo} alt="FGSN" />
-          </div>
-          <div className="header-brand-text">
-            <div className="header-title-row">
-              <span className="header-company-name">Freedom Global Sports Network</span>
-            </div>
-            <div className="header-status-line hide-on-compact">
-              <span className="live-status-dot" />
-              <span className="waba-number-text">WhatsApp Enterprise • +91 86558 51749</span>
-            </div>
-          </div>
+        <div className="wa-hd-title">
+          <h1>{tabInfo.title}</h1>
+          <p>{tabInfo.subtitle}</p>
         </div>
       </div>
 
-      <div className="header-right">
-        {/* Global Currency Segmented Control */}
-        <div className="corporate-segmented-control" title="Display Currency">
-          {(['INR', 'USD', 'EUR', 'GBP'] as const).map(c => (
-            <button
-              key={c}
-              className={`corp-seg-item ${currency === c ? 'active' : ''}`}
-              onClick={() => setCurrency(c)}
-            >
-              {c === 'INR' ? '₹ INR' : c === 'USD' ? '$ USD' : c === 'EUR' ? '€ EUR' : '£ GBP'}
-            </button>
-          ))}
-        </div>
+      <div className="wa-hd-right">
+        {showCurrency && (
+          <label className="wa-hd-select" title="Show amounts in this currency">
+            <span className="wa-hd-sr">Currency</span>
+            <select value={currency} onChange={e => setCurrency(e.target.value as CurrencyCode)}>
+              {CURRENCY_CODES.map(code => (
+                <option key={code} value={code}>
+                  {CURRENCIES[code].symbol} {code}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
 
-        {/* Date Range Selector */}
-        <div className="corporate-segmented-control hide-on-compact" title="Analytics Timeframe">
-          <button
-            className={`corp-seg-item ${timeframe === '7d' ? 'active' : ''}`}
-            onClick={() => setTimeframe('7d')}
-          >
-            7 Days
-          </button>
-          <button
-            className={`corp-seg-item ${timeframe === '30d' ? 'active' : ''}`}
-            onClick={() => setTimeframe('30d')}
-          >
-            30 Days
-          </button>
-          <button
-            className={`corp-seg-item ${timeframe === '90d' ? 'active' : ''}`}
-            onClick={() => setTimeframe('90d')}
-          >
-            Quarter
-          </button>
-        </div>
-
-        {/* Clear Cache & Instant Resync Button */}
         {onForceResync && (
           <button
-            className="corp-seg-item"
+            type="button"
+            className="wa-hd-icon"
             onClick={onForceResync}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 5,
-              padding: '6px 12px',
-              borderRadius: 8,
-              fontSize: '0.78rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-              background: '#F8FAFC',
-              color: '#0F172A',
-              border: '1px solid #CBD5E1',
-            }}
-            title="Purge local browser cache and force-sync fresh live data from server"
+            title="Refresh data from the server"
+            aria-label="Refresh data from the server"
           >
-            <span style={{ fontSize: 13 }}>🔄</span>
-            <span className="hide-on-compact">Resync Cloud</span>
+            <Icon>
+              <polyline points="23 4 23 10 17 10" />
+              <polyline points="1 20 1 14 7 14" />
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+            </Icon>
           </button>
         )}
 
-        {/* Desktop Browser Notification Toggle */}
         {onRequestNotificationPermission && (
           <button
-            className="corp-seg-item"
+            type="button"
+            className={`wa-hd-icon wa-hd-bell${notificationsEnabled ? ' is-on' : ''}`}
             onClick={onRequestNotificationPermission}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 5,
-              padding: '6px 12px',
-              borderRadius: 8,
-              fontSize: '0.78rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-              background: notificationsEnabled ? '#ECFDF5' : '#F1F5F9',
-              color: notificationsEnabled ? '#047857' : '#64748B',
-              border: `1px solid ${notificationsEnabled ? '#A7F3D0' : '#CBD5E1'}`,
-            }}
-            title={notificationsEnabled ? 'Desktop Notifications Active' : 'Click to enable OS Desktop Notifications for incoming WhatsApp chats'}
+            disabled={!!notificationsEnabled}
+            title={
+              notificationsEnabled
+                ? 'Desktop notifications are on. You can change this in your browser’s site settings.'
+                : 'Turn on desktop notifications for new customer messages'
+            }
+            aria-label={notificationsEnabled ? 'Desktop notifications are on' : 'Turn on desktop notifications'}
           >
-            <span style={{ fontSize: 13 }}>{notificationsEnabled ? '🔔' : '🔕'}</span>
-            <span className="hide-on-compact">{notificationsEnabled ? 'Notifications On' : 'Enable Alerts'}</span>
+            {notificationsEnabled ? (
+              <Icon>
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+              </Icon>
+            ) : (
+              <Icon>
+                <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                <path d="M18.63 13A17.89 17.89 0 0 1 18 8" />
+                <path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14" />
+                <path d="M18 8a6 6 0 0 0-9.33-5" />
+                <line x1="1" y1="1" x2="23" y2="23" />
+              </Icon>
+            )}
           </button>
         )}
 
-        {/* User Account & Role Badge */}
-        <div className="header-user-container">
-          {user ? (
-            <div className="header-user-badge">
-              <div className="header-user-avatar">
-                {user.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-              </div>
-              <div className="header-user-details hide-on-compact">
-                <span className="header-user-name">{user.name}</span>
-                <span className="header-user-role-badge">
-                  {user.isSuperAdmin ? 'Super Admin' : user.role}
-                </span>
-              </div>
-              <button className="header-logout-btn" onClick={onLogout} title="Sign Out">
-                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                  <polyline points="16 17 21 12 16 7" />
-                  <line x1="21" y1="12" x2="9" y2="12" />
-                </svg>
-              </button>
+        <span className="wa-hd-divider" aria-hidden="true" />
+
+        {user ? (
+          <div className="wa-hd-user">
+            <div className="wa-hd-avatar" aria-hidden="true">{initials || 'U'}</div>
+            <div className="wa-hd-user-text">
+              <strong>{user.name}</strong>
+              <span>{roleLabel}</span>
             </div>
-          ) : (
-            <button className="btn-primary" onClick={onOpenAuth}>
-              Sign In
+            <button
+              type="button"
+              className="wa-hd-icon"
+              onClick={onLogout}
+              title="Sign out"
+              aria-label="Sign out"
+            >
+              <Icon>
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </Icon>
             </button>
-          )}
-        </div>
+          </div>
+        ) : (
+          <button type="button" className="wa-hd-signin" onClick={onOpenAuth}>
+            Sign in
+          </button>
+        )}
       </div>
     </header>
   );

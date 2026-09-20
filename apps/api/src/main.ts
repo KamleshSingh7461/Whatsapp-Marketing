@@ -21,6 +21,10 @@ async function bootstrap() {
   );
   app.enableCors();
 
+  // Lets a `pm2 restart` / SIGTERM run onModuleDestroy, so an in-flight broadcast batch can finish
+  // instead of being cut off mid-send.
+  app.enableShutdownHooks();
+
   const port = config.get<number>('PORT') ?? 3000;
   await app.listen(port);
   // eslint-disable-next-line no-console

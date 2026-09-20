@@ -54,20 +54,25 @@ export function normalizePhoneNumber(raw: string, defaultCountryCode: string = '
 function parseDelimitedLine(line: string, delimiter: string): string[] {
   const result: string[] = [];
   let current = '';
-  let inQuotes = false;
+  // The quote character that opened the current quoted cell, if we are inside one.
+  let quote: string | null = null;
 
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
-    if (char === '"' || char === "'") {
-      inQuotes = !inQuotes;
-    } else if (char === delimiter && !inQuotes) {
-      result.push(current.trim().replace(/^["']|["']$/g, ''));
+  for (const char of line) {
+    if (quote) {
+      if (char === quote) quote = null;
+      else current += char;
+    } else if ((char === '"' || char === "'") && current.trim() === '') {
+      // A quote only OPENS a quoted cell at the START of a cell. Anywhere else it is ordinary text,
+      // so names like D'Souza or O'Brien stay intact instead of swallowing the next column.
+      quote = char;
+    } else if (char === delimiter) {
+      result.push(current.trim());
       current = '';
     } else {
       current += char;
     }
   }
-  result.push(current.trim().replace(/^["']|["']$/g, ''));
+  result.push(current.trim());
   return result;
 }
 
@@ -81,6 +86,7 @@ export function parseContactsText(
     defaultCohort?: RFMSegment;
     customTags?: string[];
     existingContacts?: Contact[];
+    defaultCountryCode?: string;
   }
 ): ParsedContactResult {
   const lines = rawText
@@ -91,6 +97,8 @@ export function parseContactsText(
   if (lines.length === 0) {
     return { valid: [], invalid: [], totalRows: 0 };
   }
+
+  const defaultCode = (options?.defaultCountryCode || '91').replace(/[^\d]/g, '') || '91';
 
   // Auto-detect delimiter: tab vs comma vs semicolon vs pipe
   const firstLine = lines[0];
@@ -144,10 +152,17 @@ export function parseContactsText(
   const startRow = isHeaderPresent ? 1 : 0;
   const valid: Contact[] = [];
   const invalid: { row: number; name?: string; phone?: string; reason: string }[] = [];
-  const existingPhoneSet = new Set(
-    (options?.existingContacts || []).map(c => c.phone.replace(/[^0-9]/g, ''))
-  );
+  
+  const existingPhoneSet = new Set<string>();
+  const existingLast10Set = new Set<string>();
+  (options?.existingContacts || []).forEach(c => {
+    const digits = c.phone.replace(/[^0-9]/g, '');
+    if (digits) existingPhoneSet.add(digits);
+    if (digits.length >= 10) existingLast10Set.add(digits.slice(-10));
+  });
+
   const seenBatchPhones = new Set<string>();
+  const seenBatchLast10 = new Set<string>();
 
   for (let i = startRow; i < lines.length; i++) {
     const rowNum = i + 1;
@@ -163,7 +178,7 @@ export function parseContactsText(
     const rawTags = tagsIdx >= 0 && tagsIdx < rowData.length ? rowData[tagsIdx] : '';
     const rawCity = cityIdx >= 0 && cityIdx < rowData.length ? rowData[cityIdx] : '';
 
-    const normalizedPhone = normalizePhoneNumber(rawPhone);
+    const normalizedPhone = normalizePhoneNumber(rawPhone, defaultCode);
 
     if (!normalizedPhone) {
       invalid.push({
@@ -176,26 +191,28 @@ export function parseContactsText(
     }
 
     const cleanDigits = normalizedPhone.replace(/[^0-9]/g, '');
+    const last10 = cleanDigits.length >= 10 ? cleanDigits.slice(-10) : cleanDigits;
 
     // Duplicate check within batch
-    if (seenBatchPhones.has(cleanDigits)) {
+    if (seenBatchPhones.has(cleanDigits) || (cleanDigits.length >= 10 && seenBatchLast10.has(last10))) {
       invalid.push({
         row: rowNum,
         name: rawName,
         phone: normalizedPhone,
-        reason: 'Duplicate in uploaded list (skipped)',
+        reason: 'Duplicate in uploaded list (Same contact cannot be added twice)',
       });
       continue;
     }
     seenBatchPhones.add(cleanDigits);
+    if (cleanDigits.length >= 10) seenBatchLast10.add(last10);
 
     // Duplicate check against existing CRM
-    if (existingPhoneSet.has(cleanDigits)) {
+    if (existingPhoneSet.has(cleanDigits) || (cleanDigits.length >= 10 && existingLast10Set.has(last10))) {
       invalid.push({
         row: rowNum,
         name: rawName,
         phone: normalizedPhone,
-        reason: 'Already exists in your CRM contacts',
+        reason: 'Already exists in CRM contacts (Duplicate prevented)',
       });
       continue;
     }

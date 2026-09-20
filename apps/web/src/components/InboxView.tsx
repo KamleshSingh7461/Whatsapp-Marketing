@@ -1,7 +1,30 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Conversation, Message, Template, User } from '../types';
 import { CurrencyCode, formatCurrency } from '../lib/currency';
-import { canSendMessages } from '../lib/permissions';
+import { POPULAR_COUNTRY_CODES, cleanPhoneWithCountry, isSamePhoneNumber, formatPhoneNumber, formatPhoneInput, validatePhoneNumber } from '../lib/countryCodes';
+import {
+  WhatsAppLogoIcon,
+  DoubleCheckIcon,
+  SingleCheckIcon,
+  VerifiedBadgeIcon,
+  SearchIcon,
+  NewChatIcon,
+  MenuDotsIcon,
+  SmileyIcon,
+  PaperclipIcon,
+  SendIcon,
+  BackArrowIcon,
+  PhoneCallIcon,
+  VideoCallIcon,
+  LockIcon,
+  UserAvatarPlaceholder,
+  TemplateIcon,
+  CloseIcon,
+  CopyIcon,
+  TagIcon,
+  ChatsNavIcon,
+  ContactsNavIcon,
+} from './WhatsAppIcons';
 
 interface InboxViewProps {
   conversations: Conversation[];
@@ -10,22 +33,23 @@ interface InboxViewProps {
   teamMembers?: User[];
   currency?: CurrencyCode;
   currentUser?: User | null;
-  onSendMessage: (convId: string, text: string, isInternalNote?: boolean) => void;
+  onSendMessage: (convId: string, text: string, isInternalNote?: boolean, mediaUrl?: string) => void;
   onSendTemplateMessage?: (convId: string, template: Template, renderedText: string) => void;
   onSimulateInbound: (convId: string, text: string) => void;
   onToggleResolve?: (convId: string) => void;
   onAssignAgent?: (convId: string, agent: string) => void;
-  onStartNewChat?: (phone: string, name?: string, text?: string, templateName?: string) => Promise<string | void>;
+  onStartNewChat?: (phone: string, name?: string, text?: string, templateName?: string, tags?: string[]) => Promise<string | void>;
   onMarkConversationRead?: (convId: string) => void;
+  onToggleMobileSidebar?: () => void;
 }
 
 const CANNED_RESPONSES = [
-  { label: 'Welcome & Support Greeting', text: 'Welcome to Freedom Global Sports Network! 🏆 How can our team assist you with our tournament passes, official merchandise, or membership today?' },
+  { label: 'Welcome & Support Greeting', text: 'Welcome to Freedom Global Sports Network! 🏆 How can our team assist you with tournament passes, official merchandise, or membership today?' },
   { label: 'Order Status & Tracking', text: 'Hello! Your FGSN sports order is packed and dispatched. 📦 Track your shipment live here: https://fgsnlive.com/track' },
   { label: 'VIP Promo Voucher (FGSN20)', text: 'Here is your exclusive VIP code: *FGSN20*. Enjoy 20% off all official sportswear and event tickets at checkout: https://fgsnlive.com' },
   { label: 'Live Tournament Stream Pass', text: 'Access the official live HD match broadcast and match replays with your FGSN Pass: https://fgsnlive.com/live' },
   { label: 'Secure UPI & Card Payment Link', text: 'You can securely complete your checkout via this encrypted payment gateway: https://pay.fgsnlive.com/checkout' },
-  { label: 'Helpdesk Hours & Contact', text: 'Our dedicated FGSN WhatsApp desk is active 24/7. Please let us know if you need assistance with anything else!' },
+  { label: 'Helpdesk Hours & Contact', text: 'Our dedicated WhatsApp desk is active 24/7. Please let us know if you need assistance with anything else!' },
 ];
 
 const INBOUND_SIMULATION_PRESETS = [
@@ -35,6 +59,13 @@ const INBOUND_SIMULATION_PRESETS = [
   'Can I upgrade my FGSN membership pass to VIP access?',
   'Can you send me the payment link to complete my booking?',
 ];
+
+// Layout breakpoints. Keep in step with styles.css (search "SINGLE_PANE_MAX").
+//  - up to SINGLE_PANE_MAX: phone layout, one pane at a time (list, chat or contact info)
+//  - above it: chat list and conversation side by side
+//  - from INFO_PANEL_DEFAULT_OPEN_MIN up there is room for the contact info column too
+const SINGLE_PANE_MAX = 760;
+const INFO_PANEL_DEFAULT_OPEN_MIN = 1431;
 
 export const InboxView: React.FC<InboxViewProps> = ({
   conversations,
@@ -50,18 +81,174 @@ export const InboxView: React.FC<InboxViewProps> = ({
   onAssignAgent,
   onStartNewChat,
   onMarkConversationRead,
+  onToggleMobileSidebar,
 }) => {
   const [mobileView, setMobileView] = useState<'list' | 'chat' | 'crm'>('list');
   const [selectedConvId, setSelectedConvId] = useState<string>(conversations[0]?.id || '');
   const [inputText, setInputText] = useState('');
   const [isNoteMode, setIsNoteMode] = useState(false);
   const [showCanned, setShowCanned] = useState(false);
+  const [showNewChatModal, setShowNewChatModal] = useState(false);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [showInboundModal, setShowInboundModal] = useState(false);
+  const [showMenuDropdown, setShowMenuDropdown] = useState(false);
   const [customInboundText, setCustomInboundText] = useState('');
   const [selectedTemplateForModal, setSelectedTemplateForModal] = useState<Template | null>(null);
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<'ALL' | 'MINE' | 'UNASSIGNED' | 'OPEN' | 'RESOLVED'>('ALL');
+  const [filter, setFilter] = useState<'ALL' | 'UNREAD' | 'MINE' | 'RESOLVED'>('ALL');
+  // The info panel is a side column only on wide windows. On narrower ones it slides over the chat (see
+  // styles.css), so it starts closed there instead of covering the conversation.
+  const [showContactInfo, setShowContactInfo] = useState<boolean>(
+    () => typeof window === 'undefined' || window.innerWidth >= INFO_PANEL_DEFAULT_OPEN_MIN,
+  );
+
+  // Mobile Touch Swipe Gesture Tracking (Swipe right to navigate back)
+  const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const [swipeOffset, setSwipeOffset] = useState<number>(0);
+  const [isSwiping, setIsSwiping] = useState<boolean>(false);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const chatListRef = useRef<HTMLDivElement | null>(null);
+  const chatListScrollPos = useRef<number>(0);
+  const chatMessagesRef = useRef<HTMLDivElement | null>(null);
+
+  const handleChatListScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    chatListScrollPos.current = e.currentTarget.scrollTop;
+  };
+
+  // Preserve and restore exact scroll position of the chat list across navigation and message sends
+  useEffect(() => {
+    if (chatListRef.current) {
+      if (Math.abs(chatListRef.current.scrollTop - chatListScrollPos.current) > 2) {
+        chatListRef.current.scrollTop = chatListScrollPos.current;
+      }
+    }
+  }, [mobileView, selectedConvId, conversations]);
+
+  // Push state to browser history when changing views so mobile back gestures work natively
+  const navigateMobile = (view: 'list' | 'chat' | 'crm', convId?: string) => {
+    setMobileView(view);
+    if (typeof window !== 'undefined') {
+      window.history.pushState({ fgsnScreen: view, convId: convId || selectedConvId }, '');
+    }
+  };
+
+  const handleGoBackFromChat = () => {
+    if (typeof window !== 'undefined' && window.history.state && window.history.state.fgsnScreen === 'chat') {
+      window.history.back();
+    } else {
+      setMobileView('list');
+    }
+  };
+
+  const handleGoBackFromCrm = () => {
+    if (typeof window !== 'undefined' && window.history.state && window.history.state.fgsnScreen === 'crm') {
+      window.history.back();
+    } else {
+      setMobileView('chat');
+    }
+  };
+
+  // Listen to popstate event (Hardware Back button, swipe back in Safari/Chrome, browser Back)
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      if (showNewChatModal || showTemplateModal || showInboundModal || showCanned) {
+        setShowNewChatModal(false);
+        setShowTemplateModal(false);
+        setShowInboundModal(false);
+        setShowCanned(false);
+        return;
+      }
+
+      const state = e.state;
+      if (!state || state.fgsnScreen === 'list') {
+        setMobileView('list');
+      } else if (state.fgsnScreen === 'chat') {
+        setMobileView('chat');
+        if (state.convId) setSelectedConvId(state.convId);
+      } else if (state.fgsnScreen === 'crm') {
+        setMobileView('crm');
+      } else {
+        setMobileView('list');
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [showNewChatModal, showTemplateModal, showInboundModal, showCanned]);
+
+  // Touch gesture handlers for swiping right to go back, swiping left for CRM, and edge-swiping for drawer
+  const handleTouchStart = (e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
+    setIsSwiping(true);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!touchStartRef.current) return;
+    const touch = e.touches[0];
+    const dx = touch.clientX - touchStartRef.current.x;
+    const dy = touch.clientY - touchStartRef.current.y;
+
+    if (Math.abs(dx) > Math.abs(dy) * 1.2) {
+      if (mobileView === 'chat' && dx > 8) {
+        setSwipeOffset(Math.max(0, dx));
+      } else if (mobileView === 'crm' && dx > 8) {
+        setSwipeOffset(Math.max(0, dx));
+      }
+    }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (!touchStartRef.current) return;
+    const touch = e.changedTouches[0];
+    const dx = touch.clientX - touchStartRef.current.x;
+    const dy = touch.clientY - touchStartRef.current.y;
+    const dt = Date.now() - touchStartRef.current.time;
+    const startX = touchStartRef.current.x;
+
+    setIsSwiping(false);
+    setSwipeOffset(0);
+    touchStartRef.current = null;
+
+    const isHorizontalSwipe = Math.abs(dx) > Math.abs(dy) * 1.2;
+    const isSwipeRight = dx > 50 || (dx > 30 && dt < 280);
+    const isSwipeLeft = dx < -50 || (dx < -30 && dt < 280);
+
+    if (isHorizontalSwipe) {
+      if (mobileView === 'chat') {
+        if (isSwipeRight) {
+          handleGoBackFromChat();
+        } else if (isSwipeLeft) {
+          navigateMobile('crm');
+        }
+      } else if (mobileView === 'crm') {
+        if (isSwipeRight) {
+          handleGoBackFromCrm();
+        }
+      } else if (mobileView === 'list') {
+        if (startX < 45 && isSwipeRight && onToggleMobileSidebar) {
+          onToggleMobileSidebar();
+        }
+      }
+    }
+  };
+
+  const handleSeedDemoChat = async () => {
+    if (onStartNewChat) {
+      try {
+        const id = await onStartNewChat(
+          '919876543210',
+          'Rahul Sharma',
+          'Hello! When does the upcoming live FGSN tournament start? Also, does the FGSN20 coupon code apply to VIP passes?'
+        );
+        if (id) {
+          setSelectedConvId(id);
+          navigateMobile('chat', id);
+        }
+      } catch (e) {}
+    }
+  };
+
   const [cannedList, setCannedList] = useState<Array<{ label: string; text: string }>>(() => {
     try {
       const saved = localStorage.getItem('fgsn_saved_canned_responses');
@@ -94,36 +281,125 @@ export const InboxView: React.FC<InboxViewProps> = ({
   };
 
   // Start New Chat Modal States
-  const [showNewChatModal, setShowNewChatModal] = useState(false);
-  const [newChatPhone, setNewChatPhone] = useState('');
-  const [newChatName, setNewChatName] = useState('');
+  const [newCountryCode, setNewCountryCode] = useState<string>('+91');
+  const [newChatPhone, setNewChatPhone] = useState<string>('');
+  const [newChatName, setNewChatName] = useState<string>('');
+  const [newChatTags, setNewChatTags] = useState<string[]>(['New Lead']);
+  const [newCustomTagInput, setNewCustomTagInput] = useState<string>('');
   const [newChatMsgType, setNewChatMsgType] = useState<'TEMPLATE' | 'TEXT'>('TEMPLATE');
   const [newSelectedTemplateName, setNewSelectedTemplateName] = useState(templates[0]?.name || 'fgsn_account_welcome_notice');
-  const [newChatText, setNewChatText] = useState('');
+  const [newChatText, setNewChatText] = useState<string>('');
   const [newChatLoading, setNewChatLoading] = useState(false);
+  const [attachedImagePreview, setAttachedImagePreview] = useState<string | null>(null);
+
+  // Dynamic formatting & validation for phone input
+  const phoneValidation = useMemo(() => {
+    return validatePhoneNumber(newCountryCode, newChatPhone);
+  }, [newCountryCode, newChatPhone]);
+
+  const phoneHasDigits = /\d/.test(newChatPhone);
+
+  const handlePhoneInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Typing stops at a full number for the country; a paste is kept whole so it can be checked, not cut short.
+    const formatted = formatPhoneInput(newCountryCode, e.target.value, (e.nativeEvent as InputEvent).inputType);
+    setNewChatPhone(formatted);
+  };
+
+  const handleCountryCodeChange = (code: string) => {
+    setNewCountryCode(code);
+    if (newChatPhone) {
+      const reformatted = formatPhoneNumber(code, newChatPhone);
+      setNewChatPhone(reformatted);
+    }
+  };
+
+  const handleAttachImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file (JPEG, PNG, WEBP, etc.)');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setAttachedImagePreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  // Normalized phone number combining country code and typed digits
+  const normalizedPhone = useMemo(() => {
+    return cleanPhoneWithCountry(newCountryCode, newChatPhone);
+  }, [newCountryCode, newChatPhone]);
+
+  // Real-time duplicate check: detect if this contact already exists in conversations
+  const existingConversation = useMemo(() => {
+    const rawDigits = newChatPhone.replace(/[^\d]/g, '');
+    if (!rawDigits || rawDigits.length < 5) return null;
+    return conversations.find(c => isSamePhoneNumber(c.contact?.phone, normalizedPhone));
+  }, [newChatPhone, normalizedPhone, conversations]);
+
+  const handleOpenExistingChat = (convId: string) => {
+    setSelectedConvId(convId);
+    navigateMobile('chat', convId);
+    setShowNewChatModal(false);
+    setNewChatPhone('');
+    setNewChatName('');
+    setNewChatText('');
+  };
+
+  const handleToggleTag = (tag: string) => {
+    setNewChatTags(prev =>
+      prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
+    );
+  };
+
+  const handleAddCustomTag = (e?: React.SyntheticEvent) => {
+    if (e) e.preventDefault();
+    const tag = newCustomTagInput.trim();
+    if (tag && !newChatTags.includes(tag)) {
+      setNewChatTags(prev => [...prev, tag]);
+      setNewCustomTagInput('');
+    }
+  };
 
   const handleStartNewChatSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newChatPhone.trim()) return;
+    if (!phoneValidation.isValid || !normalizedPhone) return;
+
+    // Duplicate prevention: If contact already exists, switch to existing conversation!
+    if (existingConversation) {
+      handleOpenExistingChat(existingConversation.id);
+      return;
+    }
 
     setNewChatLoading(true);
     try {
       if (onStartNewChat) {
+        const finalTags = Array.from(new Set([
+          ...newChatTags,
+          ...(newCustomTagInput.trim() ? [newCustomTagInput.trim()] : []),
+        ]));
+
         const createdConvId = await onStartNewChat(
-          newChatPhone.trim(),
+          normalizedPhone,
           newChatName.trim() || undefined,
           newChatMsgType === 'TEXT' ? newChatText.trim() : undefined,
           newChatMsgType === 'TEMPLATE' ? newSelectedTemplateName : undefined,
+          finalTags.length > 0 ? finalTags : ['New Lead']
         );
         if (createdConvId) {
           setSelectedConvId(createdConvId);
-          setMobileView('chat');
+          navigateMobile('chat', createdConvId);
         }
       }
       setShowNewChatModal(false);
       setNewChatPhone('');
       setNewChatName('');
       setNewChatText('');
+      setNewChatTags(['New Lead']);
+      setNewCustomTagInput('');
     } catch (err: any) {
       alert(err.message || 'Failed to send WhatsApp message');
     } finally {
@@ -132,11 +408,20 @@ export const InboxView: React.FC<InboxViewProps> = ({
   };
 
   const activeConversation = conversations.find(c => c.id === selectedConvId) || conversations[0];
-  const messages = (selectedConvId && messagesByConvId[selectedConvId]) || [];
+  const messages = (activeConversation && messagesByConvId[activeConversation.id]) || [];
+
+  useEffect(() => {
+    if (chatMessagesRef.current) {
+      chatMessagesRef.current.scrollTo({
+        top: chatMessagesRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
+    }
+  }, [messages.length, selectedConvId]);
 
   const handleSelectConversation = (id: string) => {
     setSelectedConvId(id);
-    setMobileView('chat');
+    navigateMobile('chat', id);
     if (onMarkConversationRead) {
       onMarkConversationRead(id);
     }
@@ -144,9 +429,15 @@ export const InboxView: React.FC<InboxViewProps> = ({
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim() || !selectedConvId) return;
-    onSendMessage(selectedConvId, inputText.trim(), isNoteMode);
+    if ((!inputText.trim() && !attachedImagePreview) || !activeConversation) return;
+    onSendMessage(
+      activeConversation.id,
+      inputText.trim() || 'Image attachment',
+      isNoteMode,
+      attachedImagePreview || undefined
+    );
     setInputText('');
+    setAttachedImagePreview(null);
     setIsNoteMode(false);
   };
 
@@ -156,8 +447,9 @@ export const InboxView: React.FC<InboxViewProps> = ({
   };
 
   const handleDispatchTemplate = (tpl: Template) => {
-    let rendered = tpl.bodyJson.body;
-    if (activeConversation?.contact) {
+    if (!activeConversation) return;
+    let rendered = tpl.bodyJson?.body || (tpl as any).body || '';
+    if (activeConversation.contact) {
       rendered = rendered.replace(/\{\{customer_name\}\}/gi, activeConversation.contact.displayName);
       rendered = rendered.replace(/\{\{1\}\}/gi, activeConversation.contact.displayName);
       rendered = rendered.replace(/\{\{discount_code\}\}/gi, 'VIP20');
@@ -180,32 +472,21 @@ export const InboxView: React.FC<InboxViewProps> = ({
   };
 
   const getWindowStatus = (expiresAt?: string | null) => {
-    if (!expiresAt) return { expired: true, text: 'Session Expired (Template Required)', hours: 0, percent: 0 };
+    if (!expiresAt) return { expired: true, text: 'Session Expired', hours: 0, percent: 0 };
     const diff = new Date(expiresAt).getTime() - Date.now();
-    if (diff <= 0) return { expired: true, text: 'Session Expired (Template Required)', hours: 0, percent: 0 };
+    if (diff <= 0) return { expired: true, text: 'Session Expired', hours: 0, percent: 0 };
     const hours = Math.floor(diff / 3600000);
     const mins = Math.floor((diff % 3600000) / 60000);
     const percent = Math.min(100, Math.round((diff / (24 * 3600000)) * 100));
     return {
       expired: false,
-      text: `24h Session Window: ${hours}h ${mins}m left`,
+      text: `${hours}h ${mins}m left`,
       hours,
       percent,
     };
   };
 
-  const getSentimentBadge = (sentiment?: string) => {
-    switch (sentiment) {
-      case 'POSITIVE':
-        return <span className="sentiment-badge positive">😊 Happy</span>;
-      case 'FRUSTRATED':
-        return <span className="sentiment-badge negative">😡 Escalation Risk</span>;
-      default:
-        return <span className="sentiment-badge neutral">😐 Inquired</span>;
-    }
-  };
-
-  const myName = currentUser?.name || 'FGSN Super Admin';
+  const myName = currentUser?.name || 'Admin';
 
   const isMine = (c: Conversation) => {
     if (!c.assignedAgent || c.assignedAgent === 'Unassigned') return false;
@@ -226,9 +507,8 @@ export const InboxView: React.FC<InboxViewProps> = ({
     if (!matchesSearch) return false;
 
     if (filter === 'ALL') return true;
+    if (filter === 'UNREAD') return c.unreadCount > 0;
     if (filter === 'MINE') return isMine(c);
-    if (filter === 'UNASSIGNED') return !c.assignedAgent || c.assignedAgent === 'Unassigned';
-    if (filter === 'OPEN') return c.status === 'OPEN' || !c.status;
     if (filter === 'RESOLVED') return c.status === 'RESOLVED';
     return true;
   });
@@ -239,148 +519,284 @@ export const InboxView: React.FC<InboxViewProps> = ({
   );
 
   return (
-    <div className={`inbox-layout mobile-${mobileView}`}>
-      {/* Left Column: Conversation Queue */}
-      <div className="inbox-list-col">
-        <div className="inbox-list-header">
-          {/* Live WABA Inbox Banner */}
-          <div style={{ background: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: 8, padding: '8px 12px', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10B981', display: 'inline-block', boxShadow: '0 0 0 2px rgba(16, 185, 129, 0.2)' }} />
-              <span style={{ fontSize: 12, fontWeight: 700, color: '#047857' }}>Live Shared Inbox</span>
-            </div>
-            <span style={{ fontSize: 11, color: '#059669', fontFamily: 'monospace', fontWeight: 600 }}>+91 86558 51749</span>
+    <div className={`wa-inbox-container mobile-${mobileView}`}>
+      {/* Left Column: WhatsApp Chat List */}
+      <div
+        className="wa-sidebar-col"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
+        {/* WhatsApp Web Style Top Header */}
+        <div className="wa-sidebar-header">
+          <div className="wa-sidebar-header-left">
+            {onToggleMobileSidebar && (
+              <button
+                className="wa-icon-btn wa-mobile-hamburger-btn"
+                onClick={onToggleMobileSidebar}
+                title="Open Navigation Menu"
+                type="button"
+                aria-label="Open Navigation Menu"
+              >
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#54656f" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="3" y1="12" x2="21" y2="12" />
+                  <line x1="3" y1="6" x2="21" y2="6" />
+                  <line x1="3" y1="18" x2="21" y2="18" />
+                </svg>
+              </button>
+            )}
+            <span className="wa-header-title">Chats</span>
           </div>
 
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            <div className="search-bar-wrap" style={{ flex: 1 }}>
-              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
-              <input
-                type="text"
-                placeholder="Search by name, phone..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="chat-search-input"
-              />
-            </div>
+          <div className="wa-header-actions">
+            {/* New Chat Button (Iconic WhatsApp speech bubble icon) */}
             <button
-              className="btn-primary"
-              onClick={() => setShowNewChatModal(true)}
-              style={{ padding: '8px 12px', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', borderRadius: 8 }}
+              className="wa-icon-btn"
+              onClick={() => {
+                setShowNewChatModal(true);
+                if (typeof window !== 'undefined') window.history.pushState({ fgsnModal: true }, '');
+              }}
+              title="New Chat"
+              type="button"
             >
-              + New Chat
+              <NewChatIcon size={20} color="#54656f" />
             </button>
-          </div>
 
-          {/* 2-Tier Structured Filter Matrix (100% visible, zero scrolling needed) */}
-          <div className="inbox-filter-matrix">
-            <div className="filter-row primary-row">
+            {/* Authentic WhatsApp Options Menu Dropdown */}
+            <div style={{ position: 'relative' }}>
               <button
-                className={`filter-btn ${filter === 'OPEN' ? 'active' : ''}`}
-                onClick={() => setFilter('OPEN')}
-                title="View active open chats"
+                className={`wa-icon-btn ${showMenuDropdown ? 'active' : ''}`}
+                onClick={() => setShowMenuDropdown(prev => !prev)}
+                title="Menu"
+                type="button"
+                aria-label="Menu"
               >
-                Open <span className="pill-count">({conversations.filter(c => c.status === 'OPEN' || !c.status).length})</span>
+                <MenuDotsIcon size={20} color="#54656f" />
               </button>
-              <button
-                className={`filter-btn ${filter === 'ALL' ? 'active' : ''}`}
-                onClick={() => setFilter('ALL')}
-                title="View all conversations"
-              >
-                All <span className="pill-count">({conversations.length})</span>
-              </button>
-              <button
-                className={`filter-btn ${filter === 'RESOLVED' ? 'active' : ''}`}
-                onClick={() => setFilter('RESOLVED')}
-                title="View resolved chats"
-              >
-                Resolved <span className="pill-count">({conversations.filter(c => c.status === 'RESOLVED').length})</span>
-              </button>
-            </div>
 
-            <div className="filter-row secondary-row">
-              <button
-                className={`filter-btn sub-btn ${filter === 'MINE' ? 'active' : ''}`}
-                onClick={() => setFilter('MINE')}
-                title="Assigned to me"
-              >
-                👤 Mine <span className="pill-count">({conversations.filter(c => isMine(c)).length})</span>
-              </button>
-              <button
-                className={`filter-btn sub-btn ${filter === 'UNASSIGNED' ? 'active' : ''}`}
-                onClick={() => setFilter('UNASSIGNED')}
-                title="Unassigned queue"
-              >
-                ⚡ Unassigned <span className="pill-count">({conversations.filter(c => !c.assignedAgent || c.assignedAgent === 'Unassigned').length})</span>
-              </button>
+              {showMenuDropdown && (
+                <>
+                  <div
+                    style={{ position: 'fixed', inset: 0, zIndex: 99 }}
+                    onClick={() => setShowMenuDropdown(false)}
+                  />
+                  <div className="wa-header-menu-dropdown">
+                    <button
+                      type="button"
+                      className="wa-menu-item"
+                      onClick={() => {
+                        setShowMenuDropdown(false);
+                        setShowNewChatModal(true);
+                      }}
+                    >
+                      <span>New chat</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="wa-menu-item"
+                      onClick={() => {
+                        setShowMenuDropdown(false);
+                        setFilter('ALL');
+                      }}
+                    >
+                      <span>All chats</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="wa-menu-item"
+                      onClick={() => {
+                        setShowMenuDropdown(false);
+                        setFilter('UNREAD');
+                      }}
+                    >
+                      <span>Unread chats</span>
+                    </button>
+                    {activeConversation && (
+                      <button
+                        type="button"
+                        className="wa-menu-item"
+                        onClick={() => {
+                          setShowMenuDropdown(false);
+                          setShowInboundModal(true);
+                        }}
+                      >
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span>🧪 Simulate Inbound Reply</span>
+                          <span style={{ fontSize: 10, background: '#e9edef', color: '#54656f', padding: '1px 5px', borderRadius: 4 }}>Dev</span>
+                        </span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="wa-menu-item"
+                      onClick={() => {
+                        setShowMenuDropdown(false);
+                        window.location.hash = 'settings';
+                      }}
+                    >
+                      <span>WABA Settings</span>
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Conversation List */}
-        <div className="inbox-conv-list conversation-scroll-list">
+        {/* WhatsApp Search Bar */}
+        <div className="wa-search-section">
+          <div className="wa-search-bar">
+            <SearchIcon size={16} color="#54656f" />
+            <input
+              type="text"
+              placeholder="Search or start new chat"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="wa-search-input"
+            />
+            {search && (
+              <button
+                className="wa-clear-search-btn"
+                onClick={() => setSearch('')}
+                title="Clear"
+                type="button"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Authentic WhatsApp Filter Chips (All, Unread, Mine, Resolved) */}
+        <div className="wa-filter-chips">
+          <button
+            className={`wa-chip ${filter === 'ALL' ? 'active' : ''}`}
+            onClick={() => setFilter('ALL')}
+            type="button"
+          >
+            All
+          </button>
+          <button
+            className={`wa-chip ${filter === 'UNREAD' ? 'active' : ''}`}
+            onClick={() => setFilter('UNREAD')}
+            type="button"
+          >
+            Unread
+            {conversations.filter(c => c.unreadCount > 0).length > 0 && (
+              <span className="wa-chip-count">({conversations.filter(c => c.unreadCount > 0).length})</span>
+            )}
+          </button>
+          <button
+            className={`wa-chip ${filter === 'MINE' ? 'active' : ''}`}
+            onClick={() => setFilter('MINE')}
+            type="button"
+          >
+            Assigned to me
+          </button>
+          <button
+            className={`wa-chip ${filter === 'RESOLVED' ? 'active' : ''}`}
+            onClick={() => setFilter('RESOLVED')}
+            type="button"
+          >
+            Resolved
+          </button>
+        </div>
+
+        {/* WhatsApp Chat List */}
+        <div className="wa-chat-list" ref={chatListRef} onScroll={handleChatListScroll}>
           {filteredConversations.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '3rem 1rem', color: '#64748B' }}>
-              <p style={{ fontWeight: 600, fontSize: '0.88rem', marginBottom: 4 }}>No active conversations</p>
-              <span style={{ fontSize: '0.78rem' }}>Incoming WhatsApp messages and initiated chats will appear here.</span>
+            <div style={{ padding: '48px 24px', textAlign: 'center', color: '#667781' }}>
+              <div style={{ marginBottom: 16 }}>
+                <WhatsAppLogoIcon size={48} color="#8696a0" />
+              </div>
+              <p style={{ fontSize: 16, fontWeight: 500, color: '#111b21', margin: '0 0 6px' }}>
+                {search ? 'No chats found' : 'No chats yet'}
+              </p>
+              <p style={{ fontSize: 13.5, color: '#667781', lineHeight: 1.5, margin: '0 0 20px' }}>
+                {search
+                  ? `No conversations match "${search}".`
+                  : 'Start a new conversation or test with a sample client chat.'}
+              </p>
+              {search ? (
+                <button
+                  className="wa-chip active"
+                  style={{ padding: '0 16px', margin: '0 auto' }}
+                  onClick={() => setSearch('')}
+                  type="button"
+                >
+                  Clear search
+                </button>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 220, margin: '0 auto' }}>
+                  <button
+                    className="wa-chip active"
+                    style={{ justifyContent: 'center', height: 36, background: '#008069', color: '#ffffff' }}
+                    onClick={() => {
+                      setShowNewChatModal(true);
+                      if (typeof window !== 'undefined') window.history.pushState({ fgsnModal: true }, '');
+                    }}
+                    type="button"
+                  >
+                    Start New Chat
+                  </button>
+                  {onStartNewChat && (
+                    <button
+                      className="wa-chip"
+                      style={{ justifyContent: 'center', height: 36 }}
+                      onClick={handleSeedDemoChat}
+                      type="button"
+                    >
+                      Load Demo Client Chat
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           ) : (
             filteredConversations.map((conv) => {
-              const itemWindowState = getWindowStatus(conv.windowExpiresAt);
-              const isSelected = conv.id === selectedConvId;
+              const isSelected = activeConversation && conv.id === activeConversation.id;
               const isOutbound = conv.lastMessage?.direction === 'OUTBOUND';
+              const isRead = conv.lastMessage?.status === 'READ';
 
               return (
                 <div
                   key={conv.id}
-                  className={`conversation-item ${isSelected ? 'selected' : ''} ${conv.status === 'RESOLVED' ? 'is-resolved' : ''}`}
+                  className={`wa-chat-item ${isSelected ? 'active' : ''}`}
                   onClick={() => handleSelectConversation(conv.id)}
                 >
-                  <div className="conv-avatar-wrap">
+                  {/* Contact Avatar */}
+                  <div className="wa-avatar-wrap">
                     {conv.contact.avatarUrl ? (
-                      <img src={conv.contact.avatarUrl} alt={conv.contact.displayName} className="conv-avatar" />
+                      <img src={conv.contact.avatarUrl} alt={conv.contact.displayName} className="wa-avatar-img" />
                     ) : (
-                      <div className="conv-avatar-placeholder">
-                        {conv.contact.displayName.split(' ').map(n => n[0]).join('')}
-                      </div>
+                      <UserAvatarPlaceholder size={49} />
                     )}
-                    <span className="online-indicator" title="WhatsApp Connected" />
                   </div>
 
-                  <div className="conv-preview">
-                    <div className="conv-top-line">
-                      <span className="conv-name">{conv.contact.displayName}</span>
-                      <span className="conv-time">
+                  {/* Contact Text Content */}
+                  <div className="wa-chat-content">
+                    <div className="wa-chat-top-row">
+                      <div className="wa-contact-title">
+                        <span>{conv.contact.displayName}</span>
+                        <VerifiedBadgeIcon size={14} />
+                      </div>
+                      <span className="wa-chat-time">
                         {conv.lastMessage?.timestamp
                           ? new Date(conv.lastMessage.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                           : ''}
                       </span>
                     </div>
 
-                    <div className="conv-mid-line">
-                      {isOutbound && (
-                        <span className="msg-check-icon" title={conv.lastMessage?.status || 'SENT'}>
-                          ✓✓
-                        </span>
-                      )}
-                      <p className="conv-last-text">{conv.lastMessage?.content || 'Session initialized'}</p>
-                    </div>
+                    <div className="wa-chat-bottom-row">
+                      <div className="wa-message-preview">
+                        {isOutbound && (
+                          <DoubleCheckIcon isRead={isRead} size={15} />
+                        )}
+                        <span>{conv.lastMessage?.content || 'Started conversation'}</span>
+                      </div>
 
-                    <div className="conv-badges">
-                      <span className={`session-badge-pill ${itemWindowState.expired ? 'expired' : itemWindowState.hours < 4 ? 'warning' : 'active'}`}>
-                        {itemWindowState.expired ? 'Expired' : `${itemWindowState.hours}h left`}
-                      </span>
-                      {conv.contact.tags[0] && (
-                        <span className="tag-pill-corporate">{conv.contact.tags[0]}</span>
-                      )}
                       {conv.unreadCount > 0 && !isSelected && (
-                        <span className="unread-counter-pill">{conv.unreadCount}</span>
-                      )}
-                      {conv.status === 'RESOLVED' && (
-                        <span className="status-chip neutral" style={{ fontSize: '0.68rem', padding: '1px 5px' }}>Resolved</span>
+                        <span className="wa-unread-badge">{conv.unreadCount}</span>
                       )}
                     </div>
                   </div>
@@ -389,594 +805,585 @@ export const InboxView: React.FC<InboxViewProps> = ({
             })
           )}
         </div>
+
+        {/* Mobile Floating Action Button (FAB) */}
+        <button
+          className="wa-fab-btn"
+          onClick={() => {
+            setShowNewChatModal(true);
+            if (typeof window !== 'undefined') window.history.pushState({ fgsnModal: true }, '');
+          }}
+          title="Start New Chat"
+          type="button"
+        >
+          <NewChatIcon size={24} color="#ffffff" />
+        </button>
       </div>
 
-      {/* Center Column: Live Chat Interface */}
+      {/* Center Column: WhatsApp Chat Pane */}
       {activeConversation ? (
-        <div className="inbox-chat-col">
-          {/* Header */}
-          <div className="chat-header">
-            <div className="chat-header-user">
+        <div
+          className="wa-chat-pane mobile-touch-pane wa-chat-wallpaper"
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          style={{
+            transform: isSwiping && swipeOffset > 0 && (mobileView === 'chat' || mobileView === 'crm') ? `translateX(${swipeOffset}px)` : undefined,
+          }}
+        >
+          {/* Chat Header */}
+          <div className="wa-chat-header">
+            <div
+              className="wa-chat-header-user"
+              onClick={() => {
+                if (typeof window !== 'undefined' && window.innerWidth <= SINGLE_PANE_MAX) {
+                  navigateMobile('crm');
+                } else {
+                  setShowContactInfo(prev => !prev);
+                }
+              }}
+              style={{ cursor: 'pointer' }}
+              title="Click to toggle Contact info"
+            >
               <button
-                className="inbox-mobile-back-btn"
-                onClick={() => setMobileView('list')}
-                title="Back to conversation list"
-                aria-label="Back to queue"
+                className="wa-icon-btn mobile-back-touch-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleGoBackFromChat();
+                }}
+                title="Back to Chats (or swipe right)"
+                type="button"
               >
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="15 18 9 12 15 6" />
-                </svg>
-                <span>Queue</span>
+                <BackArrowIcon size={22} color="#54656f" />
               </button>
 
-              <div className="user-title-row">
-                <span className="chat-user-name">{activeConversation.contact.displayName}</span>
-                <span className="verified-wa-badge" title="Verified WhatsApp Number">
-                  <svg viewBox="0 0 24 24" width="14" height="14" fill="#059669">
-                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-                  </svg>
-                </span>
-                {getSentimentBadge(activeConversation.sentiment)}
+              <div className="wa-header-avatar">
+                {activeConversation.contact.avatarUrl ? (
+                  <img src={activeConversation.contact.avatarUrl} alt={activeConversation.contact.displayName} className="wa-avatar-img" />
+                ) : (
+                  <UserAvatarPlaceholder size={40} />
+                )}
               </div>
-              <span className="chat-user-phone">{activeConversation.contact.phone}</span>
+
+              <div className="wa-header-info">
+                <div className="wa-header-name">
+                  <span>{activeConversation.contact.displayName}</span>
+                  <VerifiedBadgeIcon size={15} />
+                </div>
+                <span className="wa-header-sub">
+                  +{activeConversation.contact.phone.replace(/[^0-9]/g, '')} &bull; {windowState?.expired ? 'session expired' : 'active 24h'}
+                </span>
+              </div>
             </div>
 
-            <div className="chat-header-actions">
-              {/* Mobile View CRM Details Button */}
-              <button
-                className="btn-outline-sm inbox-mobile-crm-toggle"
-                onClick={() => setMobileView(mobileView === 'crm' ? 'chat' : 'crm')}
-                title="View customer CRM details"
-              >
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                  <circle cx="12" cy="7" r="4" />
-                </svg>
-                <span>{mobileView === 'crm' ? 'Back to Chat' : 'Customer CRM'}</span>
+            <div className="wa-header-actions">
+              {/* Voice & Video Call Stubs */}
+              <button className="wa-icon-btn hide-on-compact" title="Start Call" type="button">
+                <PhoneCallIcon size={19} color="#54656f" />
+              </button>
+              <button className="wa-icon-btn hide-on-compact" title="Video Call" type="button">
+                <VideoCallIcon size={20} color="#54656f" />
               </button>
 
-              {/* Agent Assignee */}
-              <div className="agent-selector-box" title="Assigned Team Agent">
-                <span className="agent-lbl">Agent:</span>
-                <select
-                  value={activeConversation.assignedAgent || 'Unassigned'}
-                  onChange={(e) => onAssignAgent && onAssignAgent(activeConversation.id, e.target.value)}
-                  className="agent-select"
-                >
-                  {currentUser && (
-                    <option value={currentUser.name}>{currentUser.name} (You)</option>
-                  )}
-                  {teamMembers && teamMembers.filter(m => m.name !== currentUser?.name && m.email !== currentUser?.email && m.id !== currentUser?.id).map((m, idx) => (
-                    <option key={idx} value={m.name}>{m.name} ({m.role})</option>
-                  ))}
-                  <option value="AI Support Bot">AI Support Bot</option>
-                  <option value="Unassigned">Unassigned</option>
-                </select>
-              </div>
-
-              {/* Inbound Test Tool */}
+              {/* View CRM Details */}
               <button
-                className="btn-outline-sm"
-                onClick={() => setShowInboundModal(true)}
-                title="Test customer reply and simulate 24-hour window refresh"
+                className={`wa-icon-btn ${showContactInfo ? 'active' : ''}`}
+                onClick={() => {
+                  if (typeof window !== 'undefined' && window.innerWidth <= SINGLE_PANE_MAX) {
+                    navigateMobile('crm');
+                  } else {
+                    setShowContactInfo(prev => !prev);
+                  }
+                }}
+                title="Toggle Contact Info"
+                type="button"
               >
-                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 4 }}>
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                </svg>
-                <span className="hide-on-mobile">Simulate Inbound</span>
-                <span className="show-on-mobile">Simulate</span>
+                <ContactsNavIcon size={20} color={showContactInfo ? '#008069' : '#54656f'} />
               </button>
 
               {/* Status Toggle (Resolve / Reopen) */}
               <button
-                className={`btn-outline-sm ${activeConversation.status === 'RESOLVED' ? 'btn-reopen' : 'btn-resolve'}`}
+                className="wa-chip"
+                style={{
+                  height: 28,
+                  fontSize: 12,
+                  padding: '0 10px',
+                  background: activeConversation.status === 'RESOLVED' ? '#e9edef' : '#e7fce3',
+                  color: activeConversation.status === 'RESOLVED' ? '#54656f' : '#008069',
+                }}
                 onClick={() => onToggleResolve && onToggleResolve(activeConversation.id)}
-                title={activeConversation.status === 'RESOLVED' ? 'Re-open this conversation' : 'Mark conversation as resolved'}
+                type="button"
               >
                 {activeConversation.status === 'RESOLVED' ? 'Reopen' : 'Resolve'}
               </button>
             </div>
           </div>
 
-          {/* 24-Hour Session Banner */}
+          {/* 24-Hour Policy Window Alert */}
           {windowState && (
-            <div className={`session-window-banner ${windowState.expired ? 'banner-expired' : 'banner-active'}`}>
-              <div className="banner-left">
-                <span className={`window-indicator-dot ${windowState.expired ? 'dot-red' : 'dot-green'}`} />
-                <span className="banner-text">
-                  {windowState.expired
-                    ? 'Meta 24-Hour Service Window Expired — Outbound messages must use an Approved Template'
-                    : `Active Customer Care Session: ${windowState.text}`}
-                </span>
-              </div>
-              {!windowState.expired && (
-                <div className="window-progress-mini">
-                  <div className="window-fill" style={{ width: `${windowState.percent}%` }} />
-                </div>
+            <div className={`wa-window-notice ${!windowState.expired ? 'active-window' : ''}`}>
+              <span>
+                {windowState.expired
+                  ? '24-hour customer service window expired. Outbound replies require an approved template.'
+                  : `Customer care session active: ${windowState.text}`}
+              </span>
+              {windowState.expired && (
+                <button
+                  className="wa-chip active"
+                  style={{ height: 24, fontSize: 11, padding: '0 8px' }}
+                  onClick={() => setShowTemplateModal(true)}
+                  type="button"
+                >
+                  Send Template
+                </button>
               )}
             </div>
           )}
 
-          {/* Messages Area */}
-          <div className="chat-messages-area">
-            <div className="date-separator">
-              <span>Today</span>
+          {/* Chat Messages Scroll List */}
+          <div className="wa-messages-scroll" ref={chatMessagesRef}>
+            {/* Centered Date Badge */}
+            <div className="wa-date-pill-wrap">
+              <span className="wa-date-pill">Today</span>
             </div>
 
             {messages.map((msg) => {
               if (msg.isInternalNote) {
                 return (
-                  <div key={msg.id} className="internal-note-box">
-                    <div className="note-meta-line">
-                      <div className="note-author">
-                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 4 }}>
-                          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-                          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-                        </svg>
-                        <strong>Internal Team Note</strong> &bull; {msg.authorName || 'Team'}
-                      </div>
-                      <span className="note-time">
-                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
+                  <div key={msg.id} className="wa-internal-note">
+                    <div className="wa-note-header">
+                      <span><LockIcon size={12} color="#b45309" /> Internal Team Note &bull; {msg.authorName || 'Team'}</span>
+                      <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                     </div>
-                    <p className="note-text-content">{msg.content}</p>
+                    <p className="wa-note-body">{msg.content}</p>
                   </div>
                 );
               }
 
               const isOutbound = msg.direction === 'OUTBOUND';
-              const matchedTemplate = templates.find(t => {
-                if (!t) return false;
-                if (msg.templateId && (t.id === msg.templateId || t.name === msg.templateId || t.metaTemplateId === msg.templateId)) {
-                  return true;
-                }
-                if ((msg as any).templateName && (t.id === (msg as any).templateName || t.name === (msg as any).templateName)) {
-                  return true;
-                }
-                if (msg.content && t.bodyJson?.body) {
-                  const cleanMsg = msg.content.replace(/\s+/g, ' ').trim().toLowerCase();
-                  const cleanMsgAlpha = cleanMsg.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, ' ');
+              const isRead = msg.status === 'READ';
 
-                  // Split template body by {{...}} variables to match text segments
-                  const bodyText = t.bodyJson.body;
-                  const segments = bodyText
-                    .split(/\{\{.*?\}\}/)
-                    .map((s: string) => s.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, ' ').trim().toLowerCase())
-                    .filter((s: string) => s.length >= 10);
+              const isMediaUrlImg = !!msg.mediaUrl && (
+                /\.(jpeg|jpg|gif|png|webp|svg)($|\?)/i.test(msg.mediaUrl) ||
+                msg.mediaUrl.startsWith('/api/whatsapp/media/') ||
+                msg.mediaUrl.startsWith('data:image/') ||
+                msg.mediaUrl.includes('images.unsplash.com')
+              );
+              const isContentImg = !!msg.content && (
+                /\.(jpeg|jpg|gif|png|webp|svg)($|\?)/i.test(msg.content.trim()) ||
+                msg.content.startsWith('data:image/') ||
+                msg.content.includes('images.unsplash.com') ||
+                msg.content.startsWith('/api/whatsapp/media/')
+              );
+              const imageUrl = msg.mediaUrl || (isContentImg ? msg.content.trim() : null);
+              const hasImage = !!imageUrl || msg.mediaType === 'image';
 
-                  if (segments.length > 0) {
-                    const isSegmentMatch = segments.some((seg: string) => {
-                      const snippet = seg.substring(0, 25);
-                      return cleanMsgAlpha.includes(snippet);
-                    });
-                    if (isSegmentMatch) return true;
-                  }
-
-                  const cleanTpl = bodyText.replace(/\{\{.*?\}\}/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
-                  if (cleanMsg.length > 15 && cleanTpl.length > 15) {
-                    const snippet = cleanTpl.substring(0, 25);
-                    if (cleanMsg.includes(snippet)) return true;
-                  }
-                }
-                return false;
-              });
-
-              const headerText = msg.headerText || (msg as any).templateData?.header?.text || matchedTemplate?.bodyJson?.header?.text;
-              const headerType = msg.headerType || (msg as any).templateData?.header?.type || matchedTemplate?.bodyJson?.header?.type;
-              const footerText = msg.footerText || (msg as any).templateData?.footer || matchedTemplate?.bodyJson?.footer;
-              const buttons = msg.buttons || (msg as any).templateData?.buttons || matchedTemplate?.bodyJson?.buttons;
-
-              const customerDisplayName = activeConversation?.contact?.displayName || msg.authorName || (msg as any).senderName || 'Customer';
-              const agentDisplayName = msg.authorName || (msg as any).senderName || 'FGSN Team';
+              const caption = msg.content && msg.content !== imageUrl && !msg.content.startsWith('data:image/') && msg.content !== 'Image attachment' && msg.content !== '[IMAGE Message]'
+                ? msg.content
+                : null;
 
               return (
-                <div key={msg.id} className={`message-row ${isOutbound ? 'outbound' : 'inbound'}`}>
-                  <div className={`message-bubble ${isOutbound ? 'outbound-bubble' : 'inbound-bubble'} ${matchedTemplate || headerText || buttons ? 'template-card-bubble' : ''}`}>
-                    {/* Clear Sender Name Header in Chat Log */}
-                    <div className={`message-sender-header ${isOutbound ? 'outbound-sender' : 'inbound-sender'}`}>
-                      {isOutbound ? (
-                        <span>👔 {agentDisplayName}</span>
-                      ) : (
-                        <span>👤 {customerDisplayName}</span>
-                      )}
-                    </div>
-
-                    {/* Optional Template Media or Text Header */}
-                    {headerType === 'IMAGE' && (
-                      <div className="whatsapp-bubble-media-header">
-                        <div className="media-placeholder-img">
-                          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                          <span>Live Broadcast Event Banner</span>
-                        </div>
-                      </div>
-                    )}
-                    {headerText && headerType !== 'IMAGE' && (
-                      <div className="whatsapp-bubble-header-text">
-                        {headerText}
+                <div key={msg.id} className={`wa-bubble-row ${isOutbound ? 'outbound' : 'inbound'}`}>
+                  <div className={`wa-bubble ${isOutbound ? 'outbound-bubble' : 'inbound-bubble'} ${hasImage ? 'has-media' : ''}`}>
+                    {/* Image Attachment Rendering */}
+                    {hasImage && imageUrl && (
+                      <div className="wa-bubble-media-wrap">
+                        <img
+                          src={imageUrl}
+                          alt="WhatsApp Media"
+                          className="wa-bubble-media-img"
+                          loading="lazy"
+                          onClick={() => window.open(imageUrl, '_blank')}
+                        />
                       </div>
                     )}
 
-                    {/* Main WhatsApp Message Body */}
-                    <p className="message-text">{msg.content}</p>
+                    {/* Message Content / Caption */}
+                    {caption && <p className="wa-bubble-text" style={{ marginTop: hasImage ? 4 : 0 }}>{caption}</p>}
+                    {!caption && !hasImage && <p className="wa-bubble-text">{msg.content}</p>}
 
-                    {/* Optional Footer Text */}
-                    {footerText && (
-                      <div className="whatsapp-bubble-footer-text">
-                        {footerText}
-                      </div>
-                    )}
-
-                    {/* Delivery Status & Timestamp */}
-                    <div className="message-meta">
-                      <span className="msg-time">
-                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
+                    {/* Meta line: Time + Checkmark */}
+                    <div className="wa-bubble-meta">
+                      <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                       {isOutbound && (
-                        <span className="msg-status-indicator" title={`Status: ${msg.status}${msg.errorCode ? ` (${msg.errorCode})` : ''}`}>
-                          {msg.status === 'READ' ? (
-                            <span className="ticks blue">✓✓</span>
-                          ) : msg.status === 'DELIVERED' ? (
-                            <span className="ticks">✓✓</span>
-                          ) : msg.status === 'FAILED' ? (
-                            <span className="ticks failed" style={{ color: '#EF4444', fontWeight: 600, fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
-                              ⚠ Failed
-                            </span>
-                          ) : (
-                            <span className="ticks" title="Sent to Meta">✓</span>
-                          )}
-                        </span>
+                        <DoubleCheckIcon isRead={isRead} size={15} />
                       )}
                     </div>
-
-                    {/* WhatsApp Action Buttons (Quick Replies, URL Link, Phone Call) */}
-                    {buttons && buttons.length > 0 && (
-                      <div className="whatsapp-bubble-buttons">
-                        {buttons.map((btn: any, bIdx: number) => {
-                          const btnText = typeof btn === 'string' ? btn : (btn.text || btn.title || btn.label || 'Action');
-                          const btnType = typeof btn === 'object' ? (btn.type || (btn.url ? 'URL' : btn.phone ? 'PHONE_NUMBER' : 'QUICK_REPLY')) : 'QUICK_REPLY';
-                          return (
-                            <div key={bIdx} className="whatsapp-bubble-btn">
-                              {btnType === 'URL' || btn.url ? (
-                                <span className="btn-icon">↗</span>
-                              ) : btnType === 'PHONE_NUMBER' || btn.phone || btn.phone_number ? (
-                                <span className="btn-icon">📞</span>
-                              ) : (
-                                <span className="btn-icon">↩</span>
-                              )}
-                              <span>{btnText}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
                   </div>
                 </div>
               );
             })}
+            <div ref={messagesEndRef} />
           </div>
 
-          {/* Canned Responses Popover & Manager */}
+          {/* Quick Replies Picker Dropdown */}
           {showCanned && (
-            <div className="canned-picker-popup">
-              <div className="canned-head">
-                <span>Quick Response Snippets ({filteredCanned.length})</span>
-                <button className="close-btn sm" onClick={() => setShowCanned(false)}>✕</button>
+            <div
+              style={{
+                position: 'absolute',
+                bottom: 64,
+                left: 16,
+                right: 16,
+                maxWidth: 480,
+                maxHeight: 280,
+                background: '#ffffff',
+                borderRadius: 12,
+                boxShadow: '0 8px 24px rgba(11, 20, 26, 0.2)',
+                border: '1px solid #e9edef',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                zIndex: 20,
+              }}
+            >
+              <div style={{ padding: '10px 14px', background: '#f0f2f5', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e9edef' }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#111b21' }}>Quick Responses ({filteredCanned.length})</span>
+                <button style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#667781', fontSize: 16 }} onClick={() => setShowCanned(false)}>✕</button>
               </div>
-
-              <div className="canned-actions-bar">
+              <div style={{ padding: '6px 12px', borderBottom: '1px solid #e9edef' }}>
                 <input
                   type="text"
-                  className="canned-search-input"
                   placeholder="Search quick replies..."
                   value={cannedSearch}
                   onChange={e => setCannedSearch(e.target.value)}
+                  style={{ width: '100%', padding: '6px 10px', fontSize: 13, border: '1px solid #e9edef', borderRadius: 6, outline: 'none' }}
                 />
-                <button
-                  type="button"
-                  className="canned-add-btn"
-                  onClick={() => setShowCannedEditor(prev => !prev)}
-                >
-                  {showCannedEditor ? 'Cancel' : '+ New'}
-                </button>
               </div>
-
-              {showCannedEditor && (
-                <form onSubmit={handleSaveCanned} style={{ padding: '8px 10px', background: '#F1F5F9', borderBottom: '1px solid #CBD5E1' }}>
-                  <input
-                    type="text"
-                    placeholder="Snippet Title (e.g. VIP Pass Info)"
-                    value={cannedFormLabel}
-                    onChange={e => setCannedFormLabel(e.target.value)}
-                    style={{ width: '100%', padding: '4px 8px', fontSize: '0.75rem', marginBottom: 6, borderRadius: 4, border: '1px solid #94A3B8' }}
-                    required
-                  />
-                  <textarea
-                    placeholder="Message Content..."
-                    value={cannedFormText}
-                    onChange={e => setCannedFormText(e.target.value)}
-                    rows={2}
-                    style={{ width: '100%', padding: '4px 8px', fontSize: '0.75rem', marginBottom: 6, borderRadius: 4, border: '1px solid #94A3B8' }}
-                    required
-                  />
-                  <button type="submit" className="btn-primary sm" style={{ width: '100%', fontSize: '0.72rem', padding: '4px' }}>
-                    Save Quick Response
-                  </button>
-                </form>
-              )}
-
-              <div className="canned-list">
-                {filteredCanned.length === 0 ? (
-                  <div style={{ padding: '12px', fontSize: '0.75rem', color: '#64748B', textAlign: 'center' }}>
-                    No matching snippets found.
+              <div style={{ overflowY: 'auto', flex: 1, padding: '4px 0' }}>
+                {filteredCanned.map((cr, idx) => (
+                  <div
+                    key={idx}
+                    onClick={() => handleInsertCanned(cr.text)}
+                    style={{ padding: '8px 14px', cursor: 'pointer', borderBottom: '1px solid #f5f6f6' }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = '#f5f6f6')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = '#ffffff')}
+                  >
+                    <strong style={{ fontSize: 12.5, color: '#111b21', display: 'block' }}>{cr.label}</strong>
+                    <span style={{ fontSize: 12, color: '#667781' }}>{cr.text}</span>
                   </div>
-                ) : (
-                  filteredCanned.map((cr, idx) => (
-                    <div key={idx} className="canned-item-row">
-                      <button className="canned-item-btn" onClick={() => handleInsertCanned(cr.text)}>
-                        <strong>{cr.label}</strong>
-                        <p>{cr.text}</p>
-                      </button>
-                      <button
-                        className="canned-del-btn"
-                        onClick={e => handleDeleteCanned(idx, e)}
-                        title="Delete this quick response"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ))
-                )}
+                ))}
               </div>
             </div>
           )}
 
-          {/* Chat Composer */}
-          <div className="chat-composer-container">
-            {windowState?.expired && !isNoteMode ? (
-              <div className="window-expired-prompt">
-                <div className="expired-info">
-                  <strong>Meta Policy Session Expired</strong>
-                  <p>Customer has not messaged in the past 24 hours. Regular text messages cannot be sent. You can either post an internal note or dispatch an approved WhatsApp template.</p>
-                </div>
-                <div className="expired-actions">
-                  <button type="button" className="btn-secondary sm" onClick={() => setIsNoteMode(true)}>
-                    Add Internal Note
-                  </button>
-                  <button type="button" className="btn-primary sm" onClick={() => setShowTemplateModal(true)}>
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 5 }}>
-                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                      <line x1="3" y1="9" x2="21" y2="9"/>
-                      <line x1="9" y1="21" x2="9" y2="9"/>
-                    </svg>
-                    Send Approved Template
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <form className={`chat-composer ${isNoteMode ? 'note-mode' : ''}`} onSubmit={handleSend}>
-                <div className="composer-toolbar">
-                  <div className="toolbar-left">
-                    {/* Mode Toggle */}
-                    <div className="composer-mode-selector">
-                      <button
-                        type="button"
-                        className={`mode-btn ${!isNoteMode ? 'active reply' : ''}`}
-                        onClick={() => setIsNoteMode(false)}
-                      >
-                        WhatsApp Reply
-                      </button>
-                      <button
-                        type="button"
-                        className={`mode-btn ${isNoteMode ? 'active note' : ''}`}
-                        onClick={() => setIsNoteMode(true)}
-                      >
-                        Internal Note
-                      </button>
-                    </div>
+          {/* WhatsApp Composer Bar */}
+          <form className="wa-composer" onSubmit={handleSend}>
+            {/* Mode switch: Team Note toggle */}
+            <button
+              className="wa-icon-btn"
+              type="button"
+              onClick={() => setIsNoteMode(!isNoteMode)}
+              title={isNoteMode ? 'Switch to WhatsApp message' : 'Switch to internal note'}
+              style={{ color: isNoteMode ? '#b45309' : '#54656f' }}
+            >
+              <LockIcon size={20} color={isNoteMode ? '#b45309' : '#54656f'} />
+            </button>
 
-                    {!isNoteMode && (
-                      <>
-                        <button
-                          type="button"
-                          className="tool-btn"
-                          onClick={() => setShowCanned(!showCanned)}
-                          title="Insert quick response template"
-                        >
-                          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 4 }}>
-                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                            <polyline points="14 2 14 8 20 8"/>
-                            <line x1="16" y1="13" x2="8" y2="13"/>
-                            <line x1="16" y1="17" x2="8" y2="17"/>
-                          </svg>
-                          Quick Replies
-                        </button>
+            {/* Quick replies shortcut */}
+            <button
+              className="wa-icon-btn"
+              type="button"
+              onClick={() => setShowCanned(!showCanned)}
+              title="Quick replies (/)"
+            >
+              <SmileyIcon size={22} color="#54656f" />
+            </button>
 
-                        <button
-                          type="button"
-                          className="tool-btn"
-                          onClick={() => setShowTemplateModal(true)}
-                          title="Dispatch an approved WhatsApp template"
-                        >
-                          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 4 }}>
-                            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-                          </svg>
-                          Send Template
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
+            {/* Template dispatch button */}
+            <button
+              className="wa-icon-btn"
+              type="button"
+              onClick={() => setShowTemplateModal(true)}
+              title="Send Approved WhatsApp Template"
+            >
+              <TemplateIcon size={20} color="#54656f" />
+            </button>
 
-                <div className="composer-input-row">
-                  <textarea
-                    rows={2}
-                    placeholder={
-                      isNoteMode
-                        ? 'Write a private note visible only to your internal team...'
-                        : 'Type a message to send directly to customer on WhatsApp...'
-                    }
-                    className={`composer-textarea ${isNoteMode ? 'note-input-mode' : ''}`}
-                    value={inputText}
-                    onChange={(e) => setInputText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSend(e);
-                      }
-                    }}
+            {/* Media Attachment Button */}
+            <label className="wa-icon-btn" title="Attach Image" style={{ cursor: 'pointer', margin: 0, display: 'flex', alignItems: 'center' }}>
+              <input
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={handleAttachImageFile}
+              />
+              <PaperclipIcon size={20} color={attachedImagePreview ? '#00a884' : '#54656f'} />
+            </label>
+
+            {/* Message Input Box & Attached Image Preview */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {attachedImagePreview && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  background: '#f0f2f5',
+                  borderRadius: 8,
+                  padding: '4px 8px',
+                  width: 'fit-content'
+                }}>
+                  <img
+                    src={attachedImagePreview}
+                    alt="Preview"
+                    style={{ width: 36, height: 36, borderRadius: 6, objectFit: 'cover' }}
                   />
-                  <button type="submit" className={`btn-send-main ${isNoteMode ? 'note-send' : ''}`} title="Send (Enter)">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="22" y1="2" x2="11" y2="13" />
-                      <polygon points="22 2 15 22 11 13 2 9 22 2" />
-                    </svg>
+                  <span style={{ fontSize: 12, color: '#54656f' }}>Image attached</span>
+                  <button
+                    type="button"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8696a0', fontSize: 14, padding: 2 }}
+                    onClick={() => setAttachedImagePreview(null)}
+                    title="Remove attachment"
+                  >
+                    ✕
                   </button>
                 </div>
-              </form>
-            )}
-          </div>
+              )}
+              <div className="wa-composer-input-wrap" style={{ background: isNoteMode ? '#fffbeb' : '#ffffff', border: isNoteMode ? '1px solid #fef3c7' : 'none', width: '100%' }}>
+                <textarea
+                  rows={1}
+                  placeholder={isNoteMode ? 'Write internal note for team...' : (attachedImagePreview ? 'Add a caption (optional)...' : 'Type a message')}
+                  className="wa-composer-textarea"
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSend(e);
+                    }
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Circular Send Button */}
+            <button
+              type="submit"
+              className="wa-send-circle-btn"
+              title="Send message"
+              disabled={!inputText.trim() && !attachedImagePreview}
+              style={{
+                opacity: (inputText.trim() || attachedImagePreview) ? 1 : 0.65,
+                background: isNoteMode ? '#b45309' : '#00a884',
+              }}
+            >
+              <SendIcon size={18} color="#ffffff" />
+            </button>
+          </form>
         </div>
       ) : (
-        <div className="inbox-chat-col empty-state" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 40, background: '#F8FAFC', textAlign: 'center', flex: 1 }}>
-          <div style={{ width: 68, height: 68, borderRadius: 20, background: '#ECFDF5', border: '1px solid #A7F3D0', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20, boxShadow: '0 4px 12px rgba(5, 150, 105, 0.1)' }}>
-            <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="#059669" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-            </svg>
+        /* WhatsApp Desktop Empty State Screen */
+        <div className="wa-desktop-empty">
+          <div className="wa-desktop-illustration">
+            <WhatsAppLogoIcon size={88} color="#00a884" />
           </div>
-          <h3 style={{ fontSize: 22, fontWeight: 700, color: '#0F172A', margin: '0 0 8px' }}>FGSN Live Shared Inbox</h3>
-          <p style={{ fontSize: 14, color: '#64748B', maxWidth: 440, lineHeight: 1.5, margin: '0 0 24px' }}>
-            Send direct WhatsApp messages, dispatch Meta templates, and manage live customer conversations in real-time.
+          <h2 className="wa-desktop-title">WhatsApp for Business</h2>
+          <p className="wa-desktop-sub">
+            Send and receive official Meta Cloud API customer messages seamlessly. Select a chat from the queue or start a new conversation.
           </p>
           <button
-            className="btn-primary"
-            onClick={() => setShowNewChatModal(true)}
-            style={{ padding: '12px 24px', fontSize: 14, fontWeight: 700, borderRadius: 10 }}
+            className="wa-desktop-btn"
+            onClick={() => {
+              setShowNewChatModal(true);
+              if (typeof window !== 'undefined') window.history.pushState({ fgsnModal: true }, '');
+            }}
+            type="button"
           >
-            + Start New WhatsApp Conversation
+            Start New Conversation
           </button>
+          <div className="wa-encryption-footer">
+            <LockIcon size={13} color="#8696a0" />
+            <span>End-to-end encrypted with official WhatsApp Business Cloud API</span>
+          </div>
         </div>
       )}
 
-      {/* Right Column: Customer Details CRM */}
-      {activeConversation && (
-        <div className="inbox-crm-col">
-          <div className="crm-mobile-header">
+      {/* Right Column: Authentic WhatsApp Contact Info Panel */}
+      {activeConversation && (showContactInfo || mobileView === 'crm') && (
+        <div
+          className="wa-crm-col mobile-touch-pane"
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          style={{
+            transform: isSwiping && swipeOffset > 0 && mobileView === 'crm' ? `translateX(${swipeOffset}px)` : undefined,
+          }}
+        >
+          {/* WhatsApp Web Style Contact Info Header */}
+          <div className="wa-crm-header">
             <button
-              className="inbox-mobile-back-btn"
-              onClick={() => setMobileView('chat')}
-              title="Back to chat"
+              className="wa-icon-btn"
+              onClick={() => {
+                if (typeof window !== 'undefined' && window.innerWidth <= SINGLE_PANE_MAX) {
+                  handleGoBackFromCrm();
+                } else {
+                  setShowContactInfo(false);
+                }
+              }}
+              title="Close Contact Info"
+              type="button"
             >
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="15 18 9 12 15 6" />
-              </svg>
-              <span>Back to Chat</span>
+              <CloseIcon size={18} color="#54656f" />
             </button>
-            <span className="crm-mobile-title">Customer CRM Profile</span>
+            <span className="wa-crm-title">Contact info</span>
           </div>
 
-          <div className="crm-profile-card">
-            <div className="crm-avatar-lg">
-              {activeConversation.contact.avatarUrl ? (
-                <img src={activeConversation.contact.avatarUrl} alt={activeConversation.contact.displayName} />
-              ) : (
-                <div className="avatar-placeholder-lg">
-                  {activeConversation.contact.displayName.split(' ').map(n => n[0]).join('')}
-                </div>
-              )}
-            </div>
-            <h3 className="crm-name">{activeConversation.contact.displayName}</h3>
-            <span className="crm-phone">{activeConversation.contact.phone}</span>
-            {activeConversation.contact.rfmSegment && (
-              <span className="status-chip success" style={{ marginTop: 6 }}>
-                {activeConversation.contact.rfmSegment === 'CHAMPIONS' ? 'VIP Tier 1 Account' : 'Frequent Buyer'}
-              </span>
-            )}
-          </div>
-
-          <div className="crm-section">
-            <h4 className="crm-section-title">Commercial Summary</h4>
-            <div className="crm-grid-metrics">
-              <div className="crm-stat">
-                <span className="crm-stat-label">Lifetime Value</span>
-                <span className="crm-stat-value text-primary-brand">
-                  {formatCurrency(activeConversation.contact.lifetimeValue || 0, currency)}
-                </span>
+          {/* Scrollable WhatsApp Cards */}
+          <div className="wa-crm-scroll">
+            {/* 1. Hero Profile Card */}
+            <div className="wa-crm-card" style={{ textAlign: 'center', paddingTop: 24, paddingBottom: 20 }}>
+              <div className="wa-crm-avatar-hero">
+                {activeConversation.contact.avatarUrl ? (
+                  <img
+                    src={activeConversation.contact.avatarUrl}
+                    alt={activeConversation.contact.displayName}
+                    className="wa-crm-avatar-img"
+                  />
+                ) : (
+                  <UserAvatarPlaceholder size={96} />
+                )}
               </div>
-              <div className="crm-stat">
-                <span className="crm-stat-label">Total Orders</span>
-                <span className="crm-stat-value">{activeConversation.contact.totalOrders || 0}</span>
+
+              <div className="wa-crm-hero-name">
+                <span>{activeConversation.contact.displayName}</span>
+                <VerifiedBadgeIcon size={16} />
               </div>
-            </div>
-          </div>
 
-          <div className="crm-section">
-            <h4 className="crm-section-title">Audience Segmentation</h4>
-            <div className="tags-flex">
-              {activeConversation.contact.tags.map((tag, i) => (
-                <span key={i} className="tag-pill-corporate">{tag}</span>
-              ))}
-            </div>
-          </div>
+              <div className="wa-crm-hero-phone">
+                <span>+{activeConversation.contact.phone.replace(/[^0-9]/g, '')}</span>
+                <button
+                  type="button"
+                  className="wa-copy-btn"
+                  title="Copy Phone Number"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(activeConversation.contact.phone);
+                  }}
+                >
+                  <CopyIcon size={13} color="#8696a0" />
+                </button>
+              </div>
 
-          {activeConversation.contact.attributes && (
-            <div className="crm-section">
-              <h4 className="crm-section-title">CRM Attributes</h4>
-              <dl className="crm-attr-list">
-                {Object.entries(activeConversation.contact.attributes).map(([k, v]) => (
-                  <div key={k} className="attr-row">
-                    <dt>{k}:</dt>
-                    <dd>{String(v)}</dd>
+              {/* WhatsApp Action Buttons */}
+              <div className="wa-crm-action-bar">
+                <button
+                  className="wa-crm-circle-btn"
+                  type="button"
+                  title="Voice Call"
+                  onClick={() => onSendMessage(activeConversation.id, '📞 Attempted WhatsApp voice call', true)}
+                >
+                  <div className="wa-crm-circle-icon">
+                    <PhoneCallIcon size={17} color="#008069" />
                   </div>
-                ))}
-              </dl>
+                  <span className="wa-crm-circle-label">Audio</span>
+                </button>
+
+                <button
+                  className="wa-crm-circle-btn"
+                  type="button"
+                  title="Video Call"
+                  onClick={() => onSendMessage(activeConversation.id, '📹 Attempted WhatsApp video call', true)}
+                >
+                  <div className="wa-crm-circle-icon">
+                    <VideoCallIcon size={17} color="#008069" />
+                  </div>
+                  <span className="wa-crm-circle-label">Video</span>
+                </button>
+
+                <button
+                  className="wa-crm-circle-btn"
+                  type="button"
+                  title="Search Chat"
+                  onClick={() => setSearch(activeConversation.contact.displayName)}
+                >
+                  <div className="wa-crm-circle-icon">
+                    <SearchIcon size={17} color="#008069" />
+                  </div>
+                  <span className="wa-crm-circle-label">Search</span>
+                </button>
+              </div>
             </div>
-          )}
 
-          {/* Quick Commerce Actions */}
-          <div className="crm-section">
-            <h4 className="crm-section-title">One-Click Actions</h4>
-            <div className="crm-actions-vertical">
-              <button
-                className="crm-action-btn"
-                onClick={() => onSendMessage(activeConversation.id, `Hello ${activeConversation.contact.displayName}, here is your FGSN shipment tracking link: https://fgsnlive.com/track`, false)}
-              >
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                  <circle cx="12" cy="12" r="3"/>
-                </svg>
-                Send Order & Match Tracking
-              </button>
+            {/* 2. Commercial Summary (ERP Data) */}
+            <div className="wa-crm-card">
+              <span className="wa-crm-card-title">Commercial Summary</span>
+              <div className="wa-crm-metric-row">
+                <div className="wa-crm-metric-box">
+                  <span className="wa-crm-metric-lbl">Lifetime Value</span>
+                  <span className="wa-crm-metric-val" style={{ color: '#008069' }}>
+                    {formatCurrency(activeConversation.contact.lifetimeValue || 0, currency)}
+                  </span>
+                </div>
+                <div className="wa-crm-metric-box">
+                  <span className="wa-crm-metric-lbl">Total Orders</span>
+                  <span className="wa-crm-metric-val">
+                    {activeConversation.contact.totalOrders || 0}
+                  </span>
+                </div>
+              </div>
+            </div>
 
-              <button
-                className="crm-action-btn"
-                onClick={() => onSendMessage(activeConversation.id, `Special VIP offer for you ${activeConversation.contact.displayName}: Use code *FGSN20* at checkout for 20% off official sportswear and event passes today! https://fgsnlive.com`, false)}
-              >
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-                </svg>
-                Send FGSN20 Promo Code (20% Off)
-              </button>
+            {/* 3. Customer Labels / Tags */}
+            <div className="wa-crm-card">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                <TagIcon size={14} color="#667781" />
+                <span className="wa-crm-card-title" style={{ margin: 0 }}>Labels</span>
+              </div>
+              <div className="wa-crm-tags-wrap">
+                {activeConversation.contact.tags && activeConversation.contact.tags.length > 0 ? (
+                  activeConversation.contact.tags.map((tag, i) => (
+                    <span key={i} className="wa-crm-tag-chip">
+                      {tag}
+                    </span>
+                  ))
+                ) : (
+                  <span style={{ fontSize: 13, color: '#8696a0' }}>No labels assigned</span>
+                )}
+              </div>
+            </div>
 
-              <button
-                className="crm-action-btn"
-                onClick={() => onSendMessage(activeConversation.id, `Hi ${activeConversation.contact.displayName}, here is your direct access pass to stream live FGSN tournament matches in HD: https://fgsnlive.com/live-pass`, false)}
-              >
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polygon points="5 3 19 12 5 21 5 3"/>
-                </svg>
-                Send Live Stream HD Match Pass
-              </button>
+            {/* 4. One-Click Instant WhatsApp Messages */}
+            <div className="wa-crm-card">
+              <span className="wa-crm-card-title">Quick Actions</span>
+              <div className="wa-crm-actions-col">
+                <button
+                  type="button"
+                  className="wa-crm-msg-btn"
+                  onClick={() => onSendMessage(activeConversation.id, `Hello ${activeConversation.contact.displayName}, here is your order tracking link: https://fgsnlive.com/track`, false)}
+                >
+                  <ChatsNavIcon size={16} color="#00a884" />
+                  <span>Send Order Tracking Link</span>
+                </button>
+                <button
+                  type="button"
+                  className="wa-crm-msg-btn"
+                  onClick={() => onSendMessage(activeConversation.id, `Special VIP offer for you ${activeConversation.contact.displayName}: Use code *FGSN20* for 20% off today: https://fgsnlive.com`, false)}
+                >
+                  <ChatsNavIcon size={16} color="#00a884" />
+                  <span>Send FGSN20 Promo Code</span>
+                </button>
+                <button
+                  type="button"
+                  className="wa-crm-msg-btn"
+                  onClick={() => onSendMessage(activeConversation.id, `Hello ${activeConversation.contact.displayName}, you can complete payment securely here: https://pay.fgsnlive.com/checkout`, false)}
+                >
+                  <ChatsNavIcon size={16} color="#00a884" />
+                  <span>Send Payment Link</span>
+                </button>
+              </div>
+            </div>
 
-              <button
-                className="crm-action-btn"
-                onClick={() => onSendMessage(activeConversation.id, `Hello ${activeConversation.contact.displayName}, you can complete your payment securely via UPI, Card, or Net Banking here: https://pay.fgsnlive.com/checkout`, false)}
-              >
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/>
-                  <line x1="1" y1="10" x2="23" y2="10"/>
-                </svg>
-                Send Direct UPI / Payment Link
-              </button>
+            {/* 5. End-to-End Encryption & Security */}
+            <div className="wa-crm-card">
+              <div className="wa-crm-security-row">
+                <LockIcon size={16} color="#8696a0" />
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#111b21', marginBottom: 2 }}>
+                    End-to-end encrypted
+                  </div>
+                  <div style={{ fontSize: 12, color: '#8696a0', lineHeight: 1.4 }}>
+                    Messages and calls are secured with official Meta Cloud API Enterprise encryption.
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -995,6 +1402,25 @@ export const InboxView: React.FC<InboxViewProps> = ({
             </div>
 
             <div style={{ padding: '12px 0' }}>
+              <div style={{
+                background: '#f0fdf4',
+                border: '1px solid #bbf7d0',
+                borderRadius: 8,
+                padding: '10px 12px',
+                marginBottom: 14,
+                fontSize: '0.8rem',
+                color: '#166534',
+                lineHeight: 1.45,
+                display: 'flex',
+                gap: 8,
+                alignItems: 'flex-start'
+              }}>
+                <span style={{ fontSize: '1rem', lineHeight: 1 }}>🧪</span>
+                <div>
+                  <strong>Developer Sandbox Tool:</strong> In production, customer replies arrive automatically via Meta WhatsApp Cloud API webhooks. Use this simulator to test incoming message flows, bots, and the 24-hour customer care window reset.
+                </div>
+              </div>
+
               <p style={{ fontSize: '0.82rem', color: '#64748B', marginBottom: 12 }}>
                 Select a standard inquiry preset or type a custom customer message:
               </p>
@@ -1003,8 +1429,10 @@ export const InboxView: React.FC<InboxViewProps> = ({
                 {INBOUND_SIMULATION_PRESETS.map((preset, idx) => (
                   <button
                     key={idx}
-                    className="preset-pill-btn"
-                    onClick={() => handleTriggerInboundPreset(preset)}
+                    type="button"
+                    className={`preset-pill-btn ${customInboundText === preset ? 'active' : ''}`}
+                    style={customInboundText === preset ? { borderColor: '#008069', background: '#e7fce3', color: '#008069', fontWeight: 600 } : {}}
+                    onClick={() => setCustomInboundText(preset)}
                   >
                     {preset}
                   </button>
@@ -1012,13 +1440,19 @@ export const InboxView: React.FC<InboxViewProps> = ({
               </div>
 
               <div className="form-group" style={{ marginTop: 16 }}>
-                <label>Or type a custom customer response:</label>
+                <label>Or customize the customer response:</label>
                 <input
                   type="text"
-                  placeholder="e.g. Can I change my shipping address to 452 Broadway?"
+                  placeholder="e.g. Can I change my shipping address?"
                   className="form-input"
                   value={customInboundText}
                   onChange={(e) => setCustomInboundText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && customInboundText.trim()) {
+                      e.preventDefault();
+                      handleTriggerInboundPreset(customInboundText.trim());
+                    }
+                  }}
                 />
               </div>
             </div>
@@ -1045,14 +1479,14 @@ export const InboxView: React.FC<InboxViewProps> = ({
             <div className="modal-header">
               <div>
                 <h3 className="modal-title">Select Approved WhatsApp Template</h3>
-                <p className="modal-subtitle">Directly dispatch a pre-approved template message to start or continue outreach</p>
+                <p className="modal-subtitle">Directly dispatch a pre-approved template message</p>
               </div>
               <button className="close-btn" onClick={() => setShowTemplateModal(false)}>✕</button>
             </div>
 
             <div style={{ maxHeight: 380, overflowY: 'auto', padding: '8px 0' }}>
               {templates.length === 0 ? (
-                <p style={{ color: '#64748B', fontSize: '0.86rem' }}>No approved templates found. Create one in the Template Studio first.</p>
+                <p style={{ color: '#64748B', fontSize: '0.86rem' }}>No approved templates found in Template Studio.</p>
               ) : (
                 templates.map((tpl) => (
                   <div
@@ -1064,7 +1498,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
                       <strong>{tpl.name}</strong>
                       <span className={`status-chip ${tpl.status === 'APPROVED' ? 'success' : 'neutral'}`}>{tpl.category}</span>
                     </div>
-                    <p className="tpl-pick-body">{tpl.bodyJson.body}</p>
+                    <p className="tpl-pick-body">{tpl.bodyJson?.body || (tpl as any).body}</p>
                   </div>
                 ))
               )}
@@ -1078,7 +1512,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
                 disabled={!selectedTemplateForModal}
                 onClick={() => selectedTemplateForModal && handleDispatchTemplate(selectedTemplateForModal)}
               >
-                Dispatch Template to {activeConversation.contact.displayName}
+                Dispatch Template
               </button>
             </div>
           </div>
@@ -1088,59 +1522,178 @@ export const InboxView: React.FC<InboxViewProps> = ({
       {/* Start New Conversation Modal */}
       {showNewChatModal && (
         <div className="modal-overlay" style={{ zIndex: 9999 }}>
-          <div className="modal-card" style={{ maxWidth: 480, width: '90%' }}>
-            <div className="modal-header">
+          <div className="wa-modal-card" style={{ maxWidth: 500, width: '92%' }}>
+            <div className="wa-modal-header">
               <div>
-                <h3 className="modal-title">Start New WhatsApp Conversation</h3>
-                <p className="modal-subtitle">Send a direct message or template via live Meta WABA</p>
+                <h3 className="wa-modal-title">New WhatsApp Chat</h3>
+                <p className="wa-modal-subtitle">Start a conversation or send an approved Meta template</p>
               </div>
-              <button className="close-btn" onClick={() => setShowNewChatModal(false)}>✕</button>
+              <button
+                className="wa-modal-close-btn"
+                onClick={() => setShowNewChatModal(false)}
+                type="button"
+                title="Close"
+              >
+                <CloseIcon size={18} color="#54656f" />
+              </button>
             </div>
 
-            <form onSubmit={handleStartNewChatSubmit}>
-              <div className="form-group" style={{ marginBottom: 14 }}>
-                <label>Recipient WhatsApp Phone Number</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. 917461913495 (with country code)"
-                  className="form-input"
-                  value={newChatPhone}
-                  onChange={(e) => setNewChatPhone(e.target.value)}
-                />
-                <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
-                  Include country code (e.g. 91 for India, 1 for US) without + or spaces.
+            <form onSubmit={handleStartNewChatSubmit} className="wa-modal-form">
+              {/* Recipient Phone with Default Country Code Selection */}
+              <div className="wa-form-group">
+                <label className="wa-form-label">
+                  Recipient WhatsApp Phone Number <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <div className="wa-phone-input-row">
+                  <select
+                    className="wa-country-select"
+                    value={newCountryCode}
+                    onChange={(e) => handleCountryCodeChange(e.target.value)}
+                    title="Select Country Code"
+                  >
+                    {POPULAR_COUNTRY_CODES.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.flag} {c.code} ({c.name})
+                      </option>
+                    ))}
+                  </select>
+
+                  <input
+                    type="tel"
+                    inputMode="tel"
+                    autoComplete="off"
+                    required
+                    placeholder={POPULAR_COUNTRY_CODES.find(c => c.code === newCountryCode)?.sampleDigits || 'Phone number'}
+                    className={`wa-phone-number-input ${existingConversation ? 'has-warning' : ''}${phoneValidation.status === 'invalid' ? ' has-error' : ''}`}
+                    value={newChatPhone}
+                    onChange={handlePhoneInputChange}
+                    aria-invalid={phoneValidation.status === 'invalid'}
+                    aria-describedby="new-chat-phone-msg"
+                    autoFocus
+                  />
+                </div>
+
+                {/* Duplicate Contact Prevention Alert */}
+                {existingConversation && (
+                  <div className="wa-duplicate-alert">
+                    <div className="wa-duplicate-alert-content">
+                      <span className="wa-duplicate-alert-icon">⚠️</span>
+                      <div>
+                        <strong>Contact already exists:</strong> {existingConversation.contact.displayName} (+{existingConversation.contact.phone}).
+                        <div style={{ fontSize: 11.5, color: '#b45309', marginTop: 2 }}>
+                          Same contact cannot be added twice. Click below to open their existing chat.
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="wa-duplicate-action-btn"
+                      onClick={() => handleOpenExistingChat(existingConversation.id)}
+                    >
+                      Open Existing Chat
+                    </button>
+                  </div>
+                )}
+
+                <span
+                  id="new-chat-phone-msg"
+                  role="status"
+                  className={`wa-form-hint wa-phone-msg${phoneHasDigits ? (phoneValidation.status === 'valid' ? ' is-ok' : phoneValidation.status === 'invalid' ? ' is-bad' : '') : ''}`}
+                >
+                  {!phoneHasDigits
+                    ? `Enter the customer’s mobile number. The ${POPULAR_COUNTRY_CODES.find(c => c.code === newCountryCode)?.name} code (${newCountryCode}) is added for you.`
+                    : phoneValidation.isValid
+                      ? `${phoneValidation.message}. Will be sent to +${normalizedPhone}`
+                      : phoneValidation.message}
                 </span>
               </div>
 
-              <div className="form-group" style={{ marginBottom: 14 }}>
-                <label>Contact Display Name (Optional)</label>
+              {/* Contact Name (Optional) */}
+              <div className="wa-form-group">
+                <label className="wa-form-label">Contact Name (Optional)</label>
                 <input
                   type="text"
-                  placeholder="e.g. Kamlesh Singh"
-                  className="form-input"
+                  placeholder="e.g. Rahul Sharma"
+                  className="wa-modal-input"
                   value={newChatName}
                   onChange={(e) => setNewChatName(e.target.value)}
                 />
               </div>
 
-              <div className="form-group" style={{ marginBottom: 14 }}>
-                <label>Message Type</label>
+              {/* Tags & Labels Selection */}
+              <div className="wa-form-group">
+                <label className="wa-form-label">Customer Tags & Labels</label>
+                <div className="wa-tags-selector">
+                  {['New Lead', 'VIP Client', 'Support', 'Sports Fan', 'Pass Holder', 'Hot Lead'].map(tag => {
+                    const isSelected = newChatTags.includes(tag);
+                    return (
+                      <button
+                        key={tag}
+                        type="button"
+                        className={`wa-tag-pill-btn ${isSelected ? 'selected' : ''}`}
+                        onClick={() => handleToggleTag(tag)}
+                      >
+                        {isSelected ? '✓ ' : '+ '}{tag}
+                      </button>
+                    );
+                  })}
+                  {/* Custom tag chips that aren't in preset */}
+                  {newChatTags.filter(t => !['New Lead', 'VIP Client', 'Support', 'Sports Fan', 'Pass Holder', 'Hot Lead'].includes(t)).map(tag => (
+                    <button
+                      key={tag}
+                      type="button"
+                      className="wa-tag-pill-btn selected custom"
+                      onClick={() => handleToggleTag(tag)}
+                      title="Click to remove tag"
+                    >
+                      ✓ {tag} ✕
+                    </button>
+                  ))}
+                </div>
+
+                <div className="wa-add-custom-tag-row">
+                  <input
+                    type="text"
+                    placeholder="Add custom tag (e.g. Tournament VIP)..."
+                    className="wa-custom-tag-input"
+                    value={newCustomTagInput}
+                    onChange={(e) => setNewCustomTagInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddCustomTag();
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="wa-add-tag-btn"
+                    onClick={handleAddCustomTag}
+                    disabled={!newCustomTagInput.trim()}
+                  >
+                    Add Tag
+                  </button>
+                </div>
+              </div>
+
+              {/* Message Type */}
+              <div className="wa-form-group">
+                <label className="wa-form-label">Message Type</label>
                 <select
-                  className="form-input"
+                  className="wa-modal-input"
                   value={newChatMsgType}
                   onChange={(e) => setNewChatMsgType(e.target.value as any)}
                 >
-                  <option value="TEMPLATE">Approved Meta Template Message (Recommended for 1st message)</option>
-                  <option value="TEXT">Plain Text Message (Requires active 24h session window)</option>
+                  <option value="TEMPLATE">Approved Meta Template (Recommended for 1st message)</option>
+                  <option value="TEXT">Direct Text Message</option>
                 </select>
               </div>
 
               {newChatMsgType === 'TEMPLATE' ? (
-                <div className="form-group" style={{ marginBottom: 20 }}>
-                  <label>Select Meta Template</label>
+                <div className="wa-form-group">
+                  <label className="wa-form-label">Select Meta Template</label>
                   <select
-                    className="form-input"
+                    className="wa-modal-input"
                     value={newSelectedTemplateName}
                     onChange={(e) => setNewSelectedTemplateName(e.target.value)}
                   >
@@ -1157,24 +1710,47 @@ export const InboxView: React.FC<InboxViewProps> = ({
                   </select>
                 </div>
               ) : (
-                <div className="form-group" style={{ marginBottom: 20 }}>
-                  <label>Direct Message Text</label>
+                <div className="wa-form-group">
+                  <label className="wa-form-label">Message Text</label>
                   <textarea
                     required
                     rows={3}
                     placeholder="Type your WhatsApp message..."
-                    className="form-input"
+                    className="wa-modal-textarea"
                     value={newChatText}
                     onChange={(e) => setNewChatText(e.target.value)}
                   />
                 </div>
               )}
 
-              <div className="modal-actions">
-                <button type="button" className="btn-secondary" onClick={() => setShowNewChatModal(false)}>Cancel</button>
-                <button type="submit" className="btn-primary" disabled={newChatLoading || !newChatPhone.trim()}>
-                  {newChatLoading ? 'Sending via WABA...' : '🚀 Send & Start Conversation'}
+              {/* Modal Actions */}
+              <div className="wa-modal-actions">
+                <button
+                  type="button"
+                  className="wa-modal-cancel-btn"
+                  onClick={() => setShowNewChatModal(false)}
+                >
+                  Cancel
                 </button>
+
+                {existingConversation ? (
+                  <button
+                    type="button"
+                    className="wa-modal-submit-btn"
+                    style={{ background: '#008069' }}
+                    onClick={() => handleOpenExistingChat(existingConversation.id)}
+                  >
+                    Open Existing Chat
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    className="wa-modal-submit-btn"
+                    disabled={newChatLoading || !phoneValidation.isValid}
+                  >
+                    {newChatLoading ? 'Sending...' : 'Send Message'}
+                  </button>
+                )}
               </div>
             </form>
           </div>

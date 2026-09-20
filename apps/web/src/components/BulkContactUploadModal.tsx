@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import * as XLSX from 'xlsx';
 import { Contact, RFMSegment } from '../types';
 import { parseContactsText, ParsedContactResult } from '../lib/contactParser';
+import { POPULAR_COUNTRY_CODES } from '../lib/countryCodes';
+import { CopyIcon, DownloadIcon, ShieldCheckIcon, UploadIcon } from './WhatsAppIcons';
 
 interface BulkContactUploadModalProps {
   isOpen: boolean;
@@ -18,6 +20,7 @@ export const BulkContactUploadModal: React.FC<BulkContactUploadModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'sheet' | 'paste'>('sheet');
   const [rawText, setRawText] = useState('');
+  const [defaultCountryCode, setDefaultCountryCode] = useState('+91');
   const [customTags, setCustomTags] = useState('Instagram Leads, Academics Course');
   const [cohort, setCohort] = useState<RFMSegment>('NEW_LEADS');
   const [parseResult, setParseResult] = useState<ParsedContactResult | null>(null);
@@ -28,21 +31,22 @@ export const BulkContactUploadModal: React.FC<BulkContactUploadModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleParse = (text: string, sourceFileName?: string) => {
+  const handleParse = (text: string, sourceFileName?: string, countryCodeToUse = defaultCountryCode, tagsStringToUse = customTags, cohortToUse = cohort) => {
     setRawText(text);
     if (!text.trim()) {
       setParseResult(null);
       return;
     }
-    const tagsArray = customTags
+    const tagsArray = tagsStringToUse
       .split(',')
       .map(t => t.trim())
       .filter(Boolean);
 
     const res = parseContactsText(text, {
-      defaultCohort: cohort,
+      defaultCohort: cohortToUse,
       customTags: tagsArray,
       existingContacts,
+      defaultCountryCode: countryCodeToUse,
     });
     setParseResult(res);
     if (sourceFileName) setFileName(sourceFileName);
@@ -104,10 +108,10 @@ export const BulkContactUploadModal: React.FC<BulkContactUploadModalProps> = ({
     setIsImporting(true);
     try {
       await onImportContacts(parseResult.valid);
-      alert(`✅ Successfully imported ${parseResult.valid.length} contacts into your CRM database!`);
+      alert(`Imported ${parseResult.valid.length} contacts into your CRM.`);
       onClose();
     } catch (e: any) {
-      alert(`⚠️ Import error: ${e.message || 'Error saving contacts'}`);
+      alert(`Import error: ${e.message || 'Error saving contacts'}`);
     } finally {
       setIsImporting(false);
     }
@@ -166,15 +170,19 @@ export const BulkContactUploadModal: React.FC<BulkContactUploadModalProps> = ({
               type="button"
               className={`tag-filter-btn ${activeTab === 'sheet' ? 'active' : ''}`}
               onClick={() => setActiveTab('sheet')}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
             >
-              📊 Upload Excel Sheet / CSV
+              <UploadIcon size={15} color="currentColor" />
+              Upload spreadsheet
             </button>
             <button
               type="button"
               className={`tag-filter-btn ${activeTab === 'paste' ? 'active' : ''}`}
               onClick={() => setActiveTab('paste')}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
             >
-              📋 Paste Text / TSV / Meta Export
+              <CopyIcon size={15} color="currentColor" />
+              Paste text or Meta export
             </button>
           </div>
 
@@ -183,9 +191,10 @@ export const BulkContactUploadModal: React.FC<BulkContactUploadModalProps> = ({
             className="btn-outline-sm"
             onClick={downloadSampleTemplate}
             title="Download formatted sample Excel spreadsheet"
-            style={{ fontSize: '0.78rem' }}
+            style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}
           >
-            📥 Download Sample Sheet (.xlsx)
+            <DownloadIcon size={15} color="currentColor" />
+            Download sample sheet (.xlsx)
           </button>
         </div>
 
@@ -194,11 +203,11 @@ export const BulkContactUploadModal: React.FC<BulkContactUploadModalProps> = ({
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleDrop}
             style={{
-              border: '2px dashed #25D366',
+              border: '2px dashed #00a884',
               borderRadius: 10,
               padding: '2.5rem 1.5rem',
               textAlign: 'center',
-              backgroundColor: '#F0FDF4',
+              backgroundColor: '#f1fbf8',
               marginBottom: 16,
               cursor: 'pointer',
               transition: 'background 0.2s',
@@ -212,15 +221,15 @@ export const BulkContactUploadModal: React.FC<BulkContactUploadModalProps> = ({
               style={{ display: 'none' }}
               onChange={handleFileUpload}
             />
-            <div style={{ width: 48, height: 48, borderRadius: '50%', backgroundColor: '#DCFCE7', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
-              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#15803D" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <div style={{ width: 48, height: 48, borderRadius: '50%', backgroundColor: '#e7fce3', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#008069" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                 <polyline points="14 2 14 8 20 8" />
                 <line x1="12" y1="18" x2="12" y2="12" />
                 <line x1="9" y1="15" x2="15" y2="15" />
               </svg>
             </div>
-            <p style={{ fontWeight: 700, fontSize: '0.95rem', color: '#166534', marginBottom: 4 }}>
+            <p style={{ fontWeight: 700, fontSize: '0.95rem', color: '#111b21', marginBottom: 4 }}>
               {fileName ? `Selected File: ${fileName}` : 'Upload Excel Sheet (.xlsx, .xls) or CSV'}
             </p>
             <p style={{ fontSize: '0.82rem', color: '#4B5563', marginBottom: 8 }}>
@@ -234,7 +243,7 @@ export const BulkContactUploadModal: React.FC<BulkContactUploadModalProps> = ({
             </div>
 
             {sheetInfo && (
-              <div style={{ marginTop: 12, padding: '6px 12px', background: '#FFFFFF', borderRadius: 6, display: 'inline-block', border: '1px solid #BBF7D0', fontSize: '0.8rem', color: '#15803D' }}>
+              <div style={{ marginTop: 12, padding: '6px 12px', background: '#FFFFFF', borderRadius: 6, display: 'inline-block', border: '1px solid #cbf8c7', fontSize: '0.8rem', color: '#008069' }}>
                 Sheet: <strong>{sheetInfo.sheetName}</strong> ({sheetInfo.rowCount} rows detected)
               </div>
             )}
@@ -259,30 +268,97 @@ export const BulkContactUploadModal: React.FC<BulkContactUploadModalProps> = ({
         )}
 
         {/* Configuration Bar */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 16, background: '#F8FAFC', padding: 14, borderRadius: 8, border: '1px solid #E2E8F0' }}>
+          {/* Default Country Code Selector */}
           <div className="form-group" style={{ marginBottom: 0 }}>
-            <label>Audience Tags (Applied to batch):</label>
+            <label style={{ fontWeight: 600, fontSize: '0.82rem', color: '#1E293B', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span>Default Country Code:</span>
+            </label>
+            <select
+              className="form-input"
+              value={defaultCountryCode}
+              onChange={(e) => {
+                const newCode = e.target.value;
+                setDefaultCountryCode(newCode);
+                if (rawText) handleParse(rawText, fileName || undefined, newCode);
+              }}
+              style={{ fontWeight: 600, background: '#FFFFFF' }}
+            >
+              {POPULAR_COUNTRY_CODES.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.flag} {c.code} ({c.name})
+                </option>
+              ))}
+            </select>
+            <span style={{ fontSize: '0.72rem', color: '#64748B', marginTop: 3, display: 'block' }}>
+              Applied automatically to 10-digit numbers lacking prefix
+            </span>
+          </div>
+
+          {/* Audience Tags Input & Chips */}
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label style={{ fontWeight: 600, fontSize: '0.82rem', color: '#1E293B' }}>Audience Tags (Applied to batch):</label>
             <input
               type="text"
               className="form-input"
               value={customTags}
               onChange={(e) => {
                 setCustomTags(e.target.value);
-                if (rawText) handleParse(rawText);
+                if (rawText) handleParse(rawText, fileName || undefined, defaultCountryCode, e.target.value);
               }}
               placeholder="e.g. Instagram Leads, Academics Course"
+              style={{ background: '#FFFFFF' }}
             />
+            {/* Quick Tag Chips */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+              {['Instagram Leads', 'Facebook Leads', 'New Lead', 'Academics Course', 'VIP Client', 'Hot Lead'].map(tag => {
+                const isSelected = customTags.split(',').map(t => t.trim()).includes(tag);
+                return (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => {
+                      let current = customTags.split(',').map(t => t.trim()).filter(Boolean);
+                      if (isSelected) {
+                        current = current.filter(t => t !== tag);
+                      } else {
+                        current.push(tag);
+                      }
+                      const updatedTags = current.join(', ');
+                      setCustomTags(updatedTags);
+                      if (rawText) handleParse(rawText, fileName || undefined, defaultCountryCode, updatedTags);
+                    }}
+                    style={{
+                      padding: '2px 8px',
+                      fontSize: '0.72rem',
+                      fontWeight: 500,
+                      borderRadius: 12,
+                      cursor: 'pointer',
+                      border: isSelected ? '1px solid #008069' : '1px solid #CBD5E1',
+                      background: isSelected ? '#e7fce3' : '#FFFFFF',
+                      color: isSelected ? '#008069' : '#475569',
+                      transition: 'all 0.12s ease',
+                    }}
+                  >
+                    {isSelected ? '✓ ' : '+ '}{tag}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
+          {/* Cohort Segment */}
           <div className="form-group" style={{ marginBottom: 0 }}>
-            <label>Audience Cohort / RFM Segment:</label>
+            <label style={{ fontWeight: 600, fontSize: '0.82rem', color: '#1E293B' }}>Audience Cohort / RFM Segment:</label>
             <select
               className="form-input"
               value={cohort}
               onChange={(e) => {
-                setCohort(e.target.value as RFMSegment);
-                if (rawText) handleParse(rawText);
+                const newCohort = e.target.value as RFMSegment;
+                setCohort(newCohort);
+                if (rawText) handleParse(rawText, fileName || undefined, defaultCountryCode, customTags, newCohort);
               }}
+              style={{ background: '#FFFFFF' }}
             >
               <option value="NEW_LEADS">New Leads</option>
               <option value="POTENTIAL_LOYALIST">High Intent / Potential</option>
@@ -293,80 +369,122 @@ export const BulkContactUploadModal: React.FC<BulkContactUploadModalProps> = ({
         </div>
 
         {/* Parse Results Overview */}
-        {parseResult && (
-          <div style={{ marginTop: 12, borderTop: '1px solid #E2E8F0', paddingTop: 12 }}>
-            <div style={{ display: 'flex', gap: 12, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-              <span className="status-chip success" style={{ fontSize: '0.82rem', padding: '5px 12px', fontWeight: 600 }}>
-                ✓ {parseResult.valid.length} Valid Contacts Ready to Import
-              </span>
-              {parseResult.invalid.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setShowErrors(!showErrors)}
-                  className="status-chip danger"
-                  style={{ fontSize: '0.82rem', padding: '5px 12px', cursor: 'pointer', border: 'none' }}
-                >
-                  ⚠ {parseResult.invalid.length} Skipped / Invalid ({showErrors ? 'Hide details' : 'Show details'})
-                </button>
+        {parseResult && (() => {
+          const duplicateEntries = parseResult.invalid.filter(x =>
+            x.reason.includes('Duplicate') || x.reason.includes('Already exists')
+          );
+          const otherErrors = parseResult.invalid.filter(x =>
+            !x.reason.includes('Duplicate') && !x.reason.includes('Already exists')
+          );
+
+          return (
+            <div style={{ marginTop: 12, borderTop: '1px solid #E2E8F0', paddingTop: 12 }}>
+              <div style={{ display: 'flex', gap: 10, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span className="status-chip success" style={{ fontSize: '0.82rem', padding: '5px 12px', fontWeight: 600 }}>
+                  ✓ {parseResult.valid.length} Valid Contacts Ready to Import
+                </span>
+
+                {duplicateEntries.length > 0 && (
+                  <span
+                    className="status-chip warning"
+                    style={{
+                      fontSize: '0.82rem',
+                      padding: '5px 12px',
+                      fontWeight: 600,
+                      background: '#FEF3C7',
+                      color: '#92400E',
+                      border: '1px solid #FDE68A',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
+                    title="Meta CRM rules: The same phone number cannot be added two times"
+                  >
+                    <ShieldCheckIcon size={15} color="currentColor" />
+                    {duplicateEntries.length} duplicate {duplicateEntries.length === 1 ? 'contact' : 'contacts'} prevented
+                  </span>
+                )}
+
+                {parseResult.invalid.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowErrors(!showErrors)}
+                    className="status-chip danger"
+                    style={{ fontSize: '0.82rem', padding: '5px 12px', cursor: 'pointer', border: 'none' }}
+                  >
+                    {parseResult.invalid.length} skipped ({showErrors ? 'hide details' : 'show details'})
+                  </button>
+                )}
+              </div>
+
+              {/* Error / Skipped Details */}
+              {showErrors && parseResult.invalid.length > 0 && (
+                <div style={{ backgroundColor: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 6, padding: '8px 12px', marginBottom: 12, maxHeight: 160, overflowY: 'auto' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <p style={{ fontSize: '0.78rem', fontWeight: 700, color: '#991B1B', margin: 0 }}>
+                      Skipped Entries ({parseResult.invalid.length} total, {duplicateEntries.length} duplicates prevented):
+                    </p>
+                    <span style={{ fontSize: '0.72rem', color: '#7F1D1D' }}>Duplicates are safely rejected to prevent multi-contact conflicts</span>
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: 16, fontSize: '0.75rem', color: '#B91C1C' }}>
+                    {parseResult.invalid.slice(0, 20).map((err, idx) => {
+                      const isDup = err.reason.includes('Duplicate') || err.reason.includes('Already exists');
+                      return (
+                        <li key={idx} style={{ marginBottom: 2 }}>
+                          Row {err.row}: <strong>{err.name}</strong> ({err.phone}) &bull;{' '}
+                          <span style={{ color: isDup ? '#92400E' : '#B91C1C', fontWeight: isDup ? 600 : 400 }}>
+                            {err.reason}
+                          </span>
+                        </li>
+                      );
+                    })}
+                    {parseResult.invalid.length > 20 && (
+                      <li>...and {parseResult.invalid.length - 20} more skipped items</li>
+                    )}
+                  </ul>
+                </div>
+              )}
+
+              {/* Preview Table */}
+              {parseResult.valid.length > 0 && (
+                <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid #E2E8F0', borderRadius: 8, marginBottom: 16 }}>
+                  <table className="corporate-table" style={{ fontSize: '0.8rem' }}>
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Name</th>
+                        <th>WhatsApp Phone</th>
+                        <th>Email</th>
+                        <th>Source / Campaign</th>
+                        <th>Audience Tags</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {parseResult.valid.slice(0, 25).map((c, idx) => (
+                        <tr key={idx}>
+                          <td>{idx + 1}</td>
+                          <td><strong>{c.displayName}</strong></td>
+                          <td><code>{c.phone}</code></td>
+                          <td><span className="text-secondary">{c.email || c.attributes?.email || '—'}</span></td>
+                          <td>
+                            <span className="text-secondary">{c.attributes?.campaign || c.attributes?.platform || 'Direct Upload'}</span>
+                          </td>
+                          <td>
+                            <div className="tags-flex">
+                              {c.tags.map((t, ti) => (
+                                <span key={ti} className="tag-pill-corporate" style={{ fontSize: '0.7rem' }}>{t}</span>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
-
-            {/* Error / Skipped Details */}
-            {showErrors && parseResult.invalid.length > 0 && (
-              <div style={{ backgroundColor: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 6, padding: '8px 12px', marginBottom: 12, maxHeight: 140, overflowY: 'auto' }}>
-                <p style={{ fontSize: '0.78rem', fontWeight: 600, color: '#991B1B', marginBottom: 4 }}>Skipped Entries:</p>
-                <ul style={{ margin: 0, paddingLeft: 16, fontSize: '0.75rem', color: '#B91C1C' }}>
-                  {parseResult.invalid.slice(0, 15).map((err, idx) => (
-                    <li key={idx}>
-                      Row {err.row}: <strong>{err.name}</strong> ({err.phone}) — {err.reason}
-                    </li>
-                  ))}
-                  {parseResult.invalid.length > 15 && (
-                    <li>...and {parseResult.invalid.length - 15} more invalid items</li>
-                  )}
-                </ul>
-              </div>
-            )}
-
-            {/* Preview Table */}
-            {parseResult.valid.length > 0 && (
-              <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid #E2E8F0', borderRadius: 8, marginBottom: 16 }}>
-                <table className="corporate-table" style={{ fontSize: '0.8rem' }}>
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Name</th>
-                      <th>WhatsApp Phone</th>
-                      <th>Email</th>
-                      <th>Source / Campaign</th>
-                      <th>Audience Tags</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {parseResult.valid.slice(0, 25).map((c, idx) => (
-                      <tr key={idx}>
-                        <td>{idx + 1}</td>
-                        <td><strong>{c.displayName}</strong></td>
-                        <td><code>{c.phone}</code></td>
-                        <td><span className="text-secondary">{c.email || c.attributes?.email || '—'}</span></td>
-                        <td>
-                          <span className="text-secondary">{c.attributes?.campaign || c.attributes?.platform || 'Direct Upload'}</span>
-                        </td>
-                        <td>
-                          <div className="tags-flex">
-                            {c.tags.map((t, ti) => (
-                              <span key={ti} className="tag-pill-corporate" style={{ fontSize: '0.7rem' }}>{t}</span>
-                            ))}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
+          );
+        })()}
 
         <div className="modal-actions" style={{ marginTop: 16 }}>
           <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
@@ -381,7 +499,7 @@ export const BulkContactUploadModal: React.FC<BulkContactUploadModalProps> = ({
             }}
           >
             {isImporting
-              ? `⏳ Saving ${parseResult?.valid.length || 0} Contacts to Database...`
+              ? `Saving ${parseResult?.valid.length || 0} contacts…`
               : `Import ${parseResult?.valid.length || 0} Contacts to CRM`}
           </button>
         </div>

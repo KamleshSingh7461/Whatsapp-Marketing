@@ -13,6 +13,14 @@ import {
   testWebhookPingApi,
 } from '../lib/api';
 
+type SettingsTab = 'team' | 'billing' | 'webhook' | 'waba';
+
+const Ico: React.FC<{ size?: number; children: React.ReactNode }> = ({ size = 18, children }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flex: '0 0 auto' }}>
+    {children}
+  </svg>
+);
+
 interface SettingsViewProps {
   status: WhatsappStatus | null;
   currentUser: User | null;
@@ -24,12 +32,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   currentUser,
   onConnectWaba,
 }) => {
-  const [activeTab, setActiveTab] = useState<'team' | 'billing' | 'webhook' | 'waba'>('team');
+  const [activeTab, setActiveTab] = useState<SettingsTab>('team');
 
   // WABA Form States
   const [wabaId, setWabaId] = useState(status?.wabaId || '1845046976654799');
   const [phoneNumberId, setPhoneNumberId] = useState(status?.phoneNumberId || '1268849126320372');
-  const [businessToken, setBusinessToken] = useState('EAAPNSGTJkv8BSaschi0VLUJFgDrhcjKb7DFlGF2t7jj1eVK0smzfWlApqZCxmBl23rHXZC6jV83vPRlvTyZAr4RvLGDxa0JrlCD8MIxEl7oqhMMQeMb8okTFZAesImMUDwZC5FZA4oWgZB9z8EYbfjOmZC04ile6fYBfgxd5INFEZBf4MxBbqbAP8hCaRNugPlQZDZD');
+  const [businessToken, setBusinessToken] = useState('');
   const [savingWaba, setSavingWaba] = useState(false);
   const [wabaMsg, setWabaMsg] = useState<string | null>(null);
 
@@ -216,368 +224,396 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const getRoleBadge = (role: Role) => {
     switch (role) {
       case 'ADMIN':
-        return <span className="status-chip highlight" style={{ background: '#EDE9FE', color: '#6D28D9' }}>Admin / Super Admin</span>;
+        return <span className="wa-bc-status tone-admin">Admin</span>;
       case 'MARKETER':
-        return <span className="status-chip success">Growth & Marketer</span>;
+        return <span className="wa-bc-status tone-done">Marketer</span>;
       case 'AGENT':
-        return <span className="status-chip warning" style={{ background: '#FEF3C7', color: '#B45309' }}>Support Agent</span>;
+        return <span className="wa-bc-status tone-live">Support agent</span>;
       default:
-        return <span className="status-chip neutral">Viewer</span>;
+        return <span className="wa-bc-status tone-idle">Viewer</span>;
     }
   };
 
   if (currentUser && currentUser.role !== 'ADMIN') {
     return (
-      <div className="view-container">
-        <div className="card" style={{ textAlign: 'center', padding: '60px 24px', maxWidth: 540, margin: '40px auto' }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
-          <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8, color: 'var(--text-main)' }}>Admin Privileges Required</h2>
-          <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 20 }}>
-            Your account ({currentUser.email}) is assigned the <strong>{currentUser.role}</strong> role. Access to WABA Credentials, Team Management, Payment Methods, and Webhook configuration is restricted to Administrators.
-          </p>
-          <span className="status-chip warning" style={{ display: 'inline-block', padding: '6px 14px' }}>
-            Current Role: {currentUser.role}
-          </span>
-        </div>
+      <div className="wa-bc-page wa-st-page">
+        <section className="wa-bc-card wa-st-locked">
+          <div className="wa-bc-empty">
+            <div className="wa-bc-empty-icon">
+              <Ico size={30}>
+                <rect x="3" y="11" width="18" height="11" rx="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </Ico>
+            </div>
+            <h4>Administrator access required</h4>
+            <p>
+              Your account ({currentUser.email}) has the <strong>{currentUser.role}</strong> role. WABA credentials, team
+              management, payment methods and webhook settings can only be changed by an administrator.
+            </p>
+            <span className="wa-bc-status tone-live">Current role: {currentUser.role}</span>
+          </div>
+        </section>
       </div>
     );
   }
 
+  const callbackUrl = webhookInfo?.webhookUrl || 'https://api.erp.fgsnlive.com/api/webhooks/whatsapp';
+  const verifyToken = webhookInfo?.verifyToken || 'fgsn_secure_webhook_token_2026';
+  const testOk = !!testResult && testResult.startsWith('Success');
+
+  const sections: Array<{ id: SettingsTab; title: string; hint: string; icon: React.ReactNode }> = [
+    {
+      id: 'team',
+      title: 'Team & access',
+      hint: 'Invite people and set roles',
+      icon: (
+        <>
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+        </>
+      ),
+    },
+    {
+      id: 'billing',
+      title: 'Payment & billing',
+      hint: 'Meta billing and payment methods',
+      icon: (
+        <>
+          <rect x="1" y="4" width="22" height="16" rx="2" />
+          <line x1="1" y1="10" x2="23" y2="10" />
+        </>
+      ),
+    },
+    {
+      id: 'webhook',
+      title: 'Webhook',
+      hint: 'Live messages and status from Meta',
+      icon: (
+        <>
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+        </>
+      ),
+    },
+    {
+      id: 'waba',
+      title: 'Cloud API credentials',
+      hint: 'Connect your WhatsApp number',
+      icon: (
+        <>
+          <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+        </>
+      ),
+    },
+  ];
+
   return (
-    <div className="view-container">
-      <div className="page-header-row" style={{ marginBottom: 16 }}>
-        <div>
-          <h2 className="view-title">FGSN Enterprise Settings & Control Center</h2>
-          <p className="view-subtitle">
-            Manage team access, payment methods, Meta Cloud API billing, and webhooks.
-          </p>
-        </div>
+    <div className="wa-bc-page wa-st-page">
+      <div className="wa-bc-toolbar">
+        <p className="wa-bc-lede">
+          Manage who can use this workspace, how Meta bills you, and how your WhatsApp number connects.
+        </p>
       </div>
 
-      {/* Tabs Header */}
-      <div style={{ display: 'flex', gap: 10, borderBottom: '2px solid #E2E8F0', marginBottom: 24, paddingBottom: 10, flexWrap: 'wrap' }}>
-        <button
-          type="button"
-          className={`btn-secondary ${activeTab === 'team' ? 'active' : ''}`}
-          onClick={() => setActiveTab('team')}
-          style={{
-            background: activeTab === 'team' ? '#059669' : '#FFFFFF',
-            color: activeTab === 'team' ? '#FFFFFF' : '#0F172A',
-            borderColor: activeTab === 'team' ? '#059669' : '#CBD5E1',
-            padding: '9px 18px',
-            fontWeight: 700,
-            fontSize: '0.84rem',
-            borderRadius: '6px',
-            boxShadow: activeTab === 'team' ? '0 2px 4px rgba(5, 150, 105, 0.2)' : 'none',
-            cursor: 'pointer',
-          }}
-        >
-          Team & Access Invites
-        </button>
-
-        <button
-          type="button"
-          className={`btn-secondary ${activeTab === 'billing' ? 'active' : ''}`}
-          onClick={() => setActiveTab('billing')}
-          style={{
-            background: activeTab === 'billing' ? '#059669' : '#FFFFFF',
-            color: activeTab === 'billing' ? '#FFFFFF' : '#0F172A',
-            borderColor: activeTab === 'billing' ? '#059669' : '#CBD5E1',
-            padding: '9px 18px',
-            fontWeight: 700,
-            fontSize: '0.84rem',
-            borderRadius: '6px',
-            boxShadow: activeTab === 'billing' ? '0 2px 4px rgba(5, 150, 105, 0.2)' : 'none',
-            cursor: 'pointer',
-          }}
-        >
-          Payment Methods & Meta Billing
-        </button>
-
-        <button
-          type="button"
-          className={`btn-secondary ${activeTab === 'webhook' ? 'active' : ''}`}
-          onClick={() => setActiveTab('webhook')}
-          style={{
-            background: activeTab === 'webhook' ? '#059669' : '#FFFFFF',
-            color: activeTab === 'webhook' ? '#FFFFFF' : '#0F172A',
-            borderColor: activeTab === 'webhook' ? '#059669' : '#CBD5E1',
-            padding: '9px 18px',
-            fontWeight: 700,
-            fontSize: '0.84rem',
-            borderRadius: '6px',
-            boxShadow: activeTab === 'webhook' ? '0 2px 4px rgba(5, 150, 105, 0.2)' : 'none',
-            cursor: 'pointer',
-          }}
-        >
-          Meta Webhook Configuration
-        </button>
-
-        <button
-          type="button"
-          className={`btn-secondary ${activeTab === 'waba' ? 'active' : ''}`}
-          onClick={() => setActiveTab('waba')}
-          style={{
-            background: activeTab === 'waba' ? '#059669' : '#FFFFFF',
-            color: activeTab === 'waba' ? '#FFFFFF' : '#0F172A',
-            borderColor: activeTab === 'waba' ? '#059669' : '#CBD5E1',
-            padding: '9px 18px',
-            fontWeight: 700,
-            fontSize: '0.84rem',
-            borderRadius: '6px',
-            boxShadow: activeTab === 'waba' ? '0 2px 4px rgba(5, 150, 105, 0.2)' : 'none',
-            cursor: 'pointer',
-          }}
-        >
-          Meta Cloud API Credentials
-        </button>
-      </div>
-
-      {/* TAB 1: TEAM & ACCESS INVITES */}
-      {activeTab === 'team' && (
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <div>
-              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Team Members & Invites</h3>
-              <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-muted)' }}>
-                Super Admin (<code>admin@fgsnlive.com</code>) can invite team members to join workspace via email link.
-              </p>
-            </div>
-            <button className="btn-primary" onClick={() => { setIsInviteOpen(true); setInviteResult(null); setInviteEmail(''); }}>
-              + Invite Team Member
+      <div className="wa-st-layout">
+        {/* Section list */}
+        <nav className="wa-st-nav" role="tablist" aria-label="Settings sections">
+          {sections.map(s => (
+            <button
+              key={s.id}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === s.id}
+              className={`wa-st-nav-item${activeTab === s.id ? ' is-active' : ''}`}
+              onClick={() => setActiveTab(s.id)}
+            >
+              <span className="wa-st-nav-icon"><Ico>{s.icon}</Ico></span>
+              <span className="wa-st-nav-text">
+                <strong>{s.title}</strong>
+                <span>{s.hint}</span>
+              </span>
             </button>
-          </div>
+          ))}
+        </nav>
 
-          <div className="panel-card">
-            <table className="corporate-table">
-              <thead>
-                <tr>
-                  <th>Team Member</th>
-                  <th>Work Email</th>
-                  <th>Role</th>
-                  <th>Status</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {teamMembers.map((member) => {
-                  const isSelf = currentUser?.id === member.id;
-                  return (
-                    <tr key={member.id}>
-                      <td>
-                        <div className="contact-cell" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <div className="avatar-sm" style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--primary-color)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 12 }}>
-                            {member.name ? member.name.split(' ').map((n: string) => n[0]).join('') : 'U'}
-                          </div>
-                          <div>
-                            <strong>{member.name}</strong>
-                            {member.isSuperAdmin && <span style={{ fontSize: 10, background: '#EDE9FE', color: '#6D28D9', padding: '2px 6px', borderRadius: 4, marginLeft: 6, fontWeight: 700 }}>SUPER ADMIN</span>}
-                            {isSelf && <span style={{ fontSize: 11, color: '#059669', marginLeft: 6, fontWeight: 600 }}>(You)</span>}
-                          </div>
+        <div className="wa-st-content" role="tabpanel">
+          {/* TEAM & ACCESS */}
+          {activeTab === 'team' && (
+            <section className="wa-bc-card">
+              <div className="wa-bc-card-head wa-an-card-head">
+                <div>
+                  <h3 className="wa-bc-card-title">Team members</h3>
+                  <p className="wa-an-desc">
+                    The super admin (<code className="wa-st-code">admin@fgsnlive.com</code>) can invite people to this
+                    workspace with an email link.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="wa-bc-primary"
+                  onClick={() => { setIsInviteOpen(true); setInviteResult(null); setInviteEmail(''); }}
+                >
+                  <Ico size={16}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></Ico>
+                  Invite team member
+                </button>
+              </div>
+
+              {teamMembers.length === 0 ? (
+                <p className="wa-st-empty">{loadingTeam ? 'Loading team...' : 'No team members yet.'}</p>
+              ) : (
+                <ul className="wa-st-list">
+                  {teamMembers.map((member) => {
+                    const isSelf = currentUser?.id === member.id;
+                    return (
+                      <li key={member.id} className="wa-st-row">
+                        <div className="wa-st-avatar" aria-hidden="true">
+                          {member.name ? member.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2) : 'U'}
                         </div>
-                      </td>
-                      <td><code>{member.email}</code></td>
-                      <td>{getRoleBadge(member.role)}</td>
-                      <td>
-                        <span className="status-chip success">Active</span>
-                      </td>
-                      <td>
+                        <div className="wa-st-row-main">
+                          <div className="wa-st-row-name">
+                            <strong>{member.name}</strong>
+                            {member.isSuperAdmin && <span className="wa-bc-status tone-admin">Super admin</span>}
+                            {isSelf && <span className="wa-st-you">(You)</span>}
+                          </div>
+                          <div className="wa-st-row-sub">{member.email}</div>
+                        </div>
+                        <div className="wa-st-row-tags">
+                          {getRoleBadge(member.role)}
+                          <span className="wa-bc-status tone-done"><span className="wa-bc-status-dot" />Active</span>
+                        </div>
                         {!isSelf && !member.isSuperAdmin && (
-                          <button
-                            className="btn-outline-sm"
-                            style={{ color: '#DC2626', borderColor: '#FECACA' }}
-                            onClick={() => handleRemoveMember(member.id)}
-                          >
+                          <button type="button" className="wa-st-danger-btn" onClick={() => handleRemoveMember(member.id)}>
                             Remove
                           </button>
                         )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 2: PAYMENT METHODS & META BILLING */}
-      {activeTab === 'billing' && (
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <div>
-              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Payment Methods & Meta WABA Billing</h3>
-              <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-muted)' }}>
-                Configure credit cards, UPI, or Meta Direct WABA Billing for messaging campaigns.
-              </p>
-            </div>
-            <button className="btn-primary" onClick={() => setIsAddPmOpen(true)}>
-              + Add Payment Method
-            </button>
-          </div>
-
-          {/* Meta WABA Billing Account Banner */}
-          <div style={{ background: 'linear-gradient(135deg, #1E293B 0%, #0F172A 100%)', color: '#fff', borderRadius: 12, padding: 20, marginBottom: 24 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
-              <div>
-                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#94A3B8', fontWeight: 700 }}>Meta WhatsApp Business Account (WABA)</div>
-                <h3 style={{ margin: '4px 0 8px', fontSize: 20, color: '#F8FAFC' }}>WABA ID: {metaBilling?.wabaId || '1845046976654799'}</h3>
-                <div style={{ fontSize: 13, color: '#CBD5E1' }}>
-                  Billing Account Status: <span style={{ color: '#4ADE80', fontWeight: 600 }}>Active Direct Billing</span> | Messaging Tier: <strong>Tier 10K (10,000/24h)</strong>
-                </div>
-              </div>
-              <a
-                href={metaBilling?.billingHubUrl || 'https://business.facebook.com/billing_hub'}
-                target="_blank"
-                rel="noreferrer"
-                className="btn-primary"
-                style={{ background: '#2563EB', textDecoration: 'none', color: '#fff', padding: '10px 16px', borderRadius: 8 }}
-              >
-                Open Meta Business Manager Billing Hub ↗
-              </a>
-            </div>
-          </div>
-
-          {/* Saved Payment Methods Grid */}
-          <h4 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 700 }}>Configured ERP Payment Methods</h4>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16, marginBottom: 24 }}>
-            {paymentMethods.map((pm) => (
-              <div key={pm.id} className="panel-card" style={{ border: pm.isDefault ? '2px solid var(--primary-color)' : '1px solid var(--border-color)', position: 'relative' }}>
-                {pm.isDefault && (
-                  <span style={{ position: 'absolute', top: 12, right: 12, background: 'var(--primary-color)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 12 }}>
-                    PRIMARY DEFAULT
-                  </span>
-                )}
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600 }}>{pm.provider} ({pm.type})</div>
-                <h4 style={{ margin: '6px 0 10px', fontSize: 16 }}>{pm.name}</h4>
-                {pm.last4 && <div style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-muted)', marginBottom: 8 }}>•••• •••• •••• {pm.last4}</div>}
-                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Billing Email: <code>{pm.billingEmail}</code></div>
-
-                <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-                  {!pm.isDefault && (
-                    <button className="btn-outline-sm" onClick={() => handleSetDefaultPm(pm.id)}>Make Primary</button>
-                  )}
-                  <button className="btn-outline-sm" style={{ color: '#DC2626', borderColor: '#FECACA' }} onClick={() => handleDeletePm(pm.id)}>Delete</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* TAB 3: META WEBHOOK CONFIGURATION */}
-      {activeTab === 'webhook' && (
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <div>
-              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Meta WhatsApp Webhook Configuration</h3>
-              <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-muted)' }}>
-                Production callback URL and signature verification settings for real-time incoming messages.
-              </p>
-            </div>
-            <button className="btn-primary" disabled={testingWebhook} onClick={handleTestWebhook}>
-              {testingWebhook ? 'Sending Test Ping...' : '⚡ Test Webhook Connection'}
-            </button>
-          </div>
-
-          {testResult && (
-            <div style={{ padding: '12px 16px', background: testResult.startsWith('Success') ? '#f0fdf4' : '#fef2f2', border: `1px solid ${testResult.startsWith('Success') ? '#bbf7d0' : '#fecaca'}`, color: testResult.startsWith('Success') ? '#166534' : '#dc2626', borderRadius: 8, fontSize: 13, marginBottom: 16, fontWeight: 600 }}>
-              {testResult}
-            </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </section>
           )}
 
-          <div className="settings-grid">
-            <div className="panel-card">
-              <h3 className="panel-title">Production Webhook Credentials</h3>
-              <div className="waba-status-overview" style={{ marginTop: 16 }}>
-                <div className="status-row">
-                  <span className="status-lbl">Callback URL:</span>
-                  <code style={{ fontSize: 13, color: 'var(--primary-color)', fontWeight: 700 }}>
-                    {webhookInfo?.webhookUrl || 'https://api.erp.fgsnlive.com/api/webhooks/whatsapp'}
-                  </code>
+          {/* PAYMENT & BILLING */}
+          {activeTab === 'billing' && (
+            <>
+              <div className="wa-st-hero">
+                <div>
+                  <span className="wa-st-hero-kicker">Meta WhatsApp Business Account (WABA)</span>
+                  <h3 className="wa-st-hero-title">WABA ID: {metaBilling?.wabaId || '1845046976654799'}</h3>
+                  <p className="wa-st-hero-meta">
+                    Billing account: <strong>Active direct billing</strong>
+                    <span className="wa-st-hero-sep" aria-hidden="true">·</span>
+                    Messaging tier: <strong>Tier 10K (10,000 per 24h)</strong>
+                  </p>
+                </div>
+                <a
+                  href={metaBilling?.billingHubUrl || 'https://business.facebook.com/billing_hub'}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="wa-st-hero-btn"
+                >
+                  Open Meta billing hub
+                  <Ico size={15}>
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                    <polyline points="15 3 21 3 21 9" />
+                    <line x1="10" y1="14" x2="21" y2="3" />
+                  </Ico>
+                </a>
+              </div>
+
+              <section className="wa-bc-card">
+                <div className="wa-bc-card-head wa-an-card-head">
+                  <div>
+                    <h3 className="wa-bc-card-title">Payment methods</h3>
+                    <p className="wa-an-desc">Cards, UPI or Meta direct billing used for messaging campaigns.</p>
+                  </div>
+                  <button type="button" className="wa-bc-primary" onClick={() => setIsAddPmOpen(true)}>
+                    <Ico size={16}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></Ico>
+                    Add payment method
+                  </button>
                 </div>
 
-                <div className="status-row">
-                  <span className="status-lbl">Verify Token:</span>
-                  <code style={{ fontSize: 13, color: '#059669', fontWeight: 700 }}>
-                    {webhookInfo?.verifyToken || 'fgsn_secure_webhook_token_2026'}
-                  </code>
+                {paymentMethods.length === 0 ? (
+                  <p className="wa-st-empty">No payment methods added yet.</p>
+                ) : (
+                  <div className="wa-st-pm-grid">
+                    {paymentMethods.map((pm) => (
+                      <div key={pm.id} className={`wa-st-pm${pm.isDefault ? ' is-default' : ''}`}>
+                        {pm.isDefault && <span className="wa-bc-status tone-done wa-st-pm-flag">Primary</span>}
+                        <div className="wa-st-pm-type">{pm.provider} ({pm.type})</div>
+                        <h4 className="wa-st-pm-name">{pm.name}</h4>
+                        {pm.last4 && <div className="wa-st-pm-num">•••• •••• •••• {pm.last4}</div>}
+                        <div className="wa-st-pm-mail">Billing email: {pm.billingEmail}</div>
+                        <div className="wa-st-pm-actions">
+                          {!pm.isDefault && (
+                            <button type="button" className="wa-bc-act" onClick={() => handleSetDefaultPm(pm.id)}>Make primary</button>
+                          )}
+                          <button type="button" className="wa-st-danger-btn" onClick={() => handleDeletePm(pm.id)}>Delete</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </>
+          )}
+
+          {/* WEBHOOK */}
+          {activeTab === 'webhook' && (
+            <>
+              <section className="wa-bc-card">
+                <div className="wa-bc-card-head wa-an-card-head">
+                  <div>
+                    <h3 className="wa-bc-card-title">Webhook connection</h3>
+                    <p className="wa-an-desc">
+                      Meta sends incoming messages and delivery updates to this address in real time.
+                    </p>
+                  </div>
+                  <button type="button" className="wa-bc-primary" disabled={testingWebhook} onClick={handleTestWebhook}>
+                    <Ico size={16}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /></Ico>
+                    {testingWebhook ? 'Sending test ping...' : 'Test webhook connection'}
+                  </button>
                 </div>
 
-                <div className="status-row">
-                  <span className="status-lbl">Status:</span>
-                  <span className="status-chip success">Verified & Active</span>
-                </div>
+                {testResult && (
+                  <div className={`wa-st-alert ${testOk ? 'is-success' : 'is-error'}`} role="status">
+                    {testResult}
+                  </div>
+                )}
 
-                <div className="status-row">
-                  <span className="status-lbl">Subscribed Fields:</span>
-                  <span>messages, message_template_status_update</span>
+                <dl className="wa-st-kv">
+                  <div className="wa-st-kv-row">
+                    <dt>Callback URL</dt>
+                    <dd><code className="wa-st-code">{callbackUrl}</code></dd>
+                  </div>
+                  <div className="wa-st-kv-row">
+                    <dt>Verify token</dt>
+                    <dd><code className="wa-st-code">{verifyToken}</code></dd>
+                  </div>
+                  <div className="wa-st-kv-row">
+                    <dt>Status</dt>
+                    <dd><span className="wa-bc-status tone-done"><span className="wa-bc-status-dot" />Verified &amp; active</span></dd>
+                  </div>
+                  <div className="wa-st-kv-row">
+                    <dt>Subscribed fields</dt>
+                    <dd>
+                      <code className="wa-st-code">messages</code>{' '}
+                      <code className="wa-st-code">message_template_status_update</code>
+                    </dd>
+                  </div>
+                </dl>
+              </section>
+
+              <section className="wa-bc-card">
+                <div className="wa-bc-card-head wa-an-card-head">
+                  <div>
+                    <h3 className="wa-bc-card-title">Set it up in Meta</h3>
+                    <p className="wa-an-desc">Only needed the first time, or if you move to a new server address.</p>
+                  </div>
+                </div>
+                <ol className="wa-au-steps wa-st-steps">
+                  <li className="wa-au-step">
+                    <span className="wa-au-num" aria-hidden="true">1</span>
+                    <div>
+                      <p>Log in to the <a href="https://developers.facebook.com/apps" target="_blank" rel="noreferrer">Meta App Dashboard</a>.</p>
+                    </div>
+                  </li>
+                  <li className="wa-au-step">
+                    <span className="wa-au-num" aria-hidden="true">2</span>
+                    <div><p>Open <strong>WhatsApp</strong>, then <strong>Configuration</strong>.</p></div>
+                  </li>
+                  <li className="wa-au-step">
+                    <span className="wa-au-num" aria-hidden="true">3</span>
+                    <div><p>In the <strong>Webhook</strong> section, click <strong>Edit</strong>.</p></div>
+                  </li>
+                  <li className="wa-au-step">
+                    <span className="wa-au-num" aria-hidden="true">4</span>
+                    <div><p>Paste the callback URL: <code className="wa-st-code">{callbackUrl}</code></p></div>
+                  </li>
+                  <li className="wa-au-step">
+                    <span className="wa-au-num" aria-hidden="true">5</span>
+                    <div><p>Paste the verify token: <code className="wa-st-code">{verifyToken}</code></p></div>
+                  </li>
+                  <li className="wa-au-step">
+                    <span className="wa-au-num" aria-hidden="true">6</span>
+                    <div><p>Click <strong>Verify and save</strong>.</p></div>
+                  </li>
+                  <li className="wa-au-step">
+                    <span className="wa-au-num" aria-hidden="true">7</span>
+                    <div><p>Under <strong>Webhook fields</strong>, click <strong>Subscribe</strong> next to <code className="wa-st-code">messages</code>.</p></div>
+                  </li>
+                </ol>
+              </section>
+            </>
+          )}
+
+          {/* CLOUD API CREDENTIALS */}
+          {activeTab === 'waba' && (
+            <section className="wa-bc-card">
+              <div className="wa-bc-card-head wa-an-card-head">
+                <div>
+                  <h3 className="wa-bc-card-title">Meta Cloud API credentials</h3>
+                  <p className="wa-an-desc">
+                    These connect your WhatsApp number to this workspace. Find the two IDs in the Meta App Dashboard under
+                    WhatsApp, then API Setup.
+                  </p>
                 </div>
               </div>
-            </div>
 
-            <div className="panel-card">
-              <h3 className="panel-title">Meta Developer Console Instructions</h3>
-              <ol style={{ fontSize: 13, color: 'var(--text-main)', paddingLeft: 20, margin: '12px 0 0', lineHeight: 1.6 }}>
-                <li>Log in to <a href="https://developers.facebook.com/apps" target="_blank" rel="noreferrer">Meta App Dashboard ↗</a>.</li>
-                <li>Navigate to <strong>WhatsApp</strong> ➔ <strong>Configuration</strong>.</li>
-                <li>In the <strong>Webhook</strong> section, click <strong>Edit</strong>.</li>
-                <li>Paste Callback URL: <code>https://api.erp.fgsnlive.com/api/webhooks/whatsapp</code>.</li>
-                <li>Paste Verify Token: <code>fgsn_secure_webhook_token_2026</code>.</li>
-                <li>Click <strong>Verify and Save</strong>.</li>
-                <li>Under Webhook fields, click <strong>Subscribe</strong> for <code>messages</code>.</li>
-              </ol>
-            </div>
-          </div>
+              {wabaMsg && <div className="wa-st-alert is-success wa-st-alert-inset" role="status">{wabaMsg}</div>}
+
+              <form onSubmit={handleWabaSubmit} className="wa-st-form">
+                <label className="wa-st-field">
+                  <span className="wa-st-label">WhatsApp Business Account ID (WABA ID)</span>
+                  <input
+                    type="text"
+                    required
+                    value={wabaId}
+                    onChange={(e) => setWabaId(e.target.value)}
+                    className="wa-st-input"
+                  />
+                </label>
+
+                <label className="wa-st-field">
+                  <span className="wa-st-label">Phone number ID</span>
+                  <input
+                    type="text"
+                    required
+                    value={phoneNumberId}
+                    onChange={(e) => setPhoneNumberId(e.target.value)}
+                    className="wa-st-input"
+                  />
+                </label>
+
+                <label className="wa-st-field">
+                  <span className="wa-st-label">System user permanent access token</span>
+                  <input
+                    type="password"
+                    required
+                    autoComplete="new-password"
+                    value={businessToken}
+                    onChange={(e) => setBusinessToken(e.target.value)}
+                    className="wa-st-input"
+                  />
+                  <span className="wa-st-hint">
+                    Use a permanent token from a System User in Meta Business Settings. Temporary tokens expire after 24
+                    hours. For security the saved token is never shown here; paste a new one to replace it.
+                  </span>
+                </label>
+
+                <div className="wa-st-form-actions">
+                  <button type="submit" className="wa-bc-primary" disabled={savingWaba}>
+                    {savingWaba ? 'Updating credentials...' : 'Save & verify connection'}
+                  </button>
+                </div>
+              </form>
+            </section>
+          )}
         </div>
-      )}
-
-      {/* TAB 4: META CLOUD API CREDENTIALS */}
-      {activeTab === 'waba' && (
-        <div className="panel-card" style={{ maxWidth: 650 }}>
-          <h3 className="panel-title">Meta Cloud API Production Credentials</h3>
-          {wabaMsg && <div className="alert-success-box" style={{ marginTop: 10 }}>{wabaMsg}</div>}
-
-          <form onSubmit={handleWabaSubmit} style={{ marginTop: 16 }}>
-            <div className="form-group">
-              <label>WhatsApp Business Account ID (WABA ID)</label>
-              <input
-                type="text"
-                required
-                value={wabaId}
-                onChange={(e) => setWabaId(e.target.value)}
-                className="form-input"
-              />
-            </div>
-
-            <div className="form-group">
-              <label>Phone Number ID</label>
-              <input
-                type="text"
-                required
-                value={phoneNumberId}
-                onChange={(e) => setPhoneNumberId(e.target.value)}
-                className="form-input"
-              />
-            </div>
-
-            <div className="form-group">
-              <label>System User Permanent Access Token</label>
-              <input
-                type="password"
-                required
-                value={businessToken}
-                onChange={(e) => setBusinessToken(e.target.value)}
-                className="form-input"
-              />
-            </div>
-
-            <button type="submit" className="btn-primary" disabled={savingWaba}>
-              {savingWaba ? 'Updating Credentials...' : 'Save & Verify Connection'}
-            </button>
-          </form>
-        </div>
-      )}
+      </div>
 
       {/* Invite Member Modal */}
       {isInviteOpen && (
@@ -630,8 +666,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   <button type="button" className="btn-secondary" onClick={() => setIsInviteOpen(false)}>
                     Cancel
                   </button>
-                  <button type="submit" className="btn-primary" disabled={inviteLoading}>
-                    {inviteLoading ? 'Sending Invitation...' : '✉️ Send Invitation Email'}
+                  <button type="submit" className="btn-primary wa-st-btn-icon" disabled={inviteLoading}>
+                    {inviteLoading ? 'Sending Invitation...' : (<><Ico size={16}><path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" /><polyline points="22,6 12,13 2,6" /></Ico> Send invitation email</>)}
                   </button>
                 </div>
               </form>
@@ -639,7 +675,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <div>
                 <div style={{ background: '#f0fdf4', border: '1px solid #86efac', padding: 16, borderRadius: 10, marginBottom: 18 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#15803d', fontWeight: 700, fontSize: 15, marginBottom: 6 }}>
-                    <span>✉️</span>
+                    <span style={{ display: 'inline-flex' }}><Ico size={16}><path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" /><polyline points="22,6 12,13 2,6" /></Ico></span>
                     <span>Invitation Email Sent!</span>
                   </div>
                   <p style={{ fontSize: 13, color: '#334155', lineHeight: 1.5, margin: '0 0 10px 0' }}>
@@ -674,13 +710,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                   <button
                     type="button"
-                    className="btn-secondary"
+                    className="btn-secondary wa-st-btn-icon"
                     onClick={() => {
                       navigator.clipboard.writeText(inviteResult.inviteLink);
                       alert('Invitation link copied to clipboard!');
                     }}
                   >
-                    📋 Copy Link
+                    <Ico size={16}><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></Ico> Copy link
                   </button>
                   <button
                     type="button"

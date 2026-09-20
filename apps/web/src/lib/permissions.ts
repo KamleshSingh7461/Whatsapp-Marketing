@@ -6,14 +6,15 @@ import { TabType } from '../components/Sidebar';
  * 
  * ADMIN: Full unrestricted access to all modules, billing, team invites, credentials, and settings.
  * MARKETER: Full access to Campaigns, Templates, Audience & CRM, Automations, Analytics, and Inbox. (Restricted from WABA settings/billing/team).
- * AGENT: Customer support role. Full access to Live Shared Inbox & Conversations, view contacts, view/use approved templates in chat.
+ * AGENT: Customer support role. Chats only: no other page is shown or reachable. Templates can still be sent from inside a chat.
+ * Call sheets (follow-up calls to customers who tapped a button): ADMIN (Operations Admin, Super Admin) and MARKETER only.
  * VIEWER: Read-only access across analytics, campaigns, templates, inbox, and audience.
  */
 
 export const ROLE_ALLOWED_TABS: Record<Role, TabType[]> = {
-  ADMIN: ['analytics', 'inbox', 'automations', 'campaigns', 'templates', 'contacts', 'settings'],
-  MARKETER: ['analytics', 'inbox', 'automations', 'campaigns', 'templates', 'contacts'],
-  AGENT: ['inbox', 'contacts', 'templates'],
+  ADMIN: ['analytics', 'inbox', 'automations', 'calls', 'campaigns', 'templates', 'contacts', 'settings'],
+  MARKETER: ['analytics', 'inbox', 'automations', 'calls', 'campaigns', 'templates', 'contacts'],
+  AGENT: ['inbox'],
   VIEWER: ['analytics', 'inbox', 'campaigns', 'templates', 'contacts'],
 };
 

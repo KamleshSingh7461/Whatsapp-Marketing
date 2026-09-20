@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { MessageDirection, MessageStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { WhatsappIntegrationService } from '../whatsapp-integration/whatsapp-integration.service';
+import { CampaignsService } from '../campaigns/campaigns.service';
+import { ReplyRulesService } from '../reply-rules/reply-rules.service';
 
 const SESSION_WINDOW_HOURS = 24;
 
@@ -17,7 +18,8 @@ export class WebhooksService {
 
   constructor(
     private prisma: PrismaService,
-    private whatsappService: WhatsappIntegrationService,
+    private campaigns: CampaignsService,
+    private replyRules: ReplyRulesService,
   ) {}
 
   async handleIncoming(payload: any): Promise<void> {
@@ -127,13 +129,17 @@ export class WebhooksService {
       });
     }
 
+    const isImage = message.type === 'image' || !!message.image;
+    const mediaUrl = isImage && message.image?.id ? `/api/whatsapp/media/${message.image.id}` : undefined;
+
     const rawText = 
       message.text?.body ||
       message.button?.text ||
       message.interactive?.button_reply?.title ||
       message.interactive?.list_reply?.title ||
+      message.image?.caption ||
       message.caption ||
-      (message.type ? `[${message.type.toUpperCase()} Message]` : 'Inbound WhatsApp message');
+      (isImage ? 'Image attachment' : (message.type ? `[${message.type.toUpperCase()} Message]` : 'Inbound WhatsApp message'));
 
     const textContent = String(rawText).trim();
 
@@ -145,6 +151,8 @@ export class WebhooksService {
         metaMessageId: message.id,
         payloadJson: {
           body: textContent,
+          mediaUrl: mediaUrl,
+          mediaType: isImage ? 'image' : undefined,
           authorName: contact.displayName || metaProfileName || 'Customer',
           raw: message,
         },
@@ -153,51 +161,18 @@ export class WebhooksService {
 
     this.logger.log(`Inbound message recorded from +${phone}: "${textContent}"`);
 
-    // Predefined "Yes" Auto-Response & Hot Lead Tagging Logic
-    const cleanLower = textContent.toLowerCase();
-    const isYesReply =
-      cleanLower === 'yes' ||
-      cleanLower.startsWith('yes ') ||
-      cleanLower.endsWith(' yes') ||
-      cleanLower === 'yes!' ||
-      cleanLower === 'yess' ||
-      cleanLower === 'yeah';
-
-    if (isYesReply) {
-      // 1. Tag contact as "Hot Lead - Yes Opt-In"
-      const existingTags = contact.tags || [];
-      const updatedTags = Array.from(new Set([...existingTags, 'Hot Lead - Yes Opt-In', 'Hot Lead']));
-      await this.prisma.contact.update({
-        where: { id: contact.id },
-        data: { tags: updatedTags },
+    // A customer tapping a button on one of our templates: apply any matching reply rule (tag the contact,
+    // send the automatic reply, record them for the call sheet). Rules are set up on the Automations page.
+    // Kept in its own try/catch so a problem here can never stop the message above from being recorded.
+    try {
+      await this.replyRules.handleInbound({
+        message,
+        contactId: contact.id,
+        phone,
+        conversationId: conversation.id,
       });
-
-      // 2. Dispatch automated WhatsApp response
-      const autoReplyText = `Alright, let’s say it’s time for you to get started. \nOur student subject matter expert will call you shortly do you have a preferred time that we can connect?`;
-
-      try {
-        await this.whatsappService.sendTextMessage({
-          to: phone,
-          text: autoReplyText,
-        });
-      } catch (err: any) {
-        this.logger.warn(`Auto-reply dispatch exception to +${phone}: ${err.message}`);
-      }
-
-      // 3. Record outbound automated response in conversation thread
-      await this.prisma.message.create({
-        data: {
-          conversationId: conversation.id,
-          direction: MessageDirection.OUTBOUND,
-          status: MessageStatus.DELIVERED,
-          payloadJson: {
-            body: autoReplyText,
-            authorName: 'FGSN Auto-Reply Bot',
-          },
-        },
-      });
-
-      this.logger.log(`Dispatched YES auto-reply to +${phone} and tagged as 'Hot Lead - Yes Opt-In'`);
+    } catch (e: any) {
+      this.logger.warn(`Reply rules could not process message ${message.id}: ${e?.message ?? e}`);
     }
   }
 
@@ -218,6 +193,17 @@ export class WebhooksService {
     }
 
     if (!mapped) return;
+
+    // Broadcast recipients: advance the matching CampaignRecipient (no-op for ordinary chat messages).
+    // Kept in its own try/catch so a problem here can never stop the chat status update below.
+    try {
+      const err = status.errors?.[0];
+      await this.campaigns.applyDeliveryStatus(status.id, status.status, err
+        ? { code: err.code, message: err.message || err.title || err.error_data?.details }
+        : undefined);
+    } catch (e: any) {
+      this.logger.warn(`Could not apply delivery status to campaign recipient ${status.id}: ${e?.message ?? e}`);
+    }
 
     try {
       await this.prisma.message.updateMany({

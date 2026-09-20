@@ -26,10 +26,17 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   if (!response.ok) {
     let message = `API error ${response.status}`;
     try {
-      const errorJson = await response.json();
-      message = errorJson.message || message;
+      const text = await response.text();
+      try {
+        const errorJson = JSON.parse(text);
+        message = Array.isArray(errorJson?.message)
+          ? errorJson.message.join(', ')
+          : (errorJson?.message || message);
+      } catch {
+        if (text) message = text;
+      }
     } catch {
-      message = await response.text();
+      // fallback to default message
     }
     throw new Error(message);
   }
@@ -241,6 +248,55 @@ export async function updateCampaignApi(id: string, update: { status?: any; stat
   });
 }
 
+// Server-side broadcast sending: the server owns the send loop, so it survives closing the browser.
+export async function getServerSendStatusApi() {
+  return apiFetch<{ enabled: boolean; stub: boolean }>('/campaigns/server-send');
+}
+
+export async function launchCampaignApi(body: {
+  name: string;
+  templateName: string;
+  language?: string;
+  category?: string;
+  targetTags?: string[];
+}) {
+  return apiFetch<any>('/campaigns/launch', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export type CampaignAction = 'pause' | 'resume' | 'cancel' | 'retry-failed';
+
+export async function campaignActionApi(id: string, action: CampaignAction) {
+  return apiFetch<any>(`/campaigns/${id}/${action}`, { method: 'POST' });
+}
+
+export async function getCampaignRecipientsApi(
+  id: string,
+  opts: { status?: string; limit?: number; offset?: number } = {},
+) {
+  const q = new URLSearchParams();
+  if (opts.status) q.set('status', opts.status);
+  if (opts.limit) q.set('limit', String(opts.limit));
+  if (opts.offset) q.set('offset', String(opts.offset));
+  const qs = q.toString();
+  return apiFetch<{
+    items: Array<{
+      id: string;
+      phone: string;
+      displayName: string | null;
+      status: string;
+      errorCode: string | null;
+      errorMessage: string | null;
+      attempts: number;
+    }>;
+    total: number;
+    limit: number;
+    offset: number;
+  }>(`/campaigns/${id}/recipients${qs ? `?${qs}` : ''}`);
+}
+
 // Automations API Calls
 export async function getFlowsApi() {
   return apiFetch<any[]>('/automations');
@@ -251,4 +307,47 @@ export async function updateFlowStatusApi(id: string, status: 'ACTIVE' | 'PAUSED
     method: 'PATCH',
     body: JSON.stringify({ status }),
   });
+}
+
+// Meta message delivery insights (same figures as WhatsApp Manager > Insights)
+export async function getMetaInsightsApi(days: number) {
+  return apiFetch<import('../types').MetaInsightsResponse>(`/whatsapp/insights?days=${days}`);
+}
+
+// Reply rules (Automations page)
+export async function getReplyRulesApi() {
+  return apiFetch<import('../types').ReplyRule[]>('/reply-rules');
+}
+
+export async function createReplyRuleApi(input: import('../types').ReplyRuleInput) {
+  return apiFetch<import('../types').ReplyRule>('/reply-rules', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export async function updateReplyRuleApi(id: string, patch: Partial<import('../types').ReplyRuleInput>) {
+  return apiFetch<import('../types').ReplyRule>(`/reply-rules/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+}
+
+export async function deleteReplyRuleApi(id: string) {
+  return apiFetch<{ ok: boolean }>(`/reply-rules/${id}`, { method: 'DELETE' });
+}
+
+export async function getReplyRuleLeadsApi(id: string, from?: string) {
+  const qs = from ? `?from=${encodeURIComponent(from)}` : '';
+  return apiFetch<import('../types').CallLeadRow[]>(`/reply-rules/${id}/leads${qs}`);
+}
+
+// Call sheets (who has been called, with remarks, and who did it)
+export async function updateCallLeadApi(id: string, body: { status: import('../types').CallStatus; remarks: string }) {
+  return apiFetch<{ id: string; status: import('../types').CallStatus; remarks: string | null; updatedAt: string | null; updatedBy: string | null }>(
+    `/call-leads/${id}`,
+    { method: 'PATCH', body: JSON.stringify(body) },
+  );
+}
+
+export async function getCallLeadHistoryApi(id: string) {
+  return apiFetch<import('../types').CallLeadHistoryEntry[]>(`/call-leads/${id}/history`);
+}
+
+export async function getCallOverviewApi(days: number) {
+  return apiFetch<import('../types').CallOverview>(`/call-leads/overview?days=${days}`);
 }

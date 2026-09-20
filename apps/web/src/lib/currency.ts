@@ -48,6 +48,18 @@ export function formatRate(
 }
 
 /**
+ * Formats an amount that is already in Indian rupees, such as what Meta bills this account.
+ * `formatCurrency` expects US dollars, so passing rupees to it would inflate them by the INR rate.
+ */
+export function formatFromINR(
+  amountInINR: number,
+  currency: CurrencyCode = 'INR',
+  decimals: number = 0
+): string {
+  return formatCurrency(amountInINR / CURRENCIES.INR.rate, currency, decimals);
+}
+
+/**
  * Returns the currency symbol for the code
  */
 export function getCurrencySymbol(currency: CurrencyCode = 'INR'): string {
