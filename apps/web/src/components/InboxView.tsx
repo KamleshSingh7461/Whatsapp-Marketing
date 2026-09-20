@@ -28,6 +28,7 @@ import {
   ExternalLinkIcon,
 } from './WhatsAppIcons';
 import { templateParts } from '../lib/templateMatch';
+import { formatBlockUntil, metaBlockOf, metaBlockReason } from '../lib/metaDelivery';
 
 interface InboxViewProps {
   conversations: Conversation[];
@@ -517,6 +518,8 @@ export const InboxView: React.FC<InboxViewProps> = ({
   });
 
   const windowState = activeConversation ? getWindowStatus(activeConversation.windowExpiresAt) : null;
+  // Set when Meta has recently refused to deliver messages to this person (broadcasts leave them out).
+  const contactRest = activeConversation ? metaBlockOf(activeConversation.contact) : null;
   const filteredCanned = cannedList.filter(
     c => c.label.toLowerCase().includes(cannedSearch.toLowerCase()) || c.text.toLowerCase().includes(cannedSearch.toLowerCase())
   );
@@ -1373,6 +1376,17 @@ export const InboxView: React.FC<InboxViewProps> = ({
               </div>
             </div>
 
+            {/* Meta is not delivering to this person: broadcasts skip them for a while */}
+            {contactRest && (
+              <div className="wa-crm-card wa-crm-rest">
+                <span className="wa-crm-card-title">Broadcasts</span>
+                <p className="wa-crm-rest-title">Meta is not delivering marketing messages to this person</p>
+                <p className="wa-crm-rest-text">
+                  {metaBlockReason(contactRest)}. Broadcasts leave them out until {formatBlockUntil(contactRest)}. Normal replies here still work once they have messaged you.
+                </p>
+              </div>
+            )}
+
             {/* 4. One-Click Instant WhatsApp Messages */}
             <div className="wa-crm-card">
               <span className="wa-crm-card-title">Quick Actions</span>
@@ -1516,6 +1530,13 @@ export const InboxView: React.FC<InboxViewProps> = ({
               </div>
               <button className="close-btn" onClick={() => setShowTemplateModal(false)}>✕</button>
             </div>
+
+            {contactRest && (
+              <div className="wa-tpl-rest-note" role="alert">
+                <strong>Meta recently refused to deliver to {activeConversation.contact.displayName}.</strong>{' '}
+                {metaBlockReason(contactRest)}, so a marketing template will probably not reach them. Sending anyway is your choice.
+              </div>
+            )}
 
             <div style={{ maxHeight: 380, overflowY: 'auto', padding: '8px 0' }}>
               {templates.length === 0 ? (

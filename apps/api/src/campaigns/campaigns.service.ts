@@ -12,6 +12,7 @@ import { TemplatesService } from '../templates/templates.service';
 import { CampaignSenderService } from './campaign-sender.service';
 import { LaunchCampaignDto } from './dto/launch-campaign.dto';
 import { CampaignProgress, estimateCostUSD, loadCounts, summarize } from './campaign-progress';
+import { isMetaBlocked } from '../delivery-blocks/delivery-blocks.logic';
 
 const ALL_OPTED_IN = 'All Opted-In';
 const INTERNAL_TEST_GROUP = 'Internal Team Test Group';
@@ -164,11 +165,15 @@ export class CampaignsService {
   private async resolveRecipients(targetTags: string[]) {
     const all = targetTags.length === 0 || targetTags.includes(ALL_OPTED_IN);
     const wanted = targetTags.map(t => (t === INTERNAL_TEST_GROUP ? INTERNAL_TEAM_TAG : t));
-    return this.prisma.contact.findMany({
+    const candidates = await this.prisma.contact.findMany({
       where: { optedIn: true, ...(all ? {} : { tags: { hasSome: wanted } }) },
-      select: { id: true, phone: true, displayName: true },
+      select: { id: true, phone: true, displayName: true, attributes: true },
       orderBy: { createdAt: 'asc' },
     });
+    // Leave out people Meta has recently refused to deliver to: sending to them again only adds more refusals.
+    const now = new Date();
+    const recipients = candidates.filter(c => !isMetaBlocked(c.attributes, now));
+    return { recipients, skippedMetaBlocked: candidates.length - recipients.length };
   }
 
   /** Only templates we can actually send unattended: approved, and body-only with at most {{1}}. */
@@ -218,9 +223,14 @@ export class CampaignsService {
 
     const template = await this.requireSendableTemplate(dto.templateName, dto.language);
     const targetTags = dto.targetTags ?? [];
-    const contacts = await this.resolveRecipients(targetTags);
+    const audience = await this.resolveRecipients(targetTags);
+    const contacts = audience.recipients;
     if (contacts.length === 0) {
-      throw new BadRequestException('No opted-in contacts match the selected audience.');
+      throw new BadRequestException(
+        audience.skippedMetaBlocked > 0
+          ? `Everyone in this audience (${audience.skippedMetaBlocked}) is resting because Meta recently refused to deliver to them. Try again later or choose another audience.`
+          : 'No opted-in contacts match the selected audience.',
+      );
     }
 
     // Double-click / retry guard: the same name launched in the last two minutes is almost certainly a duplicate.
@@ -246,6 +256,7 @@ export class CampaignsService {
               usesName: template.usesName,
               targetTags,
               totalRecipients: contacts.length,
+              skippedMetaBlocked: audience.skippedMetaBlocked,
             },
             stats: { ...LEGACY_STATS },
           },

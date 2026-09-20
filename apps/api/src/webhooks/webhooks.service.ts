@@ -3,6 +3,7 @@ import { MessageDirection, MessageStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CampaignsService } from '../campaigns/campaigns.service';
 import { ReplyRulesService } from '../reply-rules/reply-rules.service';
+import { DeliveryBlocksService } from '../delivery-blocks/delivery-blocks.service';
 
 const SESSION_WINDOW_HOURS = 24;
 
@@ -20,6 +21,7 @@ export class WebhooksService {
     private prisma: PrismaService,
     private campaigns: CampaignsService,
     private replyRules: ReplyRulesService,
+    private deliveryBlocks: DeliveryBlocksService,
   ) {}
 
   async handleIncoming(payload: any): Promise<void> {
@@ -190,6 +192,14 @@ export class WebhooksService {
       this.logger.error(`Meta Webhook Delivery Failure for WAMID ${status.id} to recipient ${status.recipient_id}: Code ${err.code} - ${err.title} (${err.message || err.error_data?.details || 'Unknown error'})`);
     } else {
       this.logger.log(`Meta Webhook Status Update: WAMID ${status.id} is '${status.status}' for recipient ${status.recipient_id}`);
+    }
+
+    // Remember people Meta will not deliver to, so broadcasts skip them for a while. Best-effort and kept in its
+    // own try/catch: a problem here must never stop the status handling below.
+    try {
+      await this.deliveryBlocks.onStatus(status);
+    } catch (e: any) {
+      this.logger.warn(`Could not record the delivery refusal for ${status?.recipient_id}: ${e?.message ?? e}`);
     }
 
     if (!mapped) return;

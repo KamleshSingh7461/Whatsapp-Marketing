@@ -3,6 +3,7 @@ import { Contact, RFMSegment, Template, User } from '../types';
 import { CurrencyCode, formatCurrency } from '../lib/currency';
 import { canManageContacts } from '../lib/permissions';
 import { csvCell, csvText, downloadCsv } from '../lib/csv';
+import { formatBlockUntil, metaBlockOf, metaBlockReason } from '../lib/metaDelivery';
 import { BulkContactUploadModal } from './BulkContactUploadModal';
 import {
   POPULAR_COUNTRY_CODES,
@@ -682,6 +683,7 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
                 const cohort = COHORTS[c.rfmSegment || 'NEW_LEADS'] || COHORTS.NEW_LEADS;
                 const tags = c.tags || [];
                 const last = c.lastActiveAt ? new Date(c.lastActiveAt) : null;
+                const resting = metaBlockOf(c);
                 return (
                   <tr key={c.id}>
                     <td data-label="Contact">
@@ -701,6 +703,14 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
                         {c.optedIn ? 'Opted in' : 'Opted out'}
                       </span>
                       <div className="wa-bc-muted wa-ct-source">{SOURCE_LABEL[c.optInSource || ''] || 'Organic inbound'}</div>
+                      {resting && (
+                        <div className="wa-ct-rest" title={`${metaBlockReason(resting)}. Left out of broadcasts until ${formatBlockUntil(resting)}.`}>
+                          <span className="wa-bc-status tone-live">
+                            <span className="wa-bc-status-dot" />
+                            Meta not delivering · until {formatBlockUntil(resting)}
+                          </span>
+                        </div>
+                      )}
                     </td>
                     <td data-label="Cohort">
                       <span className={`wa-ct-badge tone-${cohort.tone}`}>{cohort.label}</span>

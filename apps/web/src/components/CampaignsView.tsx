@@ -8,6 +8,7 @@ import {
   INTERNAL_TEST_GROUP,
   costPerMessageUSD,
   estimateCampaignCostUSD,
+  resolveCampaignAudience,
   resolveCampaignRecipients,
 } from '../lib/campaignAudience';
 import { BroadcastIcon, CloseIcon } from './WhatsAppIcons';
@@ -178,7 +179,10 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
   const [selectedTag, setSelectedTag] = useState(crmTags[0] || ALL_OPTED_IN);
 
   // Recipients are always the real, opted-in audience: the same list the dispatcher will message.
-  const recipientsCount = resolveCampaignRecipients(contacts, [selectedTag]).length;
+  // People Meta recently refused to deliver to are left out (they rest for a while), and we say how many.
+  const audience = resolveCampaignAudience(contacts, [selectedTag]);
+  const recipientsCount = audience.recipients.length;
+  const restingCount = audience.skipped.length;
   const countFor = (tag: string) => resolveCampaignRecipients(contacts, [tag]).length;
 
   const canCreate = canCreateCampaigns(currentUser?.role);
@@ -601,10 +605,24 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                   <strong>{recipientsCount.toLocaleString()}</strong>
                   <span>
                     {recipientsCount === 0
-                      ? 'No opted-in contacts match this audience. Add or import contacts first.'
+                      ? restingCount > 0
+                        ? 'Everyone in this audience is resting because Meta recently refused to deliver to them. Choose another audience, or try again later.'
+                        : 'No opted-in contacts match this audience. Add or import contacts first.'
                       : `opted-in ${recipientsCount === 1 ? 'contact' : 'contacts'} will receive this broadcast`}
                   </span>
                 </div>
+                {restingCount > 0 && recipientsCount > 0 && (
+                  <div className="wa-bc-warn" role="note">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <circle cx="12" cy="12" r="10" />
+                      <line x1="12" y1="16" x2="12" y2="12" />
+                      <line x1="12" y1="8" x2="12.01" y2="8" />
+                    </svg>
+                    <span>
+                      {restingCount.toLocaleString()} {restingCount === 1 ? 'person is' : 'people are'} left out because Meta recently refused to deliver to them. They are included again automatically when their rest period ends.
+                    </span>
+                  </div>
+                )}
                 {recipientsCount > 2000 && (
                   <div className="wa-bc-warn" role="alert">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

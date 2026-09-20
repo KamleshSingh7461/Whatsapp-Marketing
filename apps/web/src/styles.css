@@ -12890,3 +12890,40 @@ td {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ==========================================================================
+   META NOT DELIVERING: contacts Meta recently refused to deliver to (they are left out of broadcasts for a while)
+   ========================================================================== */
+.wa-ct-rest {
+  margin-top: 6px;
+}
+
+.wa-crm-rest {
+  border-left: 3px solid #d99a1c;
+}
+
+.wa-crm-rest-title {
+  margin: 4px 0 4px;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 18px;
+  color: #111b21;
+}
+
+.wa-crm-rest-text {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 17px;
+  color: #54656f;
+}
+
+.wa-tpl-rest-note {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid #f0d78c;
+  border-radius: 8px;
+  background: #fff8e1;
+  font-size: 13px;
+  line-height: 18px;
+  color: #5c4a10;
+}

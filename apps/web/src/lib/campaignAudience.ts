@@ -1,5 +1,6 @@
 import { Contact } from '../types';
 import { CURRENCIES } from './currency';
+import { isMetaBlocked } from './metaDelivery';
 
 export const ALL_OPTED_IN = 'All Opted-In';
 export const INTERNAL_TEST_GROUP = 'Internal Team Test Group';
@@ -14,13 +15,29 @@ const INTERNAL_TEAM_TAG = 'Internal Team';
  *
  * Only opted-in contacts are ever included. An audience that matches nobody returns an empty
  * list; callers must treat that as "send to no one", never as "send to everyone".
+ *
+ * People Meta has recently refused to deliver to are left out (see lib/metaDelivery.ts) and reported as `skipped`:
+ * sending to them again only adds more refusals.
  */
-export function resolveCampaignRecipients(contacts: Contact[], targetTags: string[]): Contact[] {
+export function resolveCampaignAudience(
+  contacts: Contact[],
+  targetTags: string[],
+  now: number = Date.now(),
+): { recipients: Contact[]; skipped: Contact[] } {
   const optedIn = contacts.filter(c => c.optedIn);
-  if (targetTags.length === 0 || targetTags.includes(ALL_OPTED_IN)) return optedIn;
+  let inAudience = optedIn;
+  if (!(targetTags.length === 0 || targetTags.includes(ALL_OPTED_IN))) {
+    const wanted = new Set(targetTags.map(t => (t === INTERNAL_TEST_GROUP ? INTERNAL_TEAM_TAG : t)));
+    inAudience = optedIn.filter(c => (c.tags || []).some(t => wanted.has(t)));
+  }
+  const recipients: Contact[] = [];
+  const skipped: Contact[] = [];
+  for (const c of inAudience) (isMetaBlocked(c, now) ? skipped : recipients).push(c);
+  return { recipients, skipped };
+}
 
-  const wanted = new Set(targetTags.map(t => (t === INTERNAL_TEST_GROUP ? INTERNAL_TEAM_TAG : t)));
-  return optedIn.filter(c => (c.tags || []).some(t => wanted.has(t)));
+export function resolveCampaignRecipients(contacts: Contact[], targetTags: string[], now: number = Date.now()): Contact[] {
+  return resolveCampaignAudience(contacts, targetTags, now).recipients;
 }
 
 // Meta's per-message rates for India in INR (same rates the dashboard ledger uses).
