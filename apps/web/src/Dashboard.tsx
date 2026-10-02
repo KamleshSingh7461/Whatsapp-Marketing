@@ -39,6 +39,7 @@ import { AcceptInviteModal } from './components/AcceptInviteModal';
 import { CurrencyCode } from './lib/currency';
 import { canAccessTab, getDefaultTabForRole } from './lib/permissions';
 import { resolveCampaignRecipients } from './lib/campaignAudience';
+import { ChatAttachment, outboundKindForMime, roleLabelOf } from './lib/chatMessage';
 import {
   AutomationFlow,
   Campaign,
@@ -663,7 +664,105 @@ export function Dashboard() {
   }, []);
 
   // Handlers
-  const handleSendMessage = async (convId: string, text: string, isInternalNote?: boolean, mediaUrl?: string) => {
+  // A photo, video, audio file or document: uploaded to Meta and sent, then saved to the chat with what Meta returned.
+  const handleSendAttachment = async (convId: string, caption: string, attachment: ChatAttachment) => {
+    const conv = conversations.find(c => c.id === convId);
+    const phone = conv?.contact?.phone;
+    const kind = outboundKindForMime(attachment.mime);
+    const label = caption || (kind === 'document' ? attachment.fileName : kind === 'image' ? 'Photo' : kind === 'video' ? 'Video' : 'Audio');
+
+    const newMsg: Message = {
+      id: `msg_${Date.now()}`,
+      conversationId: convId,
+      direction: 'OUTBOUND',
+      status: 'QUEUED',
+      content: label,
+      mediaUrl: attachment.dataUrl,
+      mediaType: kind,
+      mimeType: attachment.mime,
+      fileName: attachment.fileName,
+      fileSize: attachment.size,
+      caption: caption || undefined,
+      authorName: user?.name || 'Agent',
+      authorId: user?.id,
+      authorRole: roleLabelOf(user),
+      timestamp: new Date().toISOString(),
+    };
+    const patchLocal = (changes: Partial<Message>) =>
+      setMessagesByConvId(prev => ({
+        ...prev,
+        [convId]: (prev[convId] || []).map(m => (m.id === newMsg.id ? { ...m, ...changes } : m)),
+      }));
+
+    setMessagesByConvId(prev => ({ ...prev, [convId]: [...(prev[convId] || []), newMsg] }));
+    setConversations(prev => prev.map(c => (c.id === convId ? { ...c, lastMessage: newMsg, unreadCount: 0 } : c)));
+    if (!phone) return;
+
+    let res: any;
+    try {
+      res = await apiFetch<any>('/whatsapp/send-media', {
+        method: 'POST',
+        body: JSON.stringify({ to: phone, dataUrl: attachment.dataUrl, fileName: attachment.fileName, caption }),
+      });
+    } catch (e: any) {
+      res = { success: false, error: e?.message || 'Could not reach the server' };
+    }
+    const ok = !!res?.success;
+    patchLocal({ status: ok ? 'SENT' : 'FAILED', errorCode: ok ? undefined : String(res?.error || ''), metaMessageId: res?.messageId });
+
+    // Saved only once Meta has the file, so the chat keeps a copy that still opens later.
+    if (res?.mediaId) {
+      apiFetch('/inbox/messages', {
+        method: 'POST',
+        body: JSON.stringify({
+          conversationId: convId,
+          direction: 'OUTBOUND',
+          text: label,
+          caption: caption || undefined,
+          mediaId: res.mediaId,
+          mediaType: res.mediaType,
+          mimeType: res.mimeType,
+          fileName: res.fileName,
+          fileSize: res.fileSize,
+          status: ok ? 'SENT' : 'FAILED',
+          errorCode: ok ? undefined : res.error,
+          metaMessageId: res.messageId,
+          phone,
+          name: conv?.contact?.displayName,
+        }),
+      }).catch(() => null);
+    }
+
+    if (!ok) {
+      const errStr = String(res?.error || '');
+      if (errStr.includes('131047') || errStr.toLowerCase().includes('24 hours') || errStr.toLowerCase().includes('re-engagement')) {
+        alert(`Meta WhatsApp Notice for +${phone}:\nAttachments can only be sent within 24 hours of the customer's last message. Send an approved template first.`);
+      } else {
+        alert(`The attachment was not sent to +${phone}:\n${errStr}`);
+      }
+    }
+  };
+
+  // Edits a message the team sent. For a message the customer received, the server also sends the new text as a
+  // correction (WhatsApp does not let businesses change a delivered message). Throws with the reason when not allowed.
+  const handleEditMessage = async (convId: string, messageId: string, text: string) => {
+    const res = await apiFetch<any>(`/inbox/messages/${encodeURIComponent(messageId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ text }),
+    });
+    setMessagesByConvId(prev => ({
+      ...prev,
+      [convId]: (prev[convId] || []).map(m =>
+        m.id === messageId
+          ? { ...m, content: res.content, editedAt: res.editedAt, editedByName: res.editedByName, editHistory: res.editHistory }
+          : m,
+      ),
+    }));
+    return res as { correctionSent: boolean };
+  };
+
+  const handleSendMessage = async (convId: string, text: string, isInternalNote?: boolean, attachment?: ChatAttachment) => {
+    if (attachment && !isInternalNote) return handleSendAttachment(convId, text, attachment);
     const conv = conversations.find(c => c.id === convId);
     const phone = conv?.contact?.phone;
 
@@ -673,10 +772,10 @@ export function Dashboard() {
       direction: 'OUTBOUND',
       status: isInternalNote ? 'DELIVERED' : 'SENT',
       content: text,
-      mediaUrl: mediaUrl,
-      mediaType: mediaUrl ? 'image' : undefined,
       isInternalNote: !!isInternalNote,
       authorName: user?.name || 'Agent',
+      authorId: user?.id,
+      authorRole: roleLabelOf(user),
       timestamp: new Date().toISOString(),
     };
 
@@ -701,8 +800,6 @@ export function Dashboard() {
           conversationId: convId,
           direction: 'OUTBOUND',
           text,
-          mediaUrl,
-          mediaType: mediaUrl ? 'image' : undefined,
           isInternalNote: !!isInternalNote,
           authorName: user?.name || 'Agent',
           phone,
@@ -779,6 +876,8 @@ export function Dashboard() {
       buttons: template.bodyJson?.buttons,
       content: renderedText,
       authorName: user?.name || 'Agent',
+      authorId: user?.id,
+      authorRole: roleLabelOf(user),
       timestamp: new Date().toISOString(),
     };
 
@@ -1583,6 +1682,7 @@ export function Dashboard() {
               currency={currency}
               currentUser={user}
               onSendMessage={handleSendMessage}
+              onEditMessage={handleEditMessage}
               onSendTemplateMessage={handleSendTemplateMessage}
               onSimulateInbound={handleSimulateInbound}
               onToggleResolve={handleToggleResolve}

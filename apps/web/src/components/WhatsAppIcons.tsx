@@ -362,3 +362,127 @@ export const CallSheetNavIcon: React.FC<{ size?: number; color?: string }> = ({ 
     <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
   </svg>
 );
+
+/* ==========================================================================
+   Attachments: file-type badges, the attach menu and media player glyphs, drawn after WhatsApp's own
+   ========================================================================== */
+
+// Colours WhatsApp uses for each kind of file, and the label shown on the badge.
+const FILE_TYPES: Array<{ exts: string[]; mime?: RegExp; label?: string; color: string }> = [
+  { exts: ['pdf'], mime: /pdf/, label: 'PDF', color: '#E2574C' },
+  { exts: ['doc', 'docx', 'odt', 'rtf'], mime: /word|opendocument\.text|rtf/, label: 'DOC', color: '#2A5699' },
+  { exts: ['xls', 'xlsx', 'ods'], mime: /excel|sheet/, label: 'XLS', color: '#1F7244' },
+  { exts: ['csv'], mime: /csv/, label: 'CSV', color: '#1F7244' },
+  { exts: ['ppt', 'pptx', 'odp'], mime: /powerpoint|presentation/, label: 'PPT', color: '#D04423' },
+  { exts: ['zip', 'rar', '7z', 'gz'], mime: /zip|rar|compressed|7z/, label: 'ZIP', color: '#7C6A55' },
+  { exts: ['txt'], mime: /^text\/plain/, label: 'TXT', color: '#5E6E78' },
+  { exts: ['mp3', 'ogg', 'opus', 'm4a', 'aac', 'amr', 'wav'], mime: /^audio\//, color: '#FA6533' },
+  { exts: ['mp4', '3gp', 'mov', 'webm'], mime: /^video\//, color: '#7F66FF' },
+  { exts: ['jpg', 'jpeg', 'png', 'webp', 'gif'], mime: /^image\//, color: '#007BFC' },
+];
+
+/** Upper-case short label and colour for a file, from its name first and its type second. */
+export function fileTypeOf(fileName?: string, mime?: string): { label: string; color: string } {
+  const ext = (fileName || '').toLowerCase().match(/\.([a-z0-9]{1,5})$/)?.[1] || '';
+  const m = (mime || '').toLowerCase();
+  const hit = FILE_TYPES.find(t => (ext && t.exts.includes(ext)) || (m && t.mime?.test(m)));
+  const label = hit?.label || (ext ? ext.toUpperCase().slice(0, 4) : m.split('/').pop()?.split(/[.;+-]/)[0].toUpperCase().slice(0, 4) || 'FILE');
+  return { label, color: hit?.color || '#8696A0' };
+}
+
+/** A page with a folded corner and the file type on it, as on WhatsApp document messages. */
+export const FileTypeIcon: React.FC<{ fileName?: string; mime?: string; size?: number }> = ({ fileName, mime, size = 32 }) => {
+  const { label, color } = fileTypeOf(fileName, mime);
+  return (
+    <svg viewBox="0 0 30 36" width={Math.round(size * 0.833)} height={size} aria-hidden="true" style={{ flexShrink: 0, display: 'block' }}>
+      <path d="M4 0h15.5L29 9.5V33a3 3 0 0 1-3 3H4a3 3 0 0 1-3-3V3a3 3 0 0 1 3-3z" fill={color} />
+      <path d="M19.5 0v6.5a3 3 0 0 0 3 3H29z" fill="#ffffff" fillOpacity="0.45" />
+      <text
+        x="15"
+        y="28.5"
+        textAnchor="middle"
+        fill="#ffffff"
+        fontSize={label.length > 3 ? 6.4 : 7.6}
+        fontWeight="700"
+        fontFamily="'Segoe UI', Helvetica, Arial, sans-serif"
+        letterSpacing="0.2"
+      >
+        {label}
+      </text>
+    </svg>
+  );
+};
+
+export const PlusIcon: React.FC<{ size?: number; color?: string }> = ({ size = 24, color = '#54656f' }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+    <line x1="12" y1="5" x2="12" y2="19" />
+    <line x1="5" y1="12" x2="19" y2="12" />
+  </svg>
+);
+
+export const AttachDocumentIcon: React.FC<{ size?: number; color?: string }> = ({ size = 22, color = '#7F66FF' }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
+    <path d="M14 2H6.5A2.5 2.5 0 0 0 4 4.5v15A2.5 2.5 0 0 0 6.5 22h11a2.5 2.5 0 0 0 2.5-2.5V8z" fill={color} />
+    <path d="M14 2v4a2 2 0 0 0 2 2h4z" fill="#ffffff" fillOpacity="0.5" />
+    <rect x="7.5" y="12" width="9" height="1.6" rx="0.8" fill="#ffffff" />
+    <rect x="7.5" y="15.6" width="6" height="1.6" rx="0.8" fill="#ffffff" />
+  </svg>
+);
+
+export const AttachPhotosIcon: React.FC<{ size?: number; color?: string }> = ({ size = 22, color = '#007BFC' }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
+    <rect x="2" y="4" width="20" height="16" rx="3" fill={color} />
+    <circle cx="16" cy="9" r="1.8" fill="#ffffff" />
+    <path d="M5 17.2l4.2-5.2 3.1 3.7 2.3-2.7 4.4 4.2z" fill="#ffffff" />
+  </svg>
+);
+
+export const AttachAudioIcon: React.FC<{ size?: number; color?: string }> = ({ size = 22, color = '#FA6533' }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
+    <path
+      d="M12 3a9 9 0 0 0-9 9v5.5A2.5 2.5 0 0 0 5.5 20H7a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1H5v-1a7 7 0 0 1 14 0v1h-2a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h1.5a2.5 2.5 0 0 0 2.5-2.5V12a9 9 0 0 0-9-9z"
+      fill={color}
+    />
+  </svg>
+);
+
+export const MicIcon: React.FC<{ size?: number; color?: string }> = ({ size = 20, color = '#ffffff' }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill={color} aria-hidden="true">
+    <path d="M12 14.5a3.5 3.5 0 0 0 3.5-3.5V5.5a3.5 3.5 0 0 0-7 0V11a3.5 3.5 0 0 0 3.5 3.5z" />
+    <path d="M18 11a1 1 0 1 0-2 0 4 4 0 0 1-8 0 1 1 0 1 0-2 0 6 6 0 0 0 5 5.91V19H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-2.09A6 6 0 0 0 18 11z" />
+  </svg>
+);
+
+export const PlayIcon: React.FC<{ size?: number; color?: string }> = ({ size = 22, color = '#54656f' }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill={color} aria-hidden="true">
+    <path d="M8 5.14v13.72a1 1 0 0 0 1.52.85l10.9-6.86a1 1 0 0 0 0-1.7L9.52 4.29A1 1 0 0 0 8 5.14z" />
+  </svg>
+);
+
+export const PauseIcon: React.FC<{ size?: number; color?: string }> = ({ size = 22, color = '#54656f' }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill={color} aria-hidden="true">
+    <rect x="6" y="5" width="4" height="14" rx="1" />
+    <rect x="14" y="5" width="4" height="14" rx="1" />
+  </svg>
+);
+
+export const VideoBadgeIcon: React.FC<{ size?: number; color?: string }> = ({ size = 16, color = '#ffffff' }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill={color} aria-hidden="true">
+    <path d="M16 7.5A1.5 1.5 0 0 0 14.5 6h-10A1.5 1.5 0 0 0 3 7.5v9A1.5 1.5 0 0 0 4.5 18h10a1.5 1.5 0 0 0 1.5-1.5v-2.7l4.2 3.15a.5.5 0 0 0 .8-.4V7.45a.5.5 0 0 0-.8-.4L16 10.2z" />
+  </svg>
+);
+
+export const DownloadCircleIcon: React.FC<{ size?: number; color?: string }> = ({ size = 32, color = '#8696a0' }) => (
+  <svg viewBox="0 0 34 34" width={size} height={size} fill="none" aria-hidden="true">
+    <circle cx="17" cy="17" r="15.5" stroke={color} strokeWidth="1.5" />
+    <path d="M17 10v12m0 0l-5-5m5 5l5-5" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+export const MediaUnavailableIcon: React.FC<{ size?: number; color?: string }> = ({ size = 22, color = '#8696a0' }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="4" width="18" height="16" rx="2.5" />
+    <path d="M3 4l18 16" />
+    <circle cx="15.5" cy="9" r="1.5" />
+  </svg>
+);

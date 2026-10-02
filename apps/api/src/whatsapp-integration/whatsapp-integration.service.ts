@@ -1,5 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { promises as fs } from 'fs';
+import * as path from 'path';
+import { MAX_MEDIA_BYTES, outboundKindForMime, parseDataUrl, roleLabel, storedMediaOf } from '../inbox/message-view.logic';
 import { PrismaService } from '../prisma/prisma.service';
 import { encryptToken } from '../common/crypto/token-cipher';
 import { ConnectWhatsappDto } from './dto/connect-whatsapp.dto';
@@ -298,6 +301,12 @@ export class WhatsappIntegrationService {
         orderBy: { updatedAt: 'desc' },
       });
 
+      const users = await this.prisma.user
+        .findMany({ select: { id: true, name: true, role: true, isSuperAdmin: true } })
+        .catch(() => [] as { id: string; name: string; role: string; isSuperAdmin: boolean }[]);
+      const usersById = new Map(users.map(u => [u.id, u]));
+      const usersByName = new Map(users.map(u => [u.name, u]));
+
       const formattedConvs: any[] = [];
       const messagesByConvId: Record<string, any[]> = {};
 
@@ -326,15 +335,13 @@ export class WhatsappIntegrationService {
             (payload.templateName ? `Template: ${payload.templateName}` : null) ||
             (payload.templateData?.name ? `Template: ${payload.templateData.name}` : null) ||
             'WhatsApp Message';
-          const mediaUrl =
-            payload.mediaUrl ||
-            payload.imageUrl ||
-            payload.image?.link ||
-            (payload.image?.id ? `/api/whatsapp/media/${payload.image.id}` : undefined);
-
-          const mediaType =
-            payload.mediaType ||
-            (payload.image || payload.raw?.type === 'image' || mediaUrl ? 'image' : undefined);
+          const media = storedMediaOf(payload);
+          // Who on the team sent it. Messages saved before roles were recorded are matched to a team member by name.
+          const teamMember = payload.authorId ? usersById.get(payload.authorId) : usersByName.get(payload.authorName);
+          const authorRole =
+            payload.authorRoleLabel ||
+            (teamMember ? roleLabel(teamMember.role, teamMember.isSuperAdmin) : undefined) ||
+            (payload.automation || payload.authorName === 'FGSN Auto-Reply Bot' ? 'Auto-reply' : undefined);
 
           return {
             id: m.id,
@@ -343,8 +350,12 @@ export class WhatsappIntegrationService {
             senderName: isOutbound ? (payload.authorName || 'FGSN Team') : (c.contact.displayName || `+${phone}`),
             direction: m.direction,
             content: extractedContent,
-            mediaUrl: mediaUrl,
-            mediaType: mediaType,
+            mediaUrl: media.mediaUrl,
+            mediaType: media.mediaType,
+            mimeType: media.mimeType,
+            fileName: media.fileName,
+            fileSize: media.fileSize,
+            caption: media.caption,
             timestamp: m.createdAt.toISOString(),
             status: m.status,
             metaMessageId: m.metaMessageId,
@@ -356,6 +367,11 @@ export class WhatsappIntegrationService {
             buttons: payload.buttons || payload.templateData?.buttons,
             isInternalNote: payload.isInternalNote || false,
             authorName: payload.authorName,
+            authorId: payload.authorId,
+            authorRole,
+            editedAt: payload.editedAt,
+            editedByName: payload.editedByName,
+            editHistory: payload.editHistory,
           };
         });
 
@@ -536,7 +552,125 @@ export class WhatsappIntegrationService {
     }
   }
 
+  /**
+   * Sends a photo, video, audio file or document through Meta's official media upload: the file is uploaded to Meta,
+   * then sent by its media id. Like any free-form reply this only reaches the customer inside the 24-hour window.
+   */
+  async sendMediaMessage(dto: { to: string; dataUrl: string; fileName?: string; caption?: string }) {
+    const phoneNumberId = this.config.get<string>('META_PHONE_NUMBER_ID') || '1268849126320372';
+    const systemToken = this.config.get<string>('META_SYSTEM_USER_TOKEN');
+    const apiVersion = this.config.get<string>('META_GRAPH_API_VERSION') || 'v21.0';
+
+    let formattedTo = String(dto.to || '').replace(/[^\d]/g, '');
+    if (formattedTo.length === 10) {
+      formattedTo = '91' + formattedTo;
+    }
+    if (formattedTo === '918655851749') {
+      return { success: false, error: 'Meta API restriction: Cannot send a message to your own WABA sender number.' };
+    }
+
+    const file = parseDataUrl(dto.dataUrl);
+    if (!file || file.bytes.length === 0) {
+      return { success: false, error: 'The attached file could not be read.' };
+    }
+    const kind = outboundKindForMime(file.mime);
+    if (file.bytes.length > MAX_MEDIA_BYTES[kind]) {
+      const mb = Math.round(MAX_MEDIA_BYTES[kind] / (1024 * 1024));
+      return { success: false, error: `This ${kind} is too large. WhatsApp allows up to ${mb} MB.` };
+    }
+    const fileName = (dto.fileName || 'attachment').slice(0, 200);
+
+    try {
+      // 1. Upload the file to Meta
+      const form = new FormData();
+      form.append('messaging_product', 'whatsapp');
+      form.append('type', file.mime);
+      form.append('file', new Blob([new Uint8Array(file.bytes)], { type: file.mime }), fileName);
+      const uploadRes = await fetch(`https://graph.facebook.com/${apiVersion}/${phoneNumberId}/media`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${systemToken}` },
+        body: form,
+      });
+      const uploadData: any = await uploadRes.json().catch(() => ({}));
+      if (!uploadRes.ok || !uploadData.id) {
+        this.logger.error(`Meta media upload failed (${uploadRes.status}): ${JSON.stringify(uploadData)}`);
+        return { success: false, error: uploadData.error?.message || `Meta media upload error ${uploadRes.status}` };
+      }
+      const mediaId: string = uploadData.id;
+      // Keep our own copy so the chat can show it even after Meta deletes theirs.
+      await this.writeMediaCache(mediaId, file.bytes, file.mime);
+
+      // 2. Send it
+      const caption = dto.caption?.trim() || undefined;
+      const part: any = { id: mediaId };
+      if (caption && kind !== 'audio') part.caption = caption;
+      if (kind === 'document') part.filename = fileName;
+      const payload = { messaging_product: 'whatsapp', recipient_type: 'individual', to: formattedTo, type: kind, [kind]: part };
+
+      this.logger.log(`Submitting ${kind} message to +${formattedTo}...`);
+      const res = await fetch(`https://graph.facebook.com/${apiVersion}/${phoneNumberId}/messages`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${systemToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data: any = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        this.logger.error(`Meta media send failed (${res.status}): ${JSON.stringify(data)}`);
+        return { success: false, error: data.error?.message || `Meta API error ${res.status}`, mediaId, mediaType: kind, mimeType: file.mime, fileName };
+      }
+      return {
+        success: true,
+        messageId: data.messages?.[0]?.id || `wmid.${Date.now()}`,
+        mediaId,
+        mediaType: kind,
+        mimeType: file.mime,
+        fileName,
+        fileSize: file.bytes.length,
+      };
+    } catch (err: any) {
+      this.logger.error(`Meta media send exception: ${err.message}`);
+      return { success: false, error: err.message };
+    }
+  }
+
+  private mediaCacheDir() {
+    return this.config.get<string>('MEDIA_CACHE_DIR') || path.join(process.cwd(), 'media-cache');
+  }
+
+  // Media ids are Meta's digits; anything else is never used as a file name.
+  private mediaCachePaths(mediaId: string) {
+    if (!/^[A-Za-z0-9_.-]{1,128}$/.test(mediaId) || mediaId.startsWith('.')) return null;
+    const dir = this.mediaCacheDir();
+    return { dir, data: path.join(dir, `${mediaId}.bin`), meta: path.join(dir, `${mediaId}.json`) };
+  }
+
+  private async writeMediaCache(mediaId: string, buffer: Buffer, contentType: string) {
+    const p = this.mediaCachePaths(mediaId);
+    if (!p) return;
+    try {
+      await fs.mkdir(p.dir, { recursive: true });
+      await fs.writeFile(p.data, buffer);
+      await fs.writeFile(p.meta, JSON.stringify({ contentType }));
+    } catch (e: any) {
+      this.logger.warn(`Could not save media ${mediaId} to the local cache: ${e.message}`);
+    }
+  }
+
+  private async readMediaCache(mediaId: string): Promise<{ buffer: Buffer; contentType: string } | null> {
+    const p = this.mediaCachePaths(mediaId);
+    if (!p) return null;
+    try {
+      const [buffer, meta] = await Promise.all([fs.readFile(p.data), fs.readFile(p.meta, 'utf8')]);
+      return { buffer, contentType: JSON.parse(meta).contentType || 'application/octet-stream' };
+    } catch {
+      return null;
+    }
+  }
+
   async getMediaStream(mediaId: string): Promise<{ buffer: Buffer; contentType: string }> {
+    const cached = await this.readMediaCache(mediaId);
+    if (cached) return cached;
+
     const systemToken = this.config.get<string>('META_SYSTEM_USER_TOKEN');
     const apiVersion = this.config.get<string>('META_GRAPH_API_VERSION') || 'v21.0';
     if (!systemToken) {
@@ -567,9 +701,11 @@ export class WhatsappIntegrationService {
     }
 
     const arrayBuf = await binRes.arrayBuffer();
-    return {
+    const media = {
       buffer: Buffer.from(arrayBuf),
-      contentType: metaData.mime_type || 'image/jpeg',
+      contentType: metaData.mime_type || 'application/octet-stream',
     };
+    await this.writeMediaCache(mediaId, media.buffer, media.contentType);
+    return media;
   }
 }

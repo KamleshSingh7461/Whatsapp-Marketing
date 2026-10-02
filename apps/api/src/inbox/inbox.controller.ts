@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AuthenticatedUser, CurrentUser } from '../common/decorators/current-user.decorator';
 import { InboxService } from './inbox.service';
 
 @Controller('inbox')
@@ -34,6 +35,7 @@ export class InboxController {
 
   @Post('messages')
   recordMessage(
+    @CurrentUser() user: AuthenticatedUser,
     @Body()
     dto: {
       conversationId: string;
@@ -45,9 +47,22 @@ export class InboxController {
       templateId?: string;
       phone?: string;
       name?: string;
+      status?: 'SENT' | 'DELIVERED' | 'FAILED';
+      errorCode?: string;
+      mediaId?: string;
+      mediaType?: string;
+      mimeType?: string;
+      fileName?: string;
+      fileSize?: number;
+      caption?: string;
     },
   ) {
-    return this.inboxService.recordMessage(dto);
+    return this.inboxService.recordMessage(dto, user);
+  }
+
+  // Edit a message the team sent. See decideEdit in message-view.logic.ts for what is allowed.
+  @Patch('messages/:id')
+  editMessage(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() body: { text: string }) {
+    return this.inboxService.editMessage(id, body?.text, user);
   }
 }
-

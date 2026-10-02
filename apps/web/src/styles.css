@@ -12927,3 +12927,421 @@ td {
   line-height: 18px;
   color: #5c4a10;
 }
+
+/* ==========================================================================
+   CHAT ATTACHMENTS, SENDER LABELS AND EDITING
+   ========================================================================== */
+.wa-bubble.has-media {
+  min-width: min(240px, 90%);
+}
+
+.wa-bubble-media-wrap {
+  margin: -3px -6px 4px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: rgba(11, 20, 26, 0.06);
+}
+
+.wa-bubble-media-img,
+.wa-bubble-media-video {
+  display: block;
+  width: 100%;
+  max-width: 330px;
+  max-height: 340px;
+  object-fit: cover;
+  cursor: pointer;
+}
+
+.wa-bubble-media-video {
+  cursor: default;
+  background: #000;
+}
+
+.wa-bubble-media-wrap.is-sticker {
+  background: transparent;
+}
+
+.wa-bubble-media-wrap.is-sticker .wa-bubble-media-img {
+  width: 140px;
+  height: 140px;
+  object-fit: contain;
+}
+
+.wa-bubble-row.outbound .wa-bubble-author {
+  color: #027eb5;
+}
+
+.wa-bubble-edited {
+  font-style: italic;
+  cursor: help;
+}
+
+.wa-bubble-failed {
+  color: #d93025;
+  font-weight: 600;
+}
+
+/* Edit button: appears on hover, always visible on touch screens */
+.wa-bubble-edit-btn {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 1px 2px rgba(11, 20, 26, 0.2);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 1;
+}
+
+.wa-internal-note .wa-bubble-edit-btn {
+  position: static;
+  width: 20px;
+  height: 20px;
+}
+
+.wa-bubble:hover .wa-bubble-edit-btn,
+.wa-internal-note:hover .wa-bubble-edit-btn,
+.wa-bubble-edit-btn:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .wa-bubble-edit-btn {
+    opacity: 0.85;
+  }
+}
+
+.wa-bubble.is-editing,
+.wa-internal-note.is-editing {
+  outline: 2px solid #00a884;
+  outline-offset: 1px;
+}
+
+/* Composer: the message being edited, and the file about to be sent */
+.wa-composer-editing,
+.wa-composer-attachment {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: #f0f2f5;
+}
+
+.wa-composer-editing {
+  border-left: 4px solid #00a884;
+}
+
+.wa-composer-editing-text,
+.wa-composer-attachment-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: #54656f;
+}
+
+.wa-composer-editing-text strong {
+  color: #008069;
+  font-size: 12.5px;
+}
+
+.wa-composer-attachment {
+  width: fit-content;
+}
+
+.wa-composer-attachment img {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.wa-composer-attachment-text span {
+  color: #111b21;
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+.wa-composer-chip-close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #8696a0;
+  font-size: 14px;
+  padding: 2px 4px;
+}
+
+.wa-internal-note .wa-note-header {
+  gap: 12px;
+}
+
+/* Document message: file-type badge, name, type and size, download button */
+.wa-doc {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: min(260px, 100%);
+  margin: -2px -5px 4px;
+  padding: 10px 10px 10px 12px;
+  border-radius: 6px;
+  background: #f5f6f6;
+  color: #111b21;
+  text-decoration: none;
+}
+
+.outbound-bubble .wa-doc {
+  background: #d1f4cc;
+}
+
+a.wa-doc:hover {
+  filter: brightness(0.97);
+}
+
+.wa-doc.is-missing {
+  color: #667781;
+}
+
+.wa-doc-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+}
+
+.wa-doc-name {
+  font-size: 14.2px;
+  line-height: 19px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wa-doc-text small {
+  font-size: 12px;
+  line-height: 15px;
+  color: #667781;
+}
+
+/* Voice note / audio file player */
+.wa-audio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 290px;
+  max-width: 100%;
+  padding: 4px 2px 2px 0;
+}
+
+.wa-audio-avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: #fa6533;
+}
+
+.wa-audio-avatar.is-voice {
+  background: #00a884;
+}
+
+.wa-audio-play {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.wa-audio-play:hover {
+  background: rgba(11, 20, 26, 0.06);
+}
+
+.wa-audio-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 14px;
+}
+
+.wa-audio-track {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  margin: 0;
+  border-radius: 2px;
+  background: linear-gradient(to right, #00a884 var(--wa-progress, 0%), rgba(11, 20, 26, 0.18) var(--wa-progress, 0%));
+  cursor: pointer;
+  outline: none;
+}
+
+.wa-audio-track::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #00a884;
+  border: none;
+}
+
+.wa-audio-track::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #00a884;
+  border: none;
+}
+
+.wa-audio-time {
+  font-size: 11px;
+  line-height: 14px;
+  color: #667781;
+}
+
+/* Video: first frame with a play button and a video badge */
+.wa-video {
+  position: relative;
+}
+
+.wa-video-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: rgba(11, 20, 26, 0.55);
+  cursor: pointer;
+  padding: 0 0 0 4px;
+}
+
+.wa-video-play:hover {
+  background: rgba(11, 20, 26, 0.7);
+}
+
+.wa-video-badge {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 8px 5px;
+  color: #ffffff;
+  font-size: 11.5px;
+  background: linear-gradient(to top, rgba(11, 20, 26, 0.5), transparent);
+  pointer-events: none;
+}
+
+.wa-video .wa-bubble-media-video {
+  min-height: 150px;
+}
+
+/* Attach menu: "+" turns into "x" and opens Document / Photos & videos / Audio */
+.wa-attach {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.wa-attach-btn svg {
+  transition: transform 0.2s ease;
+}
+
+.wa-attach-btn.is-open {
+  background: rgba(11, 20, 26, 0.1);
+  border-radius: 50%;
+}
+
+.wa-attach-btn.is-open svg {
+  transform: rotate(45deg);
+}
+
+.wa-attach-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 29;
+}
+
+.wa-attach-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 14px);
+  z-index: 30;
+  min-width: 210px;
+  padding: 8px;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 2px 5px rgba(11, 20, 26, 0.26), 0 2px 10px rgba(11, 20, 26, 0.16);
+  display: flex;
+  flex-direction: column;
+}
+
+.wa-attach-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: #111b21;
+  font-size: 14.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wa-attach-item:hover,
+.wa-attach-item:focus-visible {
+  background: #f5f6f6;
+  outline: none;
+}
+
+.wa-audio-play:focus,
+.wa-video-play:focus,
+.wa-attach-btn:focus {
+  outline: none;
+}
+
+.wa-audio-play:focus-visible,
+.wa-video-play:focus-visible,
+.wa-attach-btn:focus-visible {
+  box-shadow: 0 0 0 2px #00a884;
+}

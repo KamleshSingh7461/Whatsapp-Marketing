@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CampaignsService } from '../campaigns/campaigns.service';
 import { ReplyRulesService } from '../reply-rules/reply-rules.service';
 import { DeliveryBlocksService } from '../delivery-blocks/delivery-blocks.service';
+import { inboundFallbackText, inboundMediaOf } from '../inbox/message-view.logic';
 
 const SESSION_WINDOW_HOURS = 24;
 
@@ -131,17 +132,17 @@ export class WebhooksService {
       });
     }
 
-    const isImage = message.type === 'image' || !!message.image;
-    const mediaUrl = isImage && message.image?.id ? `/api/whatsapp/media/${message.image.id}` : undefined;
+    // Photos, videos, voice notes, documents and stickers: the file stays with Meta and is shown through our media proxy.
+    const media = inboundMediaOf(message);
 
-    const rawText = 
+    const rawText =
       message.text?.body ||
       message.button?.text ||
       message.interactive?.button_reply?.title ||
       message.interactive?.list_reply?.title ||
-      message.image?.caption ||
+      media?.caption ||
       message.caption ||
-      (isImage ? 'Image attachment' : (message.type ? `[${message.type.toUpperCase()} Message]` : 'Inbound WhatsApp message'));
+      inboundFallbackText(message);
 
     const textContent = String(rawText).trim();
 
@@ -153,8 +154,12 @@ export class WebhooksService {
         metaMessageId: message.id,
         payloadJson: {
           body: textContent,
-          mediaUrl: mediaUrl,
-          mediaType: isImage ? 'image' : undefined,
+          mediaId: media?.mediaId,
+          mediaUrl: media?.mediaUrl,
+          mediaType: media?.mediaType,
+          mimeType: media?.mimeType,
+          fileName: media?.fileName,
+          caption: media?.caption,
           authorName: contact.displayName || metaProfileName || 'Customer',
           raw: message,
         },

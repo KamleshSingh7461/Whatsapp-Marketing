@@ -11,7 +11,6 @@ import {
   NewChatIcon,
   MenuDotsIcon,
   SmileyIcon,
-  PaperclipIcon,
   SendIcon,
   BackArrowIcon,
   PhoneCallIcon,
@@ -26,8 +25,22 @@ import {
   ContactsNavIcon,
   ReplyArrowIcon,
   ExternalLinkIcon,
+  PencilIcon,
+  PlusIcon,
+  FileTypeIcon,
+  fileTypeOf,
+  AttachDocumentIcon,
+  AttachPhotosIcon,
+  AttachAudioIcon,
+  MicIcon,
+  PlayIcon,
+  PauseIcon,
+  VideoBadgeIcon,
+  DownloadCircleIcon,
+  MediaUnavailableIcon,
 } from './WhatsAppIcons';
 import { templateParts } from '../lib/templateMatch';
+import { ChatAttachment, attachmentProblem, canEditMessage, formatFileSize, senderLabel } from '../lib/chatMessage';
 import { formatBlockUntil, metaBlockOf, metaBlockReason } from '../lib/metaDelivery';
 
 interface InboxViewProps {
@@ -37,7 +50,8 @@ interface InboxViewProps {
   teamMembers?: User[];
   currency?: CurrencyCode;
   currentUser?: User | null;
-  onSendMessage: (convId: string, text: string, isInternalNote?: boolean, mediaUrl?: string) => void;
+  onSendMessage: (convId: string, text: string, isInternalNote?: boolean, attachment?: ChatAttachment) => void;
+  onEditMessage?: (convId: string, messageId: string, text: string) => Promise<{ correctionSent: boolean }>;
   onSendTemplateMessage?: (convId: string, template: Template, renderedText: string) => void;
   onSimulateInbound: (convId: string, text: string) => void;
   onToggleResolve?: (convId: string) => void;
@@ -71,6 +85,202 @@ const INBOUND_SIMULATION_PRESETS = [
 const SINGLE_PANE_MAX = 760;
 const INFO_PANEL_DEFAULT_OPEN_MIN = 1431;
 
+// Text the server stores for an attachment sent without a caption; it is a label, not a caption.
+const MEDIA_PLACEHOLDERS = new Set(['Image attachment', 'Photo', 'Video', 'Audio', 'Voice message', 'Sticker', 'Document']);
+
+function captionOf(msg: Message, mediaUrl?: string): string | null {
+  if (msg.caption !== undefined) return msg.caption?.trim() || null;
+  const text = (msg.content || '').trim();
+  if (!text || text === mediaUrl || text === msg.fileName || text.startsWith('data:') || MEDIA_PLACEHOLDERS.has(text)) return null;
+  if (/^\[[A-Z]+ Message\]$/.test(text)) return null;
+  return text;
+}
+
+function editedTitle(msg: Message): string {
+  const when = msg.editedAt ? new Date(msg.editedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '';
+  const lines = [`Edited${msg.editedByName ? ` by ${msg.editedByName}` : ''}${when ? ` on ${when}` : ''}`];
+  const earlier = (msg.editHistory || []).map(h => h.text).filter(Boolean);
+  if (earlier.length > 0) lines.push('', 'Earlier text:', ...earlier.map(t => `• ${t}`));
+  return lines.join('\n');
+}
+
+// The attach menu, in WhatsApp Web's order and colours. Meta takes only MP4/3GPP video.
+const ATTACH_OPTIONS = [
+  {
+    key: 'document',
+    label: 'Document',
+    icon: <AttachDocumentIcon size={22} />,
+    accept: '.pdf,.doc,.docx,.xls,.xlsx,.csv,.ppt,.pptx,.txt,.zip,application/pdf',
+  },
+  { key: 'media', label: 'Photos & videos', icon: <AttachPhotosIcon size={22} />, accept: 'image/*,video/mp4,video/3gpp' },
+  { key: 'audio', label: 'Audio', icon: <AttachAudioIcon size={22} />, accept: 'audio/*' },
+];
+
+const formatDuration = (seconds: number) => {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
+  const s = Math.floor(seconds);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+};
+
+/** Voice notes and audio files, laid out like WhatsApp's player: icon, play button, progress and time. */
+const AudioPlayer: React.FC<{ url: string; voice: boolean; onError: () => void }> = ({ url, voice, onError }) => {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [time, setTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+
+  const toggle = () => {
+    const a = audioRef.current;
+    if (!a) return;
+    if (a.paused) a.play().catch(() => setPlaying(false));
+    else a.pause();
+  };
+  const progress = duration > 0 ? Math.min(100, (time / duration) * 100) : 0;
+
+  return (
+    <div className="wa-audio">
+      <span className={`wa-audio-avatar ${voice ? 'is-voice' : ''}`}>
+        {voice ? <MicIcon size={20} color="#ffffff" /> : <AttachAudioIcon size={20} color="#ffffff" />}
+      </span>
+      <button type="button" className="wa-audio-play" onClick={toggle} aria-label={playing ? 'Pause' : 'Play'}>
+        {playing ? <PauseIcon size={22} color="#54656f" /> : <PlayIcon size={24} color="#54656f" />}
+      </button>
+      <div className="wa-audio-body">
+        <input
+          type="range"
+          className="wa-audio-track"
+          min={0}
+          max={duration || 0}
+          step={0.1}
+          value={time}
+          aria-label="Seek"
+          style={{ '--wa-progress': `${progress}%` } as React.CSSProperties}
+          onChange={(e) => {
+            const t = Number(e.target.value);
+            if (audioRef.current) audioRef.current.currentTime = t;
+            setTime(t);
+          }}
+        />
+        <span className="wa-audio-time">{formatDuration(playing || time > 0 ? time : duration)}</span>
+      </div>
+      <audio
+        ref={audioRef}
+        src={url}
+        preload="metadata"
+        onLoadedMetadata={(e) => setDuration(Number.isFinite(e.currentTarget.duration) ? e.currentTarget.duration : 0)}
+        onDurationChange={(e) => Number.isFinite(e.currentTarget.duration) && setDuration(e.currentTarget.duration)}
+        onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => {
+          setPlaying(false);
+          setTime(0);
+        }}
+        onError={onError}
+      />
+    </div>
+  );
+};
+
+/** A video shows its first frame with a play button, as on WhatsApp; the player controls appear once it plays. */
+const VideoPreview: React.FC<{ url: string; onError: () => void }> = ({ url, onError }) => {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [started, setStarted] = useState(false);
+  const [duration, setDuration] = useState(0);
+  return (
+    <div className="wa-bubble-media-wrap wa-video">
+      <video
+        ref={videoRef}
+        src={url.startsWith('data:') ? url : `${url}#t=0.1`}
+        preload="metadata"
+        controls={started}
+        playsInline
+        className="wa-bubble-media-video"
+        onLoadedMetadata={(e) => setDuration(Number.isFinite(e.currentTarget.duration) ? e.currentTarget.duration : 0)}
+        onError={onError}
+      />
+      {!started && (
+        <>
+          <button
+            type="button"
+            className="wa-video-play"
+            aria-label="Play video"
+            onClick={() => {
+              setStarted(true);
+              videoRef.current?.play().catch(() => null);
+            }}
+          >
+            <PlayIcon size={30} color="#ffffff" />
+          </button>
+          <span className="wa-video-badge">
+            <VideoBadgeIcon size={15} />
+            {duration > 0 && <span>{formatDuration(duration)}</span>}
+          </span>
+        </>
+      )}
+    </div>
+  );
+};
+
+/** A photo, video, voice note, document or sticker inside a chat bubble. */
+const MessageMedia: React.FC<{
+  kind: NonNullable<Message['mediaType']>;
+  url?: string;
+  fileName?: string;
+  mimeType?: string;
+  fileSize?: number;
+}> = ({ kind, url, fileName, mimeType, fileSize }) => {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [url]);
+  const fail = () => setFailed(true);
+
+  if (!url || failed) {
+    const name = fileName || { image: 'Photo', video: 'Video', audio: 'Audio', document: 'Document', sticker: 'Sticker' }[kind];
+    return (
+      <div className="wa-doc is-missing">
+        {kind === 'document' ? <FileTypeIcon fileName={fileName} mime={mimeType} size={34} /> : <MediaUnavailableIcon size={26} />}
+        <div className="wa-doc-text">
+          <span className="wa-doc-name">{name}</span>
+          <small>{url ? 'No longer available on WhatsApp' : 'Uploading…'}</small>
+        </div>
+      </div>
+    );
+  }
+
+  if (kind === 'image' || kind === 'sticker') {
+    return (
+      <div className={`wa-bubble-media-wrap ${kind === 'sticker' ? 'is-sticker' : ''}`}>
+        <img
+          src={url}
+          alt={fileName || (kind === 'sticker' ? 'Sticker' : 'Photo')}
+          className="wa-bubble-media-img"
+          loading="lazy"
+          onError={fail}
+          onClick={() => window.open(url, '_blank')}
+        />
+      </div>
+    );
+  }
+  if (kind === 'video') return <VideoPreview url={url} onError={fail} />;
+  if (kind === 'audio') {
+    // Voice notes come as Opus/OGG with no file name; anything else is an audio file
+    const voice = !fileName && /ogg|opus/i.test(mimeType || 'audio/ogg');
+    return <AudioPlayer url={url} voice={voice} onError={fail} />;
+  }
+
+  const { label } = fileTypeOf(fileName, mimeType);
+  return (
+    <a className="wa-doc" href={url} target="_blank" rel="noreferrer" download={fileName || true} title={`Open ${fileName || 'document'}`}>
+      <FileTypeIcon fileName={fileName} mime={mimeType} size={34} />
+      <div className="wa-doc-text">
+        <span className="wa-doc-name">{fileName || 'Document'}</span>
+        <small>{[label, fileSize ? formatFileSize(fileSize) : null].filter(Boolean).join(' • ')}</small>
+      </div>
+      <DownloadCircleIcon size={30} color="#8696a0" />
+    </a>
+  );
+};
+
 export const InboxView: React.FC<InboxViewProps> = ({
   conversations,
   messagesByConvId,
@@ -79,6 +289,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
   currency = 'INR',
   currentUser,
   onSendMessage,
+  onEditMessage,
   onSendTemplateMessage,
   onSimulateInbound,
   onToggleResolve,
@@ -294,7 +505,12 @@ export const InboxView: React.FC<InboxViewProps> = ({
   const [newSelectedTemplateName, setNewSelectedTemplateName] = useState(templates[0]?.name || 'fgsn_account_welcome_notice');
   const [newChatText, setNewChatText] = useState<string>('');
   const [newChatLoading, setNewChatLoading] = useState(false);
-  const [attachedImagePreview, setAttachedImagePreview] = useState<string | null>(null);
+  const [attachment, setAttachment] = useState<ChatAttachment | null>(null);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const attachInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  // The message being edited in the composer, if any
+  const [editingMsg, setEditingMsg] = useState<Message | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
 
   // Dynamic formatting & validation for phone input
   const phoneValidation = useMemo(() => {
@@ -317,19 +533,26 @@ export const InboxView: React.FC<InboxViewProps> = ({
     }
   };
 
-  const handleAttachImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAttachFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      alert('Please select an image file (JPEG, PNG, WEBP, etc.)');
+    const problem = attachmentProblem(file);
+    if (problem) {
+      alert(problem);
       return;
     }
     const reader = new FileReader();
     reader.onload = () => {
-      setAttachedImagePreview(reader.result as string);
+      setAttachment({
+        dataUrl: reader.result as string,
+        fileName: file.name,
+        mime: file.type || 'application/octet-stream',
+        size: file.size,
+      });
+      setIsNoteMode(false);
     };
     reader.readAsDataURL(file);
-    e.target.value = '';
   };
 
   // Normalized phone number combining country code and typed digits
@@ -431,17 +654,65 @@ export const InboxView: React.FC<InboxViewProps> = ({
     }
   };
 
+  const startEditing = (msg: Message) => {
+    setEditingMsg(msg);
+    setInputText(msg.content);
+    setAttachment(null);
+    setShowCanned(false);
+  };
+
+  const cancelEditing = () => {
+    setEditingMsg(null);
+    setInputText('');
+  };
+
+  // Leaving the chat drops an unfinished edit
+  useEffect(() => {
+    setEditingMsg(null);
+    setShowAttachMenu(false);
+  }, [selectedConvId]);
+
+  // Escape closes the attach menu
+  useEffect(() => {
+    if (!showAttachMenu) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setShowAttachMenu(false);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showAttachMenu]);
+
+  const handleSaveEdit = async () => {
+    if (!editingMsg || !activeConversation || !onEditMessage || editSaving) return;
+    const text = inputText.trim();
+    if (!text) return;
+    if (text === editingMsg.content) {
+      cancelEditing();
+      return;
+    }
+    setEditSaving(true);
+    try {
+      await onEditMessage(activeConversation.id, editingMsg.id, text);
+      cancelEditing();
+    } catch (err: any) {
+      alert(err?.message || 'The message could not be edited.');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
-    if ((!inputText.trim() && !attachedImagePreview) || !activeConversation) return;
-    onSendMessage(
-      activeConversation.id,
-      inputText.trim() || 'Image attachment',
-      isNoteMode,
-      attachedImagePreview || undefined
-    );
+    if (editingMsg) {
+      handleSaveEdit();
+      return;
+    }
+    if ((!inputText.trim() && !attachment) || !activeConversation) return;
+    if (isNoteMode && attachment) {
+      alert('Internal notes cannot carry attachments. Remove the file or switch back to a WhatsApp message.');
+      return;
+    }
+    onSendMessage(activeConversation.id, inputText.trim(), isNoteMode, attachment || undefined);
     setInputText('');
-    setAttachedImagePreview(null);
+    setAttachment(null);
     setIsNoteMode(false);
   };
 
@@ -954,12 +1225,33 @@ export const InboxView: React.FC<InboxViewProps> = ({
             </div>
 
             {messages.map((msg) => {
+              const editable = !!onEditMessage && canEditMessage(msg, currentUser, activeConversation.windowExpiresAt);
+              const isBeingEdited = editingMsg?.id === msg.id;
+              const editButton = editable && (
+                <button
+                  type="button"
+                  className="wa-bubble-edit-btn"
+                  title={msg.isInternalNote ? 'Edit note' : 'Edit message (the customer receives the new text as a correction)'}
+                  aria-label="Edit message"
+                  onClick={() => startEditing(msg)}
+                >
+                  <PencilIcon size={14} color="#54656f" />
+                </button>
+              );
+              const editedLabel = msg.editedAt && (
+                <span className="wa-bubble-edited" title={editedTitle(msg)}>Edited</span>
+              );
+
               if (msg.isInternalNote) {
                 return (
-                  <div key={msg.id} className="wa-internal-note">
+                  <div key={msg.id} className={`wa-internal-note ${isBeingEdited ? 'is-editing' : ''}`}>
                     <div className="wa-note-header">
-                      <span><LockIcon size={12} color="#b45309" /> Internal Team Note &bull; {msg.authorName || 'Team'}</span>
-                      <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      <span><LockIcon size={12} color="#b45309" /> Internal Team Note &bull; {senderLabel(msg) || 'Team'}</span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {editedLabel}
+                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {editButton}
+                      </span>
                     </div>
                     <p className="wa-note-body">{msg.content}</p>
                   </div>
@@ -969,24 +1261,18 @@ export const InboxView: React.FC<InboxViewProps> = ({
               const isOutbound = msg.direction === 'OUTBOUND';
               const isRead = msg.status === 'READ';
 
-              const isMediaUrlImg = !!msg.mediaUrl && (
-                /\.(jpeg|jpg|gif|png|webp|svg)($|\?)/i.test(msg.mediaUrl) ||
-                msg.mediaUrl.startsWith('/api/whatsapp/media/') ||
-                msg.mediaUrl.startsWith('data:image/') ||
-                msg.mediaUrl.includes('images.unsplash.com')
-              );
-              const isContentImg = !!msg.content && (
-                /\.(jpeg|jpg|gif|png|webp|svg)($|\?)/i.test(msg.content.trim()) ||
+              // Older messages kept an image link in the text itself
+              const isContentImg = !msg.mediaUrl && !!msg.content && (
+                /^https?:\/\/\S+\.(jpeg|jpg|gif|png|webp)($|\?)/i.test(msg.content.trim()) ||
                 msg.content.startsWith('data:image/') ||
                 msg.content.includes('images.unsplash.com') ||
                 msg.content.startsWith('/api/whatsapp/media/')
               );
-              const imageUrl = msg.mediaUrl || (isContentImg ? msg.content.trim() : null);
-              const hasImage = !!imageUrl || msg.mediaType === 'image';
-
-              const caption = msg.content && msg.content !== imageUrl && !msg.content.startsWith('data:image/') && msg.content !== 'Image attachment' && msg.content !== '[IMAGE Message]'
-                ? msg.content
-                : null;
+              const mediaUrl = msg.mediaUrl || (isContentImg ? msg.content.trim() : undefined);
+              const mediaKind = msg.mediaType || (mediaUrl ? 'image' : undefined);
+              const hasMedia = !!mediaKind;
+              const caption = hasMedia ? captionOf(msg, mediaUrl) : null;
+              const sender = isOutbound ? senderLabel(msg) : null;
 
               // A message sent from a template shows the template's header, footer and buttons, as it does on the phone.
               const tpl = templateParts(msg, templates);
@@ -994,34 +1280,34 @@ export const InboxView: React.FC<InboxViewProps> = ({
 
               return (
                 <div key={msg.id} className={`wa-bubble-row ${isOutbound ? 'outbound' : 'inbound'}`}>
-                  <div className={`wa-bubble ${isOutbound ? 'outbound-bubble' : 'inbound-bubble'} ${hasImage ? 'has-media' : ''} ${hasTemplateCard ? 'has-template' : ''}`}>
-                    {/* Image Attachment Rendering */}
-                    {hasImage && imageUrl && (
-                      <div className="wa-bubble-media-wrap">
-                        <img
-                          src={imageUrl}
-                          alt="WhatsApp Media"
-                          className="wa-bubble-media-img"
-                          loading="lazy"
-                          onClick={() => window.open(imageUrl, '_blank')}
-                        />
-                      </div>
+                  <div className={`wa-bubble ${isOutbound ? 'outbound-bubble' : 'inbound-bubble'} ${hasMedia ? 'has-media' : ''} ${hasTemplateCard ? 'has-template' : ''} ${isBeingEdited ? 'is-editing' : ''}`}>
+                    {editButton}
+
+                    {/* Who on the team sent it */}
+                    {sender && <div className="wa-bubble-author">{sender}</div>}
+
+                    {/* Photo, video, audio, document or sticker */}
+                    {hasMedia && (
+                      <MessageMedia kind={mediaKind!} url={mediaUrl} fileName={msg.fileName} mimeType={msg.mimeType} fileSize={msg.fileSize} />
                     )}
 
                     {/* Template header (text) */}
                     {tpl.headerText && <p className="wa-bubble-tpl-header">{tpl.headerText}</p>}
 
                     {/* Message Content / Caption */}
-                    {caption && <p className="wa-bubble-text" style={{ marginTop: hasImage ? 4 : 0 }}>{caption}</p>}
-                    {!caption && !hasImage && <p className="wa-bubble-text">{msg.content}</p>}
+                    {caption && <p className="wa-bubble-text" style={{ marginTop: 4 }}>{caption}</p>}
+                    {!hasMedia && <p className="wa-bubble-text">{msg.content}</p>}
 
                     {/* Template footer */}
                     {tpl.footerText && <p className="wa-bubble-tpl-footer">{tpl.footerText}</p>}
 
-                    {/* Meta line: Time + Checkmark */}
+                    {/* Meta line: Edited + Time + Checkmark */}
                     <div className="wa-bubble-meta">
+                      {editedLabel}
                       <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                      {isOutbound && (
+                      {isOutbound && msg.status === 'FAILED' ? (
+                        <span className="wa-bubble-failed" title={msg.errorCode || 'Not delivered'}>Not sent</span>
+                      ) : isOutbound && (
                         <DoubleCheckIcon isRead={isRead} size={15} />
                       )}
                     </div>
@@ -1135,54 +1421,97 @@ export const InboxView: React.FC<InboxViewProps> = ({
               <TemplateIcon size={20} color="#54656f" />
             </button>
 
-            {/* Media Attachment Button */}
-            <label className="wa-icon-btn" title="Attach Image" style={{ cursor: 'pointer', margin: 0, display: 'flex', alignItems: 'center' }}>
-              <input
-                type="file"
-                accept="image/*"
-                style={{ display: 'none' }}
-                onChange={handleAttachImageFile}
-              />
-              <PaperclipIcon size={20} color={attachedImagePreview ? '#00a884' : '#54656f'} />
-            </label>
-
-            {/* Message Input Box & Attached Image Preview */}
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {attachedImagePreview && (
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  background: '#f0f2f5',
-                  borderRadius: 8,
-                  padding: '4px 8px',
-                  width: 'fit-content'
-                }}>
-                  <img
-                    src={attachedImagePreview}
-                    alt="Preview"
-                    style={{ width: 36, height: 36, borderRadius: 6, objectFit: 'cover' }}
+            {/* Attach menu, as on WhatsApp Web: Document, Photos & videos, Audio */}
+            {!editingMsg && (
+              <div className="wa-attach">
+                <button
+                  type="button"
+                  className={`wa-icon-btn wa-attach-btn ${showAttachMenu ? 'is-open' : ''}`}
+                  title="Attach"
+                  aria-label="Attach"
+                  aria-haspopup="menu"
+                  aria-expanded={showAttachMenu}
+                  onClick={() => setShowAttachMenu(prev => !prev)}
+                >
+                  <PlusIcon size={24} color={attachment ? '#00a884' : '#54656f'} />
+                </button>
+                {showAttachMenu && (
+                  <>
+                    <div className="wa-attach-backdrop" onClick={() => setShowAttachMenu(false)} />
+                    <div className="wa-attach-menu" role="menu">
+                      {ATTACH_OPTIONS.map(opt => (
+                        <button
+                          key={opt.key}
+                          type="button"
+                          role="menuitem"
+                          className="wa-attach-item"
+                          onClick={() => {
+                            setShowAttachMenu(false);
+                            attachInputRefs.current[opt.key]?.click();
+                          }}
+                        >
+                          {opt.icon}
+                          <span>{opt.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+                {ATTACH_OPTIONS.map(opt => (
+                  <input
+                    key={opt.key}
+                    ref={el => { attachInputRefs.current[opt.key] = el; }}
+                    type="file"
+                    accept={opt.accept}
+                    style={{ display: 'none' }}
+                    onChange={handleAttachFile}
                   />
-                  <span style={{ fontSize: 12, color: '#54656f' }}>Image attached</span>
-                  <button
-                    type="button"
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8696a0', fontSize: 14, padding: 2 }}
-                    onClick={() => setAttachedImagePreview(null)}
-                    title="Remove attachment"
-                  >
-                    ✕
-                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Message Input Box & Attachment Preview */}
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {editingMsg && (
+                <div className="wa-composer-editing">
+                  <PencilIcon size={14} color="#008069" />
+                  <div className="wa-composer-editing-text">
+                    <strong>Editing {editingMsg.isInternalNote ? 'note' : 'message'}</strong>
+                    <span>
+                      {editingMsg.isInternalNote
+                        ? 'Only your team sees notes.'
+                        : 'WhatsApp cannot change a delivered message, so the customer gets the new text as a correction.'}
+                    </span>
+                  </div>
+                  <button type="button" className="wa-composer-chip-close" onClick={cancelEditing} title="Cancel edit">✕</button>
+                </div>
+              )}
+              {attachment && (
+                <div className="wa-composer-attachment">
+                  {attachment.mime.startsWith('image/') ? (
+                    <img src={attachment.dataUrl} alt="" />
+                  ) : (
+                    <FileTypeIcon fileName={attachment.fileName} mime={attachment.mime} size={36} />
+                  )}
+                  <div className="wa-composer-attachment-text">
+                    <span title={attachment.fileName}>{attachment.fileName}</span>
+                    <small>{formatFileSize(attachment.size)}</small>
+                  </div>
+                  <button type="button" className="wa-composer-chip-close" onClick={() => setAttachment(null)} title="Remove attachment">✕</button>
                 </div>
               )}
               <div className="wa-composer-input-wrap" style={{ background: isNoteMode ? '#fffbeb' : '#ffffff', border: isNoteMode ? '1px solid #fef3c7' : 'none', width: '100%' }}>
                 <textarea
                   rows={1}
-                  placeholder={isNoteMode ? 'Write internal note for team...' : (attachedImagePreview ? 'Add a caption (optional)...' : 'Type a message')}
+                  placeholder={editingMsg ? 'Edit the message' : isNoteMode ? 'Write internal note for team...' : (attachment ? 'Add a caption (optional)...' : 'Type a message')}
                   className="wa-composer-textarea"
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
+                    if (e.key === 'Escape' && editingMsg) {
+                      e.preventDefault();
+                      cancelEditing();
+                    } else if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
                       handleSend(e);
                     }
@@ -1195,11 +1524,11 @@ export const InboxView: React.FC<InboxViewProps> = ({
             <button
               type="submit"
               className="wa-send-circle-btn"
-              title="Send message"
-              disabled={!inputText.trim() && !attachedImagePreview}
+              title={editingMsg ? 'Save edit' : 'Send message'}
+              disabled={editSaving || (!inputText.trim() && !attachment)}
               style={{
-                opacity: (inputText.trim() || attachedImagePreview) ? 1 : 0.65,
-                background: isNoteMode ? '#b45309' : '#00a884',
+                opacity: (inputText.trim() || attachment) && !editSaving ? 1 : 0.65,
+                background: isNoteMode || editingMsg?.isInternalNote ? '#b45309' : '#00a884',
               }}
             >
               <SendIcon size={18} color="#ffffff" />

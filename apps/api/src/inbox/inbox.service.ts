@@ -1,12 +1,18 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { MessageDirection, MessageStatus } from '@prisma/client';
+import { MessageDirection, MessageStatus, Role } from '@prisma/client';
+import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
+import { WhatsappIntegrationService } from '../whatsapp-integration/whatsapp-integration.service';
+import { correctionText, decideEdit, roleLabel, storedMediaOf } from './message-view.logic';
 
 @Injectable()
 export class InboxService {
   private readonly logger = new Logger(InboxService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private whatsapp: WhatsappIntegrationService,
+  ) {}
 
   async getConversations() {
     try {
@@ -213,8 +219,14 @@ export class InboxService {
           footerText: p.footerText,
           buttons: p.buttons,
           content: p.body || p.text || '',
+          ...storedMediaOf(p),
           isInternalNote: p.isInternalNote || false,
           authorName: p.authorName,
+          authorId: p.authorId,
+          authorRole: p.authorRoleLabel,
+          editedAt: p.editedAt,
+          editedByName: p.editedByName,
+          editHistory: p.editHistory,
           timestamp: m.createdAt.toISOString(),
         };
       });
@@ -239,8 +251,25 @@ export class InboxService {
     buttons?: any[];
     phone?: string;
     name?: string;
-  }) {
+    status?: 'SENT' | 'DELIVERED' | 'FAILED';
+    errorCode?: string;
+    mediaId?: string;
+    mediaType?: string;
+    mimeType?: string;
+    fileName?: string;
+    fileSize?: number;
+    caption?: string;
+  }, user?: AuthenticatedUser) {
     try {
+      // Who sent it comes from the signed-in account, not from what the browser says.
+      const author = dto.direction === 'OUTBOUND' ? await this.teamMember(user) : null;
+      const authorName = author?.name || dto.authorName;
+      const authorRoleLabel = author ? roleLabel(author.role, author.isSuperAdmin) : undefined;
+      const status = dto.status && dto.status in MessageStatus ? MessageStatus[dto.status] : MessageStatus.DELIVERED;
+      const media = dto.mediaId
+        ? storedMediaOf({ mediaId: dto.mediaId, mediaType: dto.mediaType, mimeType: dto.mimeType, fileName: dto.fileName, fileSize: Number(dto.fileSize) || undefined, caption: dto.caption })
+        : {};
+
       let conv = await this.prisma.conversation.findUnique({
         where: { id: dto.conversationId },
       });
@@ -306,13 +335,17 @@ export class InboxService {
         data: {
           conversationId: conv.id,
           direction: dto.direction === 'INBOUND' ? MessageDirection.INBOUND : MessageDirection.OUTBOUND,
-          status: MessageStatus.DELIVERED,
+          status,
           metaMessageId: dto.metaMessageId,
           templateId: dto.templateId,
+          errorCode: dto.errorCode ? String(dto.errorCode).slice(0, 500) : undefined,
           payloadJson: {
             body: dto.text,
+            ...media,
             isInternalNote: dto.isInternalNote,
-            authorName: dto.authorName,
+            authorName,
+            authorId: author?.id,
+            authorRoleLabel,
             templateData: dto.templateData,
             headerText: dto.headerText,
             headerType: dto.headerType,
@@ -342,8 +375,11 @@ export class InboxService {
         footerText: dto.footerText,
         buttons: dto.buttons,
         content: dto.text,
+        ...media,
         timestamp: msg.createdAt.toISOString(),
-        authorName: dto.authorName,
+        authorName,
+        authorId: author?.id,
+        authorRole: authorRoleLabel,
         isInternalNote: dto.isInternalNote,
       };
     } catch (e: any) {
@@ -361,5 +397,89 @@ export class InboxService {
         timestamp: new Date().toISOString(),
       };
     }
+  }
+
+  private async teamMember(user?: AuthenticatedUser) {
+    if (!user?.userId) return null;
+    return this.prisma.user
+      .findUnique({ where: { id: user.userId }, select: { id: true, name: true, role: true, isSuperAdmin: true } })
+      .catch(() => null);
+  }
+
+  /**
+   * Edits a message the team sent. WhatsApp gives businesses no way to change a message already on the customer's
+   * phone, so for a customer message the new text also goes out as one ordinary reply ("✏️ Correction: ..."), and
+   * only while the 24-hour window is open. Internal notes change here only. The earlier text is kept in editHistory.
+   */
+  async editMessage(messageId: string, rawText: string, user: AuthenticatedUser) {
+    const text = String(rawText ?? '').trim();
+    if (!text) throw new BadRequestException('The message cannot be empty.');
+    if (text.length > 4000) throw new BadRequestException('The message is too long for WhatsApp.');
+
+    const editor = await this.teamMember(user);
+    if (!editor) throw new ForbiddenException('Sign in again to edit messages.');
+
+    const msg = await this.prisma.message.findUnique({
+      where: { id: messageId },
+      include: { conversation: { include: { contact: true } } },
+    });
+    if (!msg) throw new NotFoundException('That message was not found. It may still be saving; try again in a few seconds.');
+
+    const p = (msg.payloadJson as any) || {};
+    if ((p.body || '') === text) throw new BadRequestException('The message is unchanged.');
+
+    const now = new Date();
+    const decision = decideEdit({
+      direction: msg.direction,
+      isInternalNote: !!p.isInternalNote,
+      isTemplate: !!(msg.templateId || p.templateData || p.templateName),
+      hasMedia: !!storedMediaOf(p).mediaType,
+      status: msg.status,
+      sentAt: msg.createdAt,
+      windowExpiresAt: msg.conversation?.windowExpiresAt ?? null,
+      authorId: p.authorId,
+      editorId: editor.id,
+      editorIsAdmin: editor.role === Role.ADMIN || editor.isSuperAdmin,
+      now,
+    });
+    if (!decision.ok) throw new BadRequestException(decision.reason);
+
+    let correctionMessageId: string | undefined;
+    if (decision.sendToCustomer) {
+      const phone = msg.conversation?.contact?.phone;
+      if (!phone) throw new BadRequestException('This chat has no phone number to send the correction to.');
+      const res: any = await this.whatsapp.sendTextMessage({ to: phone, text: correctionText(text) });
+      if (!res?.success) throw new BadRequestException(`WhatsApp did not accept the correction: ${res?.error || 'unknown error'}`);
+      correctionMessageId = res.messageId;
+    }
+
+    const editHistory = [
+      ...(Array.isArray(p.editHistory) ? p.editHistory : []),
+      { text: p.body || '', replacedAt: now.toISOString(), byName: editor.name, correctionMessageId },
+    ];
+    await this.prisma.message.update({
+      where: { id: msg.id },
+      data: {
+        payloadJson: {
+          ...p,
+          body: text,
+          editedAt: now.toISOString(),
+          editedById: editor.id,
+          editedByName: editor.name,
+          editHistory,
+        },
+      },
+    });
+
+    this.logger.log(`Message ${msg.id} edited by ${editor.name}${correctionMessageId ? ' (correction sent)' : ''}`);
+    return {
+      success: true,
+      id: msg.id,
+      content: text,
+      editedAt: now.toISOString(),
+      editedByName: editor.name,
+      editHistory,
+      correctionSent: !!correctionMessageId,
+    };
   }
 }

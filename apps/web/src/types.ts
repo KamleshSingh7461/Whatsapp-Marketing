@@ -79,10 +79,19 @@ export interface Message {
   footerText?: string;
   content: string;
   mediaUrl?: string;
-  mediaType?: 'image' | 'document' | 'audio';
+  mediaType?: 'image' | 'video' | 'audio' | 'document' | 'sticker';
+  mimeType?: string;
+  fileName?: string;
+  fileSize?: number; // bytes, when known
+  caption?: string; // the text sent with an attachment
   buttons?: Array<any>;
   isInternalNote?: boolean; // For private agent notes
   authorName?: string;
+  authorId?: string;
+  authorRole?: string; // "Super Admin", "Admin", "Agent", "Marketer", "Auto-reply"
+  editedAt?: string;
+  editedByName?: string;
+  editHistory?: Array<{ text: string; replacedAt: string; byName: string }>;
   timestamp: string;
   errorCode?: string | null;
 }

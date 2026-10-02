@@ -12,3 +12,7 @@ apps/web/.env
 coverage/
 .turbo/
 apps/api/generated/
+
+# Copies of WhatsApp photos/files, kept so chats still show them after Meta deletes theirs
+apps/api/media-cache/
+media-cache/
