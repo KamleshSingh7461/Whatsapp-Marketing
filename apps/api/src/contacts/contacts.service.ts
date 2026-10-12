@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { batchNumberOf, batchTag, isBatchLikeTag, planBatches } from './contact-batches.logic';
+import { batchNumberOf, batchTag, isBatchLikeTag, needsBatch, planBatches } from './contact-batches.logic';
 
 export function normalizePhone(phone: string): string {
   if (!phone) return '';
@@ -245,14 +245,15 @@ export class ContactsService implements OnModuleInit {
     }
   }
 
-  /** True when someone has no batch, or still has an old wide batch tag that no broadcast used. */
+  /** True when someone still needs a batch (see needsBatch). Cheap when everyone already has one. */
   private async needsBatching(contacts: Array<{ tags: string[] }>) {
-    if (contacts.some(c => !(c.tags || []).some(isBatchLikeTag))) return true;
-    const oldTags = new Set(contacts.flatMap(c => (c.tags || []).filter(t => isBatchLikeTag(t) && batchNumberOf(t) === null)));
-    if (oldTags.size === 0) return false;
+    const unbatched = contacts.filter(c => !(c.tags || []).some(t => batchNumberOf(t) !== null));
+    if (unbatched.length === 0) return false;
+    if (unbatched.some(c => !(c.tags || []).some(isBatchLikeTag))) return true;
+    // Only people with an old wide batch tag are left: they need a batch unless a broadcast used that old tag.
     const campaigns = await this.prisma.campaign.findMany({ where: { status: { not: 'DRAFT' } }, select: { segmentJson: true } });
     const sent = new Set(campaigns.flatMap(c => ((c.segmentJson as any)?.targetTags || []) as string[]));
-    return [...oldTags].some(t => !sent.has(t));
+    return unbatched.some(c => needsBatch(c.tags || [], sent));
   }
 
   private batching: Promise<void> | null = null;
@@ -310,10 +311,8 @@ export class ContactsService implements OnModuleInit {
           }
         }
 
+        // The only write: append one batch tag to each contact that needs one. Nothing is removed or overwritten.
         const plan = planBatches(contacts, sentTags, recovered);
-        for (const r of plan.replaceTags) {
-          await tx.contact.update({ where: { id: r.id }, data: { tags: r.tags } });
-        }
         let placed = 0;
         for (const [n, ids] of plan.add) {
           for (let i = 0; i < ids.length; i += 1000) {
@@ -322,9 +321,9 @@ export class ContactsService implements OnModuleInit {
           }
           placed += ids.length;
         }
-        if (placed > 0 || plan.replaceTags.length > 0) {
+        if (placed > 0) {
           const where = [...plan.add.entries()].map(([n, ids]) => `Batch ${n} +${ids.length}`).join(', ');
-          this.logger.log(`Batches: placed ${placed} contact(s) (${where || 'none'}); old batch tags replaced on ${plan.replaceTags.length}`);
+          this.logger.log(`Batches: placed ${placed} contact(s) (${where})`);
         }
       },
       { maxWait: 30_000, timeout: 120_000 },

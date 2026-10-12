@@ -37,7 +37,7 @@ import { SettingsView } from './components/SettingsView';
 import { AuthModal } from './components/AuthModal';
 import { AcceptInviteModal } from './components/AcceptInviteModal';
 import { CurrencyCode } from './lib/currency';
-import { canAccessTab, getDefaultTabForRole } from './lib/permissions';
+import { canAccessTab, canSeeCallTeamActivity, getDefaultTabForRole } from './lib/permissions';
 import { resolveCampaignRecipients } from './lib/campaignAudience';
 import { ChatAttachment, outboundKindForMime, roleLabelOf } from './lib/chatMessage';
 import { batchOptions } from './lib/contactBatches';
@@ -1689,7 +1689,10 @@ export function Dashboard() {
             />
           )}
           {activeTab === 'calls' && canAccessTab(user.role, 'calls') && (
-            <CallSheetsView onNavigate={setActiveTab} />
+            <CallSheetsView
+              onNavigate={canAccessTab(user.role, 'automations') ? setActiveTab : undefined}
+              showTeamActivity={canSeeCallTeamActivity(user.role)}
+            />
           )}
           {activeTab === 'campaigns' && canAccessTab(user.role, 'campaigns') && (
             <CampaignsView

@@ -655,7 +655,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     onChange={(e) => setInviteRole(e.target.value as Role)}
                     className="form-input"
                   >
-                    <option value="AGENT">Support Agent (Live Chat & Inbox)</option>
+                    <option value="AGENT">Support Agent (Chats & Call Sheets)</option>
                     <option value="MARKETER">Marketing Manager (Broadcasts & Templates)</option>
                     <option value="ADMIN">Operations Admin (Full Access)</option>
                     <option value="VIEWER">Viewer (Read-Only Analytics)</option>

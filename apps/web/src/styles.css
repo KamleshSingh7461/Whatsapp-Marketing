@@ -12835,6 +12835,11 @@ td {
   .wa-cs-toolbar .wa-an-range button {
     flex: 1 1 0;
   }
+
+  /* The toolbar stacks here, so a flex-basis would become a 380px-tall gap under the intro text */
+  .wa-cs-toolbar .wa-bc-lede {
+    flex: 0 0 auto;
+  }
 }
 
 /* ==========================================================================

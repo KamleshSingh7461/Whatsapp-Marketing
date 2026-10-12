@@ -1,6 +1,6 @@
 // Run with: npx tsx src/contacts/contact-batches.logic.check.ts
 import assert from 'node:assert/strict';
-import { BATCH_SIZE, BatchContact, batchNumberOf, batchTag, isBatchLikeTag, planBatches } from './contact-batches.logic';
+import { BATCH_SIZE, BatchContact, batchNumberOf, batchTag, isBatchLikeTag, needsBatch, planBatches } from './contact-batches.logic';
 
 const B = batchTag;
 const people = (n: number, from = 0, tags: string[] = []): BatchContact[] =>
@@ -33,7 +33,6 @@ console.log('ok  batch names: 500 each, Batch 1 and 2 unchanged');
   const contacts = [...people(500, 0, [B(1)]), ...people(500, 500, [B(2)]), ...people(1200, 1000)];
   const plan = planBatches(contacts, new Set([B(1), B(2)]));
   assert.deepEqual(sizes(plan), { 3: 500, 4: 500, 5: 200 });
-  assert.equal(plan.replaceTags.length, 0);
   console.log('ok  after Batch 1 and 2 were sent, new contacts fill Batch 3, 4, 5');
 }
 
@@ -61,19 +60,30 @@ console.log('ok  batch names: 500 each, Batch 1 and 2 unchanged');
   console.log('ok  a batch that was sent never gets new members');
 }
 
-// ---- old wide batches: unused ones are replaced by 500-size batches; sent ones are left alone
+// ---- old wide batches: unused ones get a 500-size batch as well (the old tag is kept); sent ones are left alone
 {
   const old3 = 'Batch 3: Contacts 1001 - 2000';
   const contacts = [...people(500, 0, [B(1)]), ...people(500, 500, [B(2)]), ...people(700, 1000, [old3, 'VIP'])];
   const unused = planBatches(contacts, new Set([B(1), B(2)]));
   assert.deepEqual(sizes(unused), { 3: 500, 4: 200 });
-  assert.equal(unused.replaceTags.length, 700);
-  assert.deepEqual(unused.replaceTags[0].tags, ['VIP'], 'old tag removed, other tags kept');
+  assert.deepEqual(Object.keys(unused), ['add'], 'a plan can only add tags');
+  assert.equal(needsBatch([old3, 'VIP'], new Set()), true);
+  assert.equal(needsBatch([old3, 'VIP', B(3)], new Set()), false, 'done once they have a 500-size batch');
 
   const sent = planBatches(contacts, new Set([B(1), B(2), old3]));
   assert.equal(sent.add.size, 0, 'people in a sent old batch stay where they are');
-  assert.equal(sent.replaceTags.length, 0);
-  console.log('ok  old wide batches are re-split unless a broadcast already went to them');
+  assert.equal(needsBatch([old3], new Set([old3])), false);
+  console.log('ok  old wide batches keep their tag; unused ones also get a 500-size batch, sent ones are left alone');
+}
+
+// ---- batching never removes anything: every contact keeps every tag it had
+{
+  const contacts = [...people(3, 0, ['VIP', B(1)]), ...people(4, 3, ['Batch 4: Contacts 2001 - 3000', 'Lead']), ...people(5, 7)];
+  const plan = planBatches(contacts, new Set());
+  const after = new Map(contacts.map(c => [c.id, [...c.tags]]));
+  for (const [n, ids] of plan.add) for (const id of ids) after.get(id)!.push(B(n));
+  for (const c of contacts) assert.ok(c.tags.every(t => after.get(c.id)!.includes(t)), `${c.id} kept all tags`);
+  console.log('ok  batching only adds a tag; no contact loses any tag');
 }
 
 // ---- contacts recovered from send records go back to their batch, not a new one

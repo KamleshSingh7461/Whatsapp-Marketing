@@ -6,14 +6,17 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { AuthenticatedUser, CurrentUser } from '../common/decorators/current-user.decorator';
 import { CallLeadsService } from './call-leads.service';
 
-// Marketing Manager, Operations Admin (which includes the Super Admin). Support Agents have no access.
+// Support Agents work the call sheets (view, update status and remarks; every change is logged with who made it).
+// Team activity, the managers' overview of everyone's updates, stays with Marketing Manager and Operations Admin
+// (which includes the Super Admin).
 @Controller('call-leads')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN, Role.MARKETER)
+@Roles(Role.ADMIN, Role.MARKETER, Role.AGENT)
 export class CallLeadsController {
   constructor(private readonly callLeads: CallLeadsService) {}
 
   @Get('overview')
+  @Roles(Role.ADMIN, Role.MARKETER)
   overview(@Query('days') days?: string) {
     return this.callLeads.overview(days);
   }

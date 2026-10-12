@@ -41,6 +41,13 @@ console.log('ok  batch tags are read the same way as the server writes them');
   assert.equal(nextUnsentBatch(opts)?.number, 3);
   console.log('ok  same template: Batch 1 and 2 marked sent, Batch 3 is next');
 
+  // An old wide tag left on contacts is listed only if a broadcast used it
+  const withOld = [...contacts, person(9001, 'Batch 3: Contacts 1001 - 2000')];
+  assert.equal(batchOptions(withOld, campaigns, 'tpl_first').some(o => o.number === null), false, 'unused old tag hidden');
+  const usedOld = [...campaigns, cmp('Old 3', 'Batch 3: Contacts 1001 - 2000', '2026-09-01')];
+  assert.equal(batchOptions(withOld, usedOld, 'tpl_first').some(o => o.number === null), true, 'used old tag listed');
+  console.log('ok  old wide tags are listed only when a broadcast used them');
+
   // A new marketing template has gone to nobody: every batch is open again, starting at Batch 1
   const fresh = batchOptions(contacts, campaigns, 'tpl_new_offer');
   assert.deepEqual(fresh.map(o => o.sentWith.length), [0, 0, 0, 0]);

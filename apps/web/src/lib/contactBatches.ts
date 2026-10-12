@@ -43,7 +43,11 @@ export function batchOptions(
   templateName: string | undefined,
   now: number = Date.now(),
 ): BatchOption[] {
-  const tags = Array.from(new Set(contacts.flatMap(c => (c.tags || []).filter(isBatchLikeTag))));
+  // Old wide batch tags are kept on contacts (nothing is ever removed) but only listed if a broadcast used them;
+  // the people in an unused one are also in a current 500-size batch.
+  const usedTags = new Set(campaigns.filter(c => c.status !== 'DRAFT').flatMap(c => c.targetTags || []));
+  const tags = Array.from(new Set(contacts.flatMap(c => (c.tags || []).filter(isBatchLikeTag))))
+    .filter(tag => batchNumberOf(tag) !== null || usedTags.has(tag));
   return tags
     .map(tag => {
       const number = batchNumberOf(tag);

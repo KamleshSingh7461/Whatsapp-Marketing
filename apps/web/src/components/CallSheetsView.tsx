@@ -22,7 +22,10 @@ import {
 import { csvCell, csvText, downloadCsv } from '../lib/csv';
 
 interface CallSheetsViewProps {
+  /** Only passed to people who can open the Automations page, where rules are set up. */
   onNavigate?: (tab: TabType) => void;
+  /** Team activity (everyone's call updates) is for managers; support agents see the sheets only. */
+  showTeamActivity?: boolean;
 }
 
 const REFRESH_MS = 30000; // so people working the same sheet see each other's updates
@@ -55,7 +58,7 @@ const Icon: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   </svg>
 );
 
-export const CallSheetsView: React.FC<CallSheetsViewProps> = ({ onNavigate }) => {
+export const CallSheetsView: React.FC<CallSheetsViewProps> = ({ onNavigate, showTeamActivity = true }) => {
   const [view, setView] = useState<'sheets' | 'team'>('sheets');
 
   // ---- rules and the selected rule's sheet
@@ -235,14 +238,16 @@ export const CallSheetsView: React.FC<CallSheetsViewProps> = ({ onNavigate }) =>
           Everyone who tapped a button on your templates, ready to call. After each call, set the status and add remarks
           so the whole team can see where every lead stands.
         </p>
-        <div className="wa-an-range" role="tablist" aria-label="Call sheets view">
-          <button type="button" role="tab" aria-selected={view === 'sheets'} className={view === 'sheets' ? 'is-active' : ''} onClick={() => setView('sheets')}>
-            Call sheets
-          </button>
-          <button type="button" role="tab" aria-selected={view === 'team'} className={view === 'team' ? 'is-active' : ''} onClick={() => setView('team')}>
-            Team activity
-          </button>
-        </div>
+        {showTeamActivity && (
+          <div className="wa-an-range" role="tablist" aria-label="Call sheets view">
+            <button type="button" role="tab" aria-selected={view === 'sheets'} className={view === 'sheets' ? 'is-active' : ''} onClick={() => setView('sheets')}>
+              Call sheets
+            </button>
+            <button type="button" role="tab" aria-selected={view === 'team'} className={view === 'team' ? 'is-active' : ''} onClick={() => setView('team')}>
+              Team activity
+            </button>
+          </div>
+        )}
       </div>
 
       {error && <div className="wa-rr-notice is-error" role="alert">{error}</div>}
@@ -256,8 +261,9 @@ export const CallSheetsView: React.FC<CallSheetsViewProps> = ({ onNavigate }) =>
             <section className="wa-bc-card wa-cs-empty">
               <h3>No reply rules yet</h3>
               <p>
-                Call sheets are built from reply rules. Create a rule for a template button on the Automations page, and
-                everyone who taps it will appear here.
+                {onNavigate
+                  ? 'Call sheets are built from reply rules. Create a rule for a template button on the Automations page, and everyone who taps it will appear here.'
+                  : 'Call sheets are built from reply rules, which an admin or marketing manager sets up on the Automations page. Once a rule exists, everyone who taps its button appears here.'}
               </p>
               {onNavigate && (
                 <button type="button" className="wa-bc-primary" onClick={() => onNavigate('automations')}>

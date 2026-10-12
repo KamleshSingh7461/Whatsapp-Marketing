@@ -6,15 +6,16 @@ import { TabType } from '../components/Sidebar';
  * 
  * ADMIN: Full unrestricted access to all modules, billing, team invites, credentials, and settings.
  * MARKETER: Full access to Campaigns, Templates, Audience & CRM, Automations, Analytics, and Inbox. (Restricted from WABA settings/billing/team).
- * AGENT: Customer support role. Chats only: no other page is shown or reachable. Templates can still be sent from inside a chat.
- * Call sheets (follow-up calls to customers who tapped a button): ADMIN (Operations Admin, Super Admin) and MARKETER only.
+ * AGENT: Customer support role. Chats and Call sheets only. Templates can still be sent from inside a chat.
+ * Call sheets (follow-up calls to customers who tapped a button): ADMIN (Operations Admin, Super Admin), MARKETER and
+ * AGENT. Agents work the calls; the Team activity view (everyone's updates) is for ADMIN and MARKETER.
  * VIEWER: Read-only access across analytics, campaigns, templates, inbox, and audience.
  */
 
 export const ROLE_ALLOWED_TABS: Record<Role, TabType[]> = {
   ADMIN: ['analytics', 'inbox', 'automations', 'calls', 'campaigns', 'templates', 'contacts', 'settings'],
   MARKETER: ['analytics', 'inbox', 'automations', 'calls', 'campaigns', 'templates', 'contacts'],
-  AGENT: ['inbox'],
+  AGENT: ['inbox', 'calls'],
   VIEWER: ['analytics', 'inbox', 'campaigns', 'templates', 'contacts'],
 };
 
@@ -29,6 +30,11 @@ export function getDefaultTabForRole(role: Role | undefined | null): TabType {
   if (role === 'MARKETER') return 'campaigns';
   if (role === 'VIEWER') return 'analytics';
   return 'inbox'; // ADMIN default or fallback
+}
+
+/** The Team activity view on Call sheets: everyone's call updates, for the people who oversee the team. */
+export function canSeeCallTeamActivity(role: Role | undefined | null): boolean {
+  return role === 'ADMIN' || role === 'MARKETER';
 }
 
 export function canManageSettings(role: Role | undefined | null): boolean {

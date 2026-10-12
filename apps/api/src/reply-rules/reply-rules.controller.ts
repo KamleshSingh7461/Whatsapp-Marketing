@@ -5,7 +5,8 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { ReplyRulesService } from './reply-rules.service';
 
-// Same people who can open the Automations page.
+// Same people who can open the Automations page. Support Agents may also read the rules and their leads, because each
+// rule is a call sheet; only managing the rules is left to the Automations roles.
 @Controller('reply-rules')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.ADMIN, Role.MARKETER)
@@ -13,6 +14,7 @@ export class ReplyRulesController {
   constructor(private readonly rules: ReplyRulesService) {}
 
   @Get()
+  @Roles(Role.ADMIN, Role.MARKETER, Role.AGENT)
   list() {
     return this.rules.list();
   }
@@ -34,6 +36,7 @@ export class ReplyRulesController {
   }
 
   @Get(':id/leads')
+  @Roles(Role.ADMIN, Role.MARKETER, Role.AGENT)
   leads(@Param('id') id: string, @Query('from') from?: string) {
     return this.rules.leads(id, from);
   }

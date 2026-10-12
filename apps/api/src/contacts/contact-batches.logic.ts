@@ -9,8 +9,9 @@
 //    again through a later batch.
 //  - New contacts go into the newest batch while it has room and has not been broadcast to; otherwise a new batch is
 //    started. Earlier batches are never topped up, so a batch that was sent stays exactly as it was sent.
-//  - The old wide batches ("Batch 3: Contacts 1001 - 2000", "Batch 4: Contacts 2001 - 3000") are replaced by 500-size
-//    ones, unless a broadcast already went to them, in which case they are kept as they are.
+//  - Batching only ever ADDS a tag; it never removes or changes one. People holding an old wide batch tag
+//    ("Batch 3: Contacts 1001 - 2000", "Batch 4: Contacts 2001 - 3000") that no broadcast used keep that tag and also get
+//    a 500-size batch. If a broadcast did use their old tag, they are left exactly as they are.
 
 export const BATCH_SIZE = 500;
 
@@ -39,10 +40,14 @@ export interface BatchContact {
 }
 
 export interface BatchPlan {
-  /** batch number -> ids of contacts to add to it */
+  /** batch number -> ids of contacts to add to it (the only change batching ever makes) */
   add: Map<number, string[]>;
-  /** contacts whose unused old batch tags are removed: their full new tag list */
-  replaceTags: Array<{ id: string; tags: string[] }>;
+}
+
+/** True when this contact still needs a batch: no current batch, and not in an old batch that was broadcast to. */
+export function needsBatch(tags: string[], sentTags: Set<string>): boolean {
+  if ((tags || []).some(t => batchNumberOf(t) !== null)) return false;
+  return !(tags || []).some(t => isBatchLikeTag(t) && sentTags.has(t));
 }
 
 /**
@@ -66,18 +71,13 @@ export function planBatches(
     add.get(n)!.push(id);
     bump(n);
   };
-  const replaceTags: BatchPlan['replaceTags'] = [];
   const unassigned: string[] = [];
 
   for (const c of contacts) {
     const tags = c.tags || [];
     const current = tags.map(batchNumberOf).filter((n): n is number => n !== null);
-    const old = tags.filter(t => isBatchLikeTag(t) && batchNumberOf(t) === null);
-    const oldUnused = old.filter(t => !sentTags.has(t));
-    if (oldUnused.length > 0) replaceTags.push({ id: c.id, tags: tags.filter(t => !oldUnused.includes(t)) });
-
     if (current.length > 0) current.forEach(bump);
-    else if (old.length > oldUnused.length) continue; // in an old batch that was broadcast to: leave as sent
+    else if (!needsBatch(tags, sentTags)) continue; // in an old batch that was broadcast to: leave as sent
     else if (recovered.has(c.id)) addTo(recovered.get(c.id)!, c.id);
     else unassigned.push(c.id);
   }
@@ -89,5 +89,5 @@ export function planBatches(
     while ((counts.get(open) || 0) >= BATCH_SIZE || sentNumbers.has(open)) open++;
     addTo(open, id);
   }
-  return { add, replaceTags };
+  return { add };
 }
