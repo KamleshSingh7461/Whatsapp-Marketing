@@ -40,6 +40,7 @@ import { CurrencyCode } from './lib/currency';
 import { canAccessTab, getDefaultTabForRole } from './lib/permissions';
 import { resolveCampaignRecipients } from './lib/campaignAudience';
 import { ChatAttachment, outboundKindForMime, roleLabelOf } from './lib/chatMessage';
+import { batchOptions } from './lib/contactBatches';
 import {
   AutomationFlow,
   Campaign,
@@ -1194,35 +1195,21 @@ export function Dashboard() {
     }
   };
 
+  // Batches are given out by the server automatically; this runs it straight away and reports the result. It must never
+  // fall back to tagging in the browser only: tags that are not saved vanish on the next refresh.
   const handleAutoCategorizeContacts = async () => {
     try {
       const updated = await autoCategorizeContactsApi();
-      if (Array.isArray(updated) && updated.length > 0) {
-        setContacts(updated);
-        alert(`Successfully auto-categorized ${updated.length} contacts into 500-1,000 batch chunks! You can now select Batch 1, Batch 2, etc. when creating Broadcast Campaigns.`);
-        return;
-      }
-    } catch (e) {
-      console.warn('Backend auto-categorize failed, applying local update:', e);
+      if (!Array.isArray(updated)) throw new Error('The server did not return the contacts.');
+      setContacts(updated);
+      const summary = batchOptions(updated, campaigns, undefined)
+        .filter(b => b.number !== null)
+        .map(b => `${b.label.split(' · ')[0]}: ${b.members.toLocaleString()} contacts`)
+        .join('\n');
+      alert(`Contacts are sorted into batches of 500.\n\n${summary || 'No contacts yet.'}`);
+    } catch (e: any) {
+      alert(`Contacts could not be sorted into batches.\n\n${e?.message || 'The server did not respond.'}`);
     }
-
-    setContacts(prev => {
-      const updated = prev.map((c, index) => {
-        let batchTag = 'Batch 1: Contacts 1 - 500';
-        if (index >= 500 && index < 1000) batchTag = 'Batch 2: Contacts 501 - 1000';
-        else if (index >= 1000 && index < 2000) batchTag = 'Batch 3: Contacts 1001 - 2000';
-        else if (index >= 2000) batchTag = 'Batch 4: Contacts 2001 - 3000';
-
-        const existingTags = c.tags || [];
-        const newTags = Array.from(new Set([...existingTags, batchTag]));
-        return {
-          ...c,
-          tags: newTags,
-        };
-      });
-      alert(`Successfully auto-categorized ${prev.length} contacts into 500-1,000 batch chunks! You can now select Batch 1, Batch 2, etc. when creating Broadcast Campaigns.`);
-      return updated;
-    });
   };
 
   const handleToggleResolve = async (convId: string) => {

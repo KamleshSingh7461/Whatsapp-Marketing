@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { batchNumberOf, batchTag, isBatchLikeTag, planBatches } from './contact-batches.logic';
 
 export function normalizePhone(phone: string): string {
   if (!phone) return '';
@@ -118,9 +119,20 @@ export class ContactsService implements OnModuleInit {
   async getAllContacts() {
     try {
       // Direct, non-blocking query — instant response in <5ms
-      const contacts = await this.prisma.contact.findMany({
+      let contacts = await this.prisma.contact.findMany({
         orderBy: { createdAt: 'desc' },
       });
+
+      // New contacts (uploads, manual adds, people who message in) get their batch here, so batches are always
+      // up to date without anyone pressing a button. Only does work when someone has no batch yet.
+      if (await this.needsBatching(contacts)) {
+        try {
+          await this.ensureBatches();
+          contacts = await this.prisma.contact.findMany({ orderBy: { createdAt: 'desc' } });
+        } catch (e: any) {
+          this.logger.warn(`Could not sort new contacts into batches: ${e.message}`);
+        }
+      }
 
       return contacts.map(c => ({
         id: c.id,
@@ -222,32 +234,100 @@ export class ContactsService implements OnModuleInit {
     }
   }
 
+  /** The "Sort contacts into batches" action: batching is automatic now, this just runs it straight away. */
   async autoCategorizeContacts() {
     try {
-      const contacts = await this.prisma.contact.findMany({
-        orderBy: { createdAt: 'asc' },
-      });
-
-      for (let index = 0; index < contacts.length; index++) {
-        const c = contacts[index];
-        let batchTag = 'Batch 1: Contacts 1 - 500';
-        if (index >= 500 && index < 1000) batchTag = 'Batch 2: Contacts 501 - 1000';
-        else if (index >= 1000 && index < 2000) batchTag = 'Batch 3: Contacts 1001 - 2000';
-        else if (index >= 2000) batchTag = 'Batch 4: Contacts 2001 - 3000';
-
-        const existingTags = c.tags || [];
-        const newTags = Array.from(new Set([...existingTags, batchTag]));
-
-        await this.prisma.contact.update({
-          where: { id: c.id },
-          data: { tags: newTags },
-        });
-      }
-
+      await this.ensureBatches();
       return this.getAllContacts();
     } catch (e: any) {
-      this.logger.error(`Failed to auto categorize contacts: ${e.message}`);
+      this.logger.error(`Failed to sort contacts into batches: ${e.message}`);
       throw e;
     }
+  }
+
+  /** True when someone has no batch, or still has an old wide batch tag that no broadcast used. */
+  private async needsBatching(contacts: Array<{ tags: string[] }>) {
+    if (contacts.some(c => !(c.tags || []).some(isBatchLikeTag))) return true;
+    const oldTags = new Set(contacts.flatMap(c => (c.tags || []).filter(t => isBatchLikeTag(t) && batchNumberOf(t) === null)));
+    if (oldTags.size === 0) return false;
+    const campaigns = await this.prisma.campaign.findMany({ where: { status: { not: 'DRAFT' } }, select: { segmentJson: true } });
+    const sent = new Set(campaigns.flatMap(c => ((c.segmentJson as any)?.targetTags || []) as string[]));
+    return [...oldTags].some(t => !sent.has(t));
+  }
+
+  private batching: Promise<void> | null = null;
+
+  /**
+   * Puts every contact without a batch into one (500 per batch, see contact-batches.logic.ts). Runs one at a time, and
+   * under a database lock so two API processes can never hand out the same places.
+   */
+  ensureBatches(): Promise<void> {
+    if (!this.batching) {
+      this.batching = this.assignBatches().finally(() => {
+        this.batching = null;
+      });
+    }
+    return this.batching;
+  }
+
+  private async assignBatches() {
+    await this.prisma.$transaction(
+      async tx => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(4815162342)`;
+
+        const contacts = await tx.contact.findMany({
+          select: { id: true, phone: true, tags: true },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        });
+
+        // Batches a broadcast already went to: they keep exactly the people they were sent to.
+        const campaigns = await tx.campaign.findMany({ select: { id: true, status: true, segmentJson: true } });
+        const sentTags = new Set<string>();
+        const serverSentByBatch = new Map<string, number>();
+        for (const c of campaigns) {
+          if (c.status === 'DRAFT') continue;
+          const seg = (c.segmentJson as any) || {};
+          for (const tag of (seg.targetTags || []) as string[]) {
+            if (!isBatchLikeTag(tag)) continue;
+            sentTags.add(tag);
+            const n = batchNumberOf(tag);
+            if (n !== null && seg.serverSend) serverSentByBatch.set(c.id, n);
+          }
+        }
+
+        // People the server's send records show received a batch broadcast, in case their batch tag went missing.
+        const recovered = new Map<string, number>();
+        if (serverSentByBatch.size > 0) {
+          const idByPhone = new Map(contacts.map(c => [c.phone, c.id]));
+          const rows = await tx.campaignRecipient.findMany({
+            where: { campaignId: { in: [...serverSentByBatch.keys()] } },
+            select: { campaignId: true, contactId: true, phone: true },
+          });
+          for (const r of rows) {
+            const id = r.contactId || idByPhone.get(r.phone);
+            const n = serverSentByBatch.get(r.campaignId)!;
+            if (id && !(recovered.get(id)! <= n)) recovered.set(id, n);
+          }
+        }
+
+        const plan = planBatches(contacts, sentTags, recovered);
+        for (const r of plan.replaceTags) {
+          await tx.contact.update({ where: { id: r.id }, data: { tags: r.tags } });
+        }
+        let placed = 0;
+        for (const [n, ids] of plan.add) {
+          for (let i = 0; i < ids.length; i += 1000) {
+            const chunk = ids.slice(i, i + 1000);
+            await tx.contact.updateMany({ where: { id: { in: chunk } }, data: { tags: { push: batchTag(n) } } });
+          }
+          placed += ids.length;
+        }
+        if (placed > 0 || plan.replaceTags.length > 0) {
+          const where = [...plan.add.entries()].map(([n, ids]) => `Batch ${n} +${ids.length}`).join(', ');
+          this.logger.log(`Batches: placed ${placed} contact(s) (${where || 'none'}); old batch tags replaced on ${plan.replaceTags.length}`);
+        }
+      },
+      { maxWait: 30_000, timeout: 120_000 },
+    );
   }
 }

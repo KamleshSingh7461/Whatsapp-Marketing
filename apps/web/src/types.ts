@@ -134,6 +134,7 @@ export interface Campaign {
   status: CampaignStatus;
   scheduledAt?: string | null;
   sentAt?: string | null;
+  createdAt?: string | null;
   startedAt?: string | null;
   completedAt?: string | null;
   /** True when the server owns the sending (survives closing the browser). */

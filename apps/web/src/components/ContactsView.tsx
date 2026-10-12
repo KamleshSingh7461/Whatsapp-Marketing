@@ -53,10 +53,7 @@ const PRESET_TAGS = [
   'Frequent Buyer',
   'New Lead',
   'Internal Team',
-  'Batch 1: Contacts 1 - 500',
-  'Batch 2: Contacts 501 - 1000',
-  'Batch 3: Contacts 1001 - 2000',
-  'Batch 4: Contacts 2001 - 3000',
+  // Batch tags are given out by the server (500 per batch), never picked by hand.
 ];
 
 const COHORTS: Record<string, { label: string; tone: string }> = {

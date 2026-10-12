@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Campaign, Contact, Template, User } from '../types';
 import { CurrencyCode, formatCurrency, formatRate } from '../lib/currency';
 import { canCreateCampaigns } from '../lib/permissions';
@@ -11,6 +11,7 @@ import {
   resolveCampaignAudience,
   resolveCampaignRecipients,
 } from '../lib/campaignAudience';
+import { BATCH_SIZE, batchOptions, isBatchLikeTag, nextUnsentBatch } from '../lib/contactBatches';
 import { BroadcastIcon, CloseIcon } from './WhatsAppIcons';
 
 interface CampaignsViewProps {
@@ -173,10 +174,26 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
   const [campaignName, setCampaignName] = useState('');
   const [selectedTemplateId, setSelectedTemplateId] = useState(templates[0]?.id || '');
 
-  // Extract all unique tags present across contacts in CRM
-  const crmTags = Array.from(new Set(contacts.flatMap(c => c.tags || []))).filter(Boolean);
+  // Extract all unique tags present across contacts in CRM (batches are listed separately below)
+  const crmTags = Array.from(new Set(contacts.flatMap(c => c.tags || []))).filter(t => t && !isBatchLikeTag(t));
 
-  const [selectedTag, setSelectedTag] = useState(crmTags[0] || ALL_OPTED_IN);
+  // Batches of 500, with which ones already received the chosen template. "Sent" is per template: a new marketing
+  // template starts again from Batch 1. The next batch without this template is offered first.
+  const chosenTemplateName = (templates.find(t => t.id === selectedTemplateId) || templates[0])?.name;
+  const batches = useMemo(
+    () => batchOptions(contacts, campaigns, chosenTemplateName),
+    [contacts, campaigns, chosenTemplateName],
+  );
+  const nextBatch = nextUnsentBatch(batches);
+
+  const [selectedTag, setSelectedTag] = useState(() => nextBatch?.tag || crmTags[0] || ALL_OPTED_IN);
+  const selectedBatch = batches.find(b => b.tag === selectedTag);
+
+  // Choosing another template moves a batch audience to the next batch that has not had that template.
+  useEffect(() => {
+    if (isModalOpen && isBatchLikeTag(selectedTag) && nextBatch) setSelectedTag(nextBatch.tag);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTemplateId]);
 
   // Recipients are always the real, opted-in audience: the same list the dispatcher will message.
   // People Meta recently refused to deliver to are left out (they rest for a while), and we say how many.
@@ -235,7 +252,10 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
   const estCostNum = estimateCampaignCostUSD(recipientsCount, previewTemplate?.category);
   const estRevenueNum = recipientsCount * 0.09 * 145;
 
-  const openModal = () => setIsModalOpen(true);
+  const openModal = () => {
+    if (nextBatch) setSelectedTag(nextBatch.tag);
+    setIsModalOpen(true);
+  };
 
   return (
     <div className="wa-bc-page">
@@ -582,11 +602,17 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                     )}
                   </optgroup>
 
-                  <optgroup label="Batch segments (safety limit)">
-                    <option value="Batch 1: Contacts 1 - 500">Batch 1: Contacts 1 - 500 ({countFor('Batch 1: Contacts 1 - 500')} contacts)</option>
-                    <option value="Batch 2: Contacts 501 - 1000">Batch 2: Contacts 501 - 1,000 ({countFor('Batch 2: Contacts 501 - 1000')} contacts)</option>
-                    <option value="Batch 3: Contacts 1001 - 2000">Batch 3: Contacts 1,001 - 2,000 ({countFor('Batch 3: Contacts 1001 - 2000')} contacts)</option>
-                    <option value="Batch 4: Contacts 2001 - 3000">Batch 4: Contacts 2,001 - 3,000 ({countFor('Batch 4: Contacts 2001 - 3000')} contacts)</option>
+                  <optgroup label={`Batches (${BATCH_SIZE} contacts each)`}>
+                    {batches.length === 0 ? (
+                      <option value="" disabled>No batches yet: add contacts first</option>
+                    ) : (
+                      batches.map(b => (
+                        <option key={b.tag} value={b.tag}>
+                          {b.label} ({b.reachable.toLocaleString()} {b.reachable === 1 ? 'contact' : 'contacts'})
+                          {b.sentWith.length > 0 ? ' · sent this template' : b.tag === nextBatch?.tag ? ' · next' : ''}
+                        </option>
+                      ))
+                    )}
                   </optgroup>
 
                   <optgroup label="Global database">
@@ -611,6 +637,25 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                       : `opted-in ${recipientsCount === 1 ? 'contact' : 'contacts'} will receive this broadcast`}
                   </span>
                 </div>
+                {selectedBatch && selectedBatch.sentWith.length > 0 && (
+                  <div className="wa-bc-warn" role="alert">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                      <line x1="12" y1="9" x2="12" y2="13" />
+                      <line x1="12" y1="17" x2="12.01" y2="17" />
+                    </svg>
+                    <span>
+                      This batch already received this template (
+                      {selectedBatch.sentWith
+                        .map(s => `"${s.name}"${s.at ? ` on ${new Date(s.at).toLocaleDateString([], { day: 'numeric', month: 'short' })}` : ''}`)
+                        .join(', ')}
+                      ).
+                      {nextBatch
+                        ? ` The next batch that has not had it is ${nextBatch.label.split(' · ')[0]}.`
+                        : ' Every batch has had this template.'}
+                    </span>
+                  </div>
+                )}
                 {restingCount > 0 && recipientsCount > 0 && (
                   <div className="wa-bc-warn" role="note">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -631,7 +676,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                       <line x1="12" y1="17" x2="12.01" y2="17" />
                     </svg>
                     <span>
-                      {recipientsCount.toLocaleString()} exceeds Meta's current 2,000 daily message limit. Target Batch 1 or Batch 2 (500 to 1,000 recipients) instead.
+                      {recipientsCount.toLocaleString()} exceeds Meta's current 2,000 daily message limit. Send to one batch at a time instead ({BATCH_SIZE} contacts each).
                     </span>
                   </div>
                 )}
