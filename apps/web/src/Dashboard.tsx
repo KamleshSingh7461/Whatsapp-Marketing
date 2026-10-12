@@ -362,6 +362,16 @@ export function Dashboard() {
     verifySession();
   }, []);
 
+  // The server stopped accepting this login (access removed, or the session expired): back to the login screen.
+  useEffect(() => {
+    const onEnded = () => {
+      setUser(null);
+      setIsAuthOpen(true);
+    };
+    window.addEventListener('fgsn:session-ended', onEnded);
+    return () => window.removeEventListener('fgsn:session-ended', onEnded);
+  }, []);
+
   // RBAC Tab Protection: Automatically redirect if active tab is forbidden for user's role
   useEffect(() => {
     if (user && !canAccessTab(user.role, activeTab)) {

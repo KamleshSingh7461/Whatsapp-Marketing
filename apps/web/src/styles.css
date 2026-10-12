@@ -13659,3 +13659,67 @@ a.wa-doc:hover {
     min-width: 0;
   }
 }
+
+/* ==========================================================================
+   SETTINGS: pending invites (links sent but not used yet), with revoke
+   ========================================================================== */
+.wa-st-invites {
+  border-top: 1px solid #e9edef;
+  padding-bottom: 8px;
+}
+
+.wa-st-invites-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 20px 10px;
+}
+
+.wa-st-invites-head h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #111b21;
+}
+
+.wa-st-avatar.is-invite {
+  background: #e9edef;
+  color: #54656f;
+}
+
+.wa-st-invite-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.wa-st-invites-toggle {
+  margin: 8px 20px 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #008069;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.wa-st-list.is-muted .wa-st-row {
+  opacity: 0.7;
+}
+
+@media (max-width: 640px) {
+  .wa-st-invites-head {
+    padding: 12px 14px 8px;
+  }
+
+  .wa-st-invite-actions {
+    margin-left: 56px;
+  }
+
+  .wa-st-invites-toggle {
+    margin: 8px 14px 4px;
+  }
+}

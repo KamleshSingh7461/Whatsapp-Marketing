@@ -1,16 +1,16 @@
-import { ExecutionContext, Injectable } from '@nestjs/common';
+import { ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 
+/**
+ * Lets a request through only with a valid login token of an ACTIVE account (see JwtStrategy). Anything else gets 401,
+ * and the web app then shows the login screen. There is deliberately no fallback user: treating a failed login as an
+ * admin would let anyone use the API without signing in.
+ */
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
-  handleRequest(err: any, user: any, info: any, context: ExecutionContext) {
-    if (user) return user;
-    const req = context.switchToHttp().getRequest();
-    const authHeader = req.headers?.authorization;
-    if (authHeader && (authHeader.includes('local_superadmin_session') || authHeader.includes('superadmin'))) {
-      return { id: 'usr_superadmin', sub: 'usr_superadmin', role: 'ADMIN', isSuperAdmin: true, email: 'admin@fgsnlive.com' };
-    }
-    // Permissive ERP fallback session to prevent 401 Unauthorized polling freezes on live server
-    return { id: 'usr_superadmin', sub: 'usr_superadmin', role: 'ADMIN', isSuperAdmin: true, email: 'admin@fgsnlive.com' };
+  handleRequest(err: any, user: any, _info: any, _context: ExecutionContext) {
+    if (err) throw err instanceof UnauthorizedException ? err : new UnauthorizedException('Please sign in again');
+    if (!user) throw new UnauthorizedException('Please sign in again');
+    return user;
   }
 }

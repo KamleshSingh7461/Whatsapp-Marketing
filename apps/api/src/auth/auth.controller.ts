@@ -56,4 +56,18 @@ export class AuthController {
   deleteTeamMember(@Req() req: any, @Param('id') id: string) {
     return this.authService.deleteTeamMember(id, req.user.userId);
   }
+
+  // Invites that were never accepted (pending, expired, revoked). Admins only.
+  @UseGuards(JwtAuthGuard)
+  @Get('invites')
+  listInvites(@Req() req: any) {
+    return this.authService.listInvites(req.user.userId);
+  }
+
+  // Revoke an invite: the shared link stops working for good. Admins only.
+  @UseGuards(JwtAuthGuard)
+  @Delete('invites/:id')
+  revokeInvite(@Req() req: any, @Param('id') id: string) {
+    return this.authService.revokeInvite(id, req.user.userId);
+  }
 }

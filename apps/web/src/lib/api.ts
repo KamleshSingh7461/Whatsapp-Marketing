@@ -23,6 +23,13 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     },
   });
 
+  // Signed in, but the server no longer accepts this login (access removed, or the session ran out): sign this
+  // browser out so the login screen shows, instead of a page that silently stops working.
+  if (response.status === 401 && token && typeof window !== 'undefined') {
+    clearToken();
+    window.dispatchEvent(new CustomEvent('fgsn:session-ended'));
+  }
+
   if (!response.ok) {
     let message = `API error ${response.status}`;
     try {
@@ -97,6 +104,28 @@ export async function deleteTeamMemberApi(id: string) {
   return apiFetch<{ success: boolean }>(`/auth/team/${id}`, {
     method: 'DELETE',
   });
+}
+
+export interface PendingInvite {
+  id: string;
+  email: string;
+  role: string;
+  invitedByName: string;
+  createdAt: string;
+  expiresAt: string;
+  status: 'PENDING' | 'EXPIRED' | 'REVOKED';
+  /** Only while the link still works. */
+  token?: string;
+}
+
+/** Invites that were never accepted: pending, expired or revoked. */
+export async function getInvitesApi() {
+  return apiFetch<PendingInvite[]>('/auth/invites');
+}
+
+/** Revokes an invite: its link stops working for good. */
+export async function revokeInviteApi(id: string) {
+  return apiFetch<{ success: boolean; status: string }>(`/auth/invites/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
 // Billing & Payment Methods API Calls

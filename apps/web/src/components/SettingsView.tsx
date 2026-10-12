@@ -4,6 +4,9 @@ import {
   createInviteApi,
   deleteTeamMemberApi,
   getTeamMembersApi,
+  getInvitesApi,
+  revokeInviteApi,
+  PendingInvite,
   getPaymentMethodsApi,
   addPaymentMethodApi,
   setDefaultPaymentMethodApi,
@@ -43,6 +46,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   // Team Management States
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
+  // Invites never accepted: pending (link works), expired or revoked
+  const [invites, setInvites] = useState<PendingInvite[]>([]);
+  const [showOldInvites, setShowOldInvites] = useState(false);
+  const [copiedInviteId, setCopiedInviteId] = useState<string | null>(null);
   const [loadingTeam, setLoadingTeam] = useState(false);
   const [isInviteOpen, setIsInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -82,8 +89,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const loadTeam = async () => {
     try {
       setLoadingTeam(true);
-      const members = await getTeamMembersApi();
+      const [members, inviteList] = await Promise.all([getTeamMembersApi(), getInvitesApi().catch(() => [])]);
       setTeamMembers(members);
+      setInvites(inviteList);
     } catch {
       // Fallback
     } finally {
@@ -136,8 +144,31 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
+  const inviteLinkFor = (token: string) => `${window.location.origin}/#invite?token=${token}`;
+
+  const handleRevokeInvite = async (invite: PendingInvite) => {
+    if (!confirm(`Revoke the invite for ${invite.email}? The link they were sent will stop working immediately and can never be used again.`)) return;
+    try {
+      await revokeInviteApi(invite.id);
+      loadTeam();
+    } catch (err: any) {
+      alert(err.message || 'The invite could not be revoked.');
+    }
+  };
+
+  const handleCopyInvite = async (invite: PendingInvite) => {
+    if (!invite.token) return;
+    try {
+      await navigator.clipboard.writeText(inviteLinkFor(invite.token));
+      setCopiedInviteId(invite.id);
+      setTimeout(() => setCopiedInviteId(null), 2000);
+    } catch {
+      prompt('Copy this invite link:', inviteLinkFor(invite.token));
+    }
+  };
+
   const handleRemoveMember = async (id: string) => {
-    if (!confirm('Are you sure you want to revoke workspace access for this member?')) return;
+    if (!confirm('Remove this member? They are signed out straight away, cannot sign in again, and any invite link still pending for them stops working.')) return;
     try {
       await deleteTeamMemberApi(id);
       loadTeam();
@@ -393,6 +424,78 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   })}
                 </ul>
               )}
+
+              {/* Invites never accepted. A pending link works for 7 days unless it is revoked. */}
+              {(() => {
+                const pending = invites.filter(i => i.status === 'PENDING');
+                const old = invites.filter(i => i.status !== 'PENDING');
+                const when = (iso: string) => new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+                return (
+                  <div className="wa-st-invites">
+                    <div className="wa-st-invites-head">
+                      <h4>Pending invites</h4>
+                      <span className="wa-bc-muted">
+                        People who were sent a link but have not signed up yet. Revoke a link to make sure it can never be used.
+                      </span>
+                    </div>
+                    {pending.length === 0 ? (
+                      <p className="wa-st-empty">No pending invites.</p>
+                    ) : (
+                      <ul className="wa-st-list">
+                        {pending.map(inv => (
+                          <li key={inv.id} className="wa-st-row">
+                            <div className="wa-st-avatar is-invite" aria-hidden="true">@</div>
+                            <div className="wa-st-row-main">
+                              <div className="wa-st-row-name"><strong>{inv.email}</strong></div>
+                              <div className="wa-st-row-sub">
+                                Invited by {inv.invitedByName} on {when(inv.createdAt)} · link works until {when(inv.expiresAt)}
+                              </div>
+                            </div>
+                            <div className="wa-st-row-tags">
+                              {getRoleBadge(inv.role as Role)}
+                              <span className="wa-bc-status tone-live"><span className="wa-bc-status-dot" />Pending</span>
+                            </div>
+                            <div className="wa-st-invite-actions">
+                              <button type="button" className="wa-bc-act" onClick={() => handleCopyInvite(inv)}>
+                                {copiedInviteId === inv.id ? 'Copied' : 'Copy link'}
+                              </button>
+                              <button type="button" className="wa-st-danger-btn" onClick={() => handleRevokeInvite(inv)}>
+                                Revoke
+                              </button>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {old.length > 0 && (
+                      <>
+                        <button type="button" className="wa-st-invites-toggle" onClick={() => setShowOldInvites(v => !v)}>
+                          {showOldInvites ? 'Hide' : 'Show'} revoked and expired invites ({old.length})
+                        </button>
+                        {showOldInvites && (
+                          <ul className="wa-st-list is-muted">
+                            {old.map(inv => (
+                              <li key={inv.id} className="wa-st-row">
+                                <div className="wa-st-avatar is-invite" aria-hidden="true">@</div>
+                                <div className="wa-st-row-main">
+                                  <div className="wa-st-row-name"><strong>{inv.email}</strong></div>
+                                  <div className="wa-st-row-sub">
+                                    Invited by {inv.invitedByName} on {when(inv.createdAt)} · {inv.status === 'REVOKED' ? 'revoked' : 'expired'} {when(inv.expiresAt)}
+                                  </div>
+                                </div>
+                                <div className="wa-st-row-tags">
+                                  {getRoleBadge(inv.role as Role)}
+                                  <span className="wa-bc-status tone-idle">{inv.status === 'REVOKED' ? 'Revoked' : 'Expired'}</span>
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
             </section>
           )}
 
