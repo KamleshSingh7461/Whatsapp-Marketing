@@ -98,7 +98,8 @@ export async function refreshCampaignStats(
         delivered: p.delivered + p.read,
         read: p.read,
         failed: p.failed,
-        cost: estimateCostUSD(p.accepted, seg.category),
+        // Meta bills a template message when it is delivered, so only delivered (and read) ones cost money.
+        cost: estimateCostUSD(p.delivered + p.read, seg.category),
       } as any,
     },
   });

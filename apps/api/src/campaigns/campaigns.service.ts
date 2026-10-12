@@ -57,7 +57,8 @@ export class CampaignsService {
           converted: stored.converted || 0,
           failed: progress.failed,
           revenue: stored.revenue || 0,
-          cost: estimateCostUSD(progress.accepted, seg.category),
+          // Meta bills a template message when it is delivered, so only delivered (and read) ones cost money.
+          cost: estimateCostUSD(progress.delivered + progress.read, seg.category),
         }
       : {
           sent: stored.sent || 0,

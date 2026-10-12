@@ -608,7 +608,16 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                       )}
                     </td>
                     <td data-label="Meta spend">
-                      <div className="wa-bc-spend">{formatCurrency(cmp.stats.cost, currency, 2)}</div>
+                      {p ? (
+                        <div
+                          className="wa-bc-spend"
+                          title="Meta charges a marketing template when it is delivered: delivered messages × Meta's rate. Your Meta invoice is the final word."
+                        >
+                          {formatCurrency(cmp.stats.cost, currency, 2)}
+                        </div>
+                      ) : (
+                        <div className="wa-bc-muted" title={notMeasuredTitle}>Not measured</div>
+                      )}
                     </td>
                   </tr>
                   {p && expandedId === cmp.id && (
