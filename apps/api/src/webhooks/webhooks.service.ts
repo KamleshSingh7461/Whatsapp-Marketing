@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { MessageDirection, MessageStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CampaignsService } from '../campaigns/campaigns.service';
+import { BroadcastChatService } from '../campaigns/broadcast-chat.service';
 import { ReplyRulesService } from '../reply-rules/reply-rules.service';
 import { DeliveryBlocksService } from '../delivery-blocks/delivery-blocks.service';
 import { inboundFallbackText, inboundMediaOf } from '../inbox/message-view.logic';
@@ -23,6 +24,7 @@ export class WebhooksService {
     private campaigns: CampaignsService,
     private replyRules: ReplyRulesService,
     private deliveryBlocks: DeliveryBlocksService,
+    private broadcastChat: BroadcastChatService,
   ) {}
 
   async handleIncoming(payload: any): Promise<void> {
@@ -131,6 +133,9 @@ export class WebhooksService {
         data: { contactId: contact.id, windowExpiresAt, updatedAt: new Date() },
       });
     }
+
+    // If this reply answers a broadcast, put that broadcast in the chat (above the reply) so the agent sees the context.
+    await this.broadcastChat.addToChat(phone, { conversationId: conversation.id });
 
     // Photos, videos, voice notes, documents and stickers: the file stays with Meta and is shown through our media proxy.
     const media = inboundMediaOf(message);

@@ -13459,3 +13459,203 @@ a.wa-doc:hover {
     max-width: none;
   }
 }
+
+/* ==========================================================================
+   BROADCAST REPORT: every number with its delivery status, filters, search, CSV
+   ========================================================================== */
+.wa-bc-report-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin: 14px 0 10px;
+}
+
+.wa-bc-report-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.wa-bc-report-tabs button {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid #d1d7db;
+  border-radius: 16px;
+  background: #ffffff;
+  color: #3b4a54;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.wa-bc-report-tabs button span {
+  margin-left: 4px;
+  font-weight: 500;
+  color: #667781;
+}
+
+.wa-bc-report-tabs button.is-active {
+  border-color: #00a884;
+  background: #e7fce3;
+  color: #008069;
+}
+
+.wa-bc-report-search {
+  flex: 1 1 180px;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid #d1d7db;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.wa-bc-report-search:focus {
+  outline: none;
+  border-color: #00a884;
+}
+
+.wa-bc-report-scroll {
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid #e9edef;
+  border-radius: 8px;
+}
+
+.wa-bc-report {
+  width: 100%;
+  min-width: 0; /* beats the legacy mobile `table { min-width: 540px }` rule */
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.wa-bc-report th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 10px;
+  background: #f7f8fa;
+  color: #54656f;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  border-bottom: 1px solid #e9edef;
+}
+
+.wa-bc-report td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #f0f2f5;
+  vertical-align: top;
+  color: #111b21;
+  white-space: nowrap;
+}
+
+.wa-bc-report td:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.wa-bc-report td.wa-bc-report-why {
+  white-space: normal;
+  min-width: 220px;
+  color: #b42318;
+  font-size: 12.5px;
+}
+
+.wa-bc-rstatus {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.wa-bc-rstatus.tone-ok {
+  background: #e7fce3;
+  color: #008069;
+}
+
+.wa-bc-rstatus.tone-good {
+  background: #e0f2fe;
+  color: #027eb5;
+}
+
+.wa-bc-rstatus.tone-wait {
+  background: #fff7e6;
+  color: #9a6700;
+}
+
+.wa-bc-rstatus.tone-bad {
+  background: #fdecea;
+  color: #b42318;
+}
+
+.wa-bc-rstatus.tone-off {
+  background: #f0f2f5;
+  color: #667781;
+}
+
+.wa-bc-report-more {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+@media (max-width: 760px) {
+  .wa-bc-report-scroll {
+    max-height: none;
+    border: none;
+  }
+
+  .wa-bc-report thead {
+    display: none;
+  }
+
+  .wa-bc-report,
+  .wa-bc-report tbody,
+  .wa-bc-report tr,
+  .wa-bc-report td {
+    display: block;
+    width: 100%;
+  }
+
+  .wa-bc-report tr {
+    margin-bottom: 8px;
+    border: 1px solid #e9edef;
+    border-radius: 8px;
+    padding: 6px 4px;
+  }
+
+  .wa-bc-report td {
+    border: none;
+    padding: 3px 8px;
+    white-space: normal;
+  }
+
+  .wa-bc-report td:not(:first-child)::before {
+    content: attr(data-label) ': ';
+    color: #667781;
+    font-size: 12px;
+  }
+
+  .wa-bc-report td:empty {
+    display: none;
+  }
+
+  /* Cards on phones: no sideways scrolling, the reason wraps */
+  .wa-bc-report-scroll {
+    overflow: visible;
+  }
+
+  .wa-bc-report td.wa-bc-report-why {
+    min-width: 0;
+  }
+}

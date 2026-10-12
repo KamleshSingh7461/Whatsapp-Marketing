@@ -139,6 +139,8 @@ export interface Campaign {
   completedAt?: string | null;
   /** True when the server owns the sending (survives closing the browser). */
   serverSend?: boolean;
+  /** True when every number has its own record, updated by Meta's delivery receipts (real figures, not estimates). */
+  measured?: boolean;
   /** e.g. 'DAILY_LIMIT' while a sending campaign is waiting for Meta's daily cap to free up. */
   pauseReason?: string | null;
   progress?: CampaignProgress;

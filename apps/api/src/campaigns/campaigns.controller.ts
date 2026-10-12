@@ -49,10 +49,18 @@ export class CampaignsController {
   recipients(
     @Param('id') id: string,
     @Query('status') status?: string,
+    @Query('q') q?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
-    return this.campaignsService.getRecipients(id, { status, limit: Number(limit), offset: Number(offset) });
+    return this.campaignsService.getRecipients(id, { status, q, limit: Number(limit), offset: Number(offset) });
+  }
+
+  // Browser-sent broadcasts: send to one number and record it, so the campaign gets a real per-number report.
+  @Post(':id/send-one')
+  @Roles(Role.ADMIN, Role.MARKETER)
+  sendOne(@Param('id') id: string, @Body() body: { to: string; language?: string; contactId?: string; displayName?: string }) {
+    return this.campaignsService.sendOne(id, body);
   }
 
   @Post(':id/pause')

@@ -290,10 +290,11 @@ export async function campaignActionApi(id: string, action: CampaignAction) {
 
 export async function getCampaignRecipientsApi(
   id: string,
-  opts: { status?: string; limit?: number; offset?: number } = {},
+  opts: { status?: string; q?: string; limit?: number; offset?: number } = {},
 ) {
   const q = new URLSearchParams();
   if (opts.status) q.set('status', opts.status);
+  if (opts.q) q.set('q', opts.q);
   if (opts.limit) q.set('limit', String(opts.limit));
   if (opts.offset) q.set('offset', String(opts.offset));
   const qs = q.toString();

@@ -13,6 +13,8 @@ import { CampaignSenderService } from './campaign-sender.service';
 import { LaunchCampaignDto } from './dto/launch-campaign.dto';
 import { CampaignProgress, estimateCostUSD, loadCounts, summarize } from './campaign-progress';
 import { isMetaBlocked } from '../delivery-blocks/delivery-blocks.logic';
+import { WhatsappIntegrationService } from '../whatsapp-integration/whatsapp-integration.service';
+import { BroadcastChatService } from './broadcast-chat.service';
 
 const ALL_OPTED_IN = 'All Opted-In';
 const INTERNAL_TEST_GROUP = 'Internal Team Test Group';
@@ -29,16 +31,22 @@ export class CampaignsService {
     private prisma: PrismaService,
     private templates: TemplatesService,
     private sender: CampaignSenderService,
+    private whatsapp: WhatsappIntegrationService,
+    private broadcastChat: BroadcastChatService,
   ) {}
 
   // ---------------------------------------------------------------- listing
 
-  /** Shape sent to the web app. Server-sent campaigns carry live, real progress. */
+  /** Shape sent to the web app. Every campaign with per-number records carries live, real progress. */
   private toDto(c: Campaign, counts?: Record<string, number>) {
     const seg = (c.segmentJson as any) || {};
     const stored = (c.stats as any) || {};
     const serverSend = !!seg.serverSend;
-    const progress = serverSend ? summarize(counts ?? {}) : undefined;
+    // Measured: there is one record per number, kept up to date by Meta's delivery receipts. Server-sent campaigns
+    // always are; browser-sent ones are since they started recording each send. Older ones only have the estimate
+    // made at launch.
+    const measured = serverSend || Object.keys(counts ?? {}).length > 0;
+    const progress = measured ? summarize(counts ?? {}) : undefined;
 
     const stats = progress
       ? {
@@ -74,6 +82,7 @@ export class CampaignsService {
       startedAt: c.startedAt ? c.startedAt.toISOString() : null,
       completedAt: c.completedAt ? c.completedAt.toISOString() : null,
       serverSend,
+      measured,
       pauseReason: c.pauseReason,
       progress,
       stats,
@@ -83,8 +92,11 @@ export class CampaignsService {
   async getAllCampaigns() {
     try {
       const campaigns = await this.prisma.campaign.findMany({ orderBy: { createdAt: 'desc' } });
-      const serverIds = campaigns.filter(c => (c.segmentJson as any)?.serverSend).map(c => c.id);
-      const counts = await loadCounts(this.prisma, serverIds);
+      // Per-number counts are extra: if they cannot be read, the history is still listed (without reports).
+      const counts = await loadCounts(this.prisma, campaigns.map(c => c.id)).catch((e: any) => {
+        this.logger.warn(`Could not load per-number counts: ${e.message}`);
+        return new Map<string, Record<string, number>>();
+      });
       return campaigns.map(c => this.toDto(c, counts.get(c.id)));
     } catch (e: any) {
       this.logger.error(`Failed to get campaigns: ${e.message}`);
@@ -153,6 +165,67 @@ export class CampaignsService {
       this.logger.error(`Failed to update campaign ${id}: ${e.message}`);
       return null;
     }
+  }
+
+  /**
+   * Browser-sent broadcasts: sends the campaign's template to one number and keeps a record of it, as the server worker
+   * does, so the campaign gets a real per-number report. The record is written BEFORE Meta is called, so Meta's
+   * delivery receipt (which can arrive within a second) always finds it, then it is updated with Meta's answer.
+   * Returns the same shape as POST /whatsapp/send-template.
+   */
+  async sendOne(id: string, dto: { to: string; language?: string; contactId?: string; displayName?: string }) {
+    const campaign = await this.prisma.campaign.findUnique({ where: { id } });
+    if (!campaign) throw new NotFoundException('Campaign not found');
+    const seg = (campaign.segmentJson as any) || {};
+    if (seg.serverSend) throw new BadRequestException('This campaign is sent by the server.');
+    if (!seg.templateName) throw new BadRequestException('This campaign has no template.');
+    let phone = String(dto?.to || '').replace(/[^\d]/g, '');
+    if (phone.length === 10) phone = '91' + phone;
+    if (phone.length < 7 || phone.length > 15) throw new BadRequestException('Not a valid phone number.');
+
+    // Recording is best-effort: if it fails, the message is still sent (the report just misses this number).
+    const row = await this.prisma.campaignRecipient
+      .upsert({
+        where: { campaignId_phone: { campaignId: id, phone } },
+        create: {
+          campaignId: id,
+          phone,
+          contactId: dto.contactId || null,
+          displayName: dto.displayName ? String(dto.displayName).slice(0, 100) : null,
+          status: RecipientStatus.SENDING,
+          attempts: 1,
+        },
+        update: { status: RecipientStatus.SENDING, attempts: { increment: 1 }, errorCode: null, errorMessage: null },
+      })
+      .catch((e: any) => {
+        this.logger.warn(`Could not record +${phone} for campaign ${id} before sending: ${e.message}`);
+        return null;
+      });
+
+    let res: any;
+    try {
+      res = await this.whatsapp.sendTemplateMessage({ to: phone, templateName: seg.templateName, language: dto.language });
+    } catch (e: any) {
+      res = { success: false, error: e?.message || 'Send failed' };
+    }
+
+    if (!row) return res;
+    await this.prisma.campaignRecipient
+      .update({
+        where: { id: row.id },
+        data: res?.success
+          ? { status: RecipientStatus.SENT, metaMessageId: res.messageId, sentAt: new Date() }
+          : {
+              status: RecipientStatus.FAILED,
+              errorCode: String(res?.metaResponse?.error?.code ?? 'SEND_FAILED').slice(0, 50),
+              errorMessage: String(res?.error || 'Send failed').slice(0, 500),
+            },
+      })
+      .catch((e: any) => this.logger.warn(`Could not record the send to +${phone} for campaign ${id}: ${e.message}`));
+
+    // If this person already has a chat, the broadcast shows there right away (best-effort, never delays the send).
+    if (res?.success) void this.broadcastChat.addToChat(phone, { bumpChat: true });
+    return res;
   }
 
   // ---------------------------------------------------------------- server-side sending
@@ -356,14 +429,30 @@ export class CampaignsService {
     };
   }
 
-  async getRecipients(id: string, opts: { status?: string; limit?: number; offset?: number }) {
+  /** One page of a campaign's numbers. `status` may list several, comma-separated; `q` matches name or number. */
+  async getRecipients(id: string, opts: { status?: string; q?: string; limit?: number; offset?: number }) {
     const limit = Math.min(Math.max(Number(opts.limit) || 50, 1), 200);
     const offset = Math.max(Number(opts.offset) || 0, 0);
-    const status = opts.status && (Object.values(RecipientStatus) as string[]).includes(opts.status.toUpperCase())
-      ? (opts.status.toUpperCase() as RecipientStatus)
-      : undefined;
+    const known = Object.values(RecipientStatus) as string[];
+    const statuses = String(opts.status || '')
+      .split(',')
+      .map(x => x.trim().toUpperCase())
+      .filter(x => known.includes(x)) as RecipientStatus[];
+    const q = String(opts.q || '').trim().slice(0, 50);
+    const digits = q.replace(/[^\d]/g, '');
 
-    const where: Prisma.CampaignRecipientWhereInput = { campaignId: id, ...(status ? { status } : {}) };
+    const where: Prisma.CampaignRecipientWhereInput = {
+      campaignId: id,
+      ...(statuses.length > 0 ? { status: { in: statuses } } : {}),
+      ...(q
+        ? {
+            OR: [
+              { displayName: { contains: q, mode: 'insensitive' as const } },
+              ...(digits ? [{ phone: { contains: digits } }] : []),
+            ],
+          }
+        : {}),
+    };
     const [items, total] = await Promise.all([
       this.prisma.campaignRecipient.findMany({
         where,

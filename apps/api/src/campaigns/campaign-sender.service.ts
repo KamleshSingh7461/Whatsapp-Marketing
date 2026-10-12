@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsappIntegrationService } from '../whatsapp-integration/whatsapp-integration.service';
 import { refreshCampaignStats } from './campaign-progress';
+import { BroadcastChatService } from './broadcast-chat.service';
 
 const TICK_MS = 500;
 const CONCURRENCY = 5;
@@ -83,6 +84,7 @@ export class CampaignSenderService implements OnModuleInit, OnModuleDestroy {
     private prisma: PrismaService,
     private config: ConfigService,
     private whatsapp: WhatsappIntegrationService,
+    private broadcastChat: BroadcastChatService,
   ) {}
 
   private get msgsPerSecond(): number {
@@ -193,6 +195,8 @@ export class CampaignSenderService implements OnModuleInit, OnModuleDestroy {
             where: { id: row.id, status: 'SENDING' },
             data: { status: 'SENT', metaMessageId: outcome.wamid, sentAt: new Date(), errorCode: null, errorMessage: null },
           });
+          // Shown in the person's chat if they already have one (best-effort, never slows the send).
+          void this.broadcastChat.addToChat(row.phone, { bumpChat: true });
         } else if (outcome.throttled) {
           throttled = true;
           await this.requeue([row.id]);

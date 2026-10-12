@@ -1351,16 +1351,27 @@ export function Dashboard() {
     const matchingTpl = templates.find(t => t.name === newCmp.templateName);
     const templateLang = matchingTpl?.language || 'en_US';
 
+    // Each send goes through the saved campaign, which records the number and Meta's answer; delivery receipts then
+    // fill in delivered / read / failed, so the broadcast gets a real per-number report. Only if the campaign could not
+    // be saved does it fall back to sending without a record.
+    const savedOnServer = activeCmpId !== newCmp.id;
     for (const contact of recipientsList) {
       try {
-        await apiFetch('/whatsapp/send-template', {
-          method: 'POST',
-          body: JSON.stringify({
-            to: contact.phone,
-            templateName: newCmp.templateName,
-            language: templateLang,
-          }),
-        });
+        if (savedOnServer) {
+          await apiFetch(`/campaigns/${encodeURIComponent(activeCmpId)}/send-one`, {
+            method: 'POST',
+            body: JSON.stringify({ to: contact.phone, language: templateLang, contactId: contact.id, displayName: contact.displayName }),
+          });
+        } else {
+          await apiFetch('/whatsapp/send-template', {
+            method: 'POST',
+            body: JSON.stringify({
+              to: contact.phone,
+              templateName: newCmp.templateName,
+              language: templateLang,
+            }),
+          });
+        }
       } catch (err) {
         console.warn(`Failed to send WhatsApp message to ${contact.phone}:`, err);
       }

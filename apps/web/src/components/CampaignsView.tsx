@@ -3,6 +3,18 @@ import { Campaign, Contact, Template, User } from '../types';
 import { CurrencyCode, formatCurrency, formatRate } from '../lib/currency';
 import { canCreateCampaigns } from '../lib/permissions';
 import { getCampaignRecipientsApi } from '../lib/api';
+import { csvCell, csvText, downloadCsv } from '../lib/csv';
+import {
+  failureReason,
+  filterCount,
+  RecipientRow,
+  RecipientStatus,
+  REPORT_CSV_HEADER,
+  REPORT_FILTERS,
+  reportCsvRow,
+  STATUS_LABEL,
+  STATUS_TONE,
+} from '../lib/broadcastReport';
 import {
   ALL_OPTED_IN,
   INTERNAL_TEST_GROUP,
@@ -60,46 +72,92 @@ const ProgressBar: React.FC<{ p: NonNullable<Campaign['progress']> }> = ({ p }) 
   );
 };
 
-/** Expanded row: exact counts per stage, plus who failed and why, with an explicit retry. */
+/** Expanded row: the per-number report. Every number with its status from Meta's delivery receipts, why it failed,
+ *  filters, search and a CSV download. Retry is only for server-sent broadcasts (the server does the resending). */
+const REPORT_PAGE = 100;
+
 const CampaignDetail: React.FC<{
   campaign: Campaign;
   canManage: boolean;
   onAction?: (id: string, action: BroadcastAction) => void;
 }> = ({ campaign, canManage, onAction }) => {
   const p = campaign.progress!;
-  const [failed, setFailed] = useState<{ items: any[]; total: number } | null>(null);
+  const [filterKey, setFilterKey] = useState('all');
+  const [query, setQuery] = useState('');
+  const [debounced, setDebounced] = useState('');
+  const [limit, setLimit] = useState(REPORT_PAGE);
+  const [page, setPage] = useState<{ items: RecipientRow[]; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
 
+  const filter = REPORT_FILTERS.find(f => f.key === filterKey) || REPORT_FILTERS[0];
+  const counts: Partial<Record<RecipientStatus, number>> = {
+    QUEUED: p.queued, SENDING: p.sending, SENT: p.sent, DELIVERED: p.delivered, READ: p.read, FAILED: p.failed, CANCELLED: p.cancelled,
+  };
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(query.trim()), 300);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  useEffect(() => setLimit(REPORT_PAGE), [filterKey, debounced]);
+
+  // Statuses keep changing as Meta's receipts arrive, so the open report refreshes itself.
   useEffect(() => {
     let alive = true;
     const load = async () => {
       try {
-        const r = await getCampaignRecipientsApi(campaign.id, { status: 'FAILED', limit: 50 });
+        const r = await getCampaignRecipientsApi(campaign.id, { status: filter.statuses.join(','), q: debounced, limit });
         if (alive) {
-          setFailed(r);
+          setPage(r as any);
           setError(null);
         }
       } catch (e: any) {
-        if (alive) setError(e?.message || 'Could not load failed recipients');
+        if (alive) setError(e?.message || 'Could not load the report');
       }
     };
     load();
-    const t = setInterval(load, 5000);
+    const t = setInterval(load, 10000);
     return () => {
       alive = false;
       clearInterval(t);
     };
-  }, [campaign.id, p.failed]);
+  }, [campaign.id, filter.key, debounced, limit, p.processed, p.delivered, p.read]);
 
-  const interrupted = !!failed?.items.some(i => i.errorCode === 'INTERRUPTED');
+  // Downloads everyone in the current view (filter and search), page by page.
+  const download = async () => {
+    setDownloading(true);
+    try {
+      const all: RecipientRow[] = [];
+      for (let offset = 0; ; offset += 200) {
+        const r: any = await getCampaignRecipientsApi(campaign.id, { status: filter.statuses.join(','), q: debounced, limit: 200, offset });
+        all.push(...r.items);
+        if (all.length >= r.total || r.items.length === 0) break;
+      }
+      const safe = campaign.name.replace(/[^\w-]+/g, '_').slice(0, 40);
+      downloadCsv(
+        `Broadcast_${safe}_${filter.key}_${new Date().toISOString().slice(0, 10)}.csv`,
+        REPORT_CSV_HEADER,
+        all.map(r => reportCsvRow(r).map((v, i) => (i === 0 ? csvText(v) : csvCell(v)))),
+      );
+    } catch (e: any) {
+      alert(e?.message || 'The report could not be downloaded.');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const interrupted = !!page?.items.some(i => i.errorCode === 'INTERRUPTED');
   const chips: Array<[string, number, string]> = [
     ['Queued', p.queued + p.sending, ''],
-    ['Sent', p.sent, ''],
+    ['Sent, no receipt yet', p.sent, ''],
     ['Delivered', p.delivered, ''],
     ['Read', p.read, ''],
     ['Failed', p.failed, p.failed > 0 ? 'is-bad' : ''],
     ['Cancelled', p.cancelled, ''],
   ];
+  const time = (iso?: string | null) =>
+    iso ? new Date(iso).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
 
   return (
     <div className="wa-bc-detail">
@@ -118,35 +176,92 @@ const CampaignDetail: React.FC<{
         </div>
       )}
 
-      {p.failed > 0 && (
-        <div className="wa-bc-failed">
-          <div className="wa-bc-failed-head">
-            <strong>{p.failed.toLocaleString()} failed</strong>
-            {canManage && campaign.status !== 'CANCELLED' && onAction && (
-              <button type="button" className="wa-bc-act" onClick={() => onAction(campaign.id, 'retry-failed')}>
-                Retry failed
-              </button>
-            )}
-          </div>
-          {interrupted && (
-            <p className="wa-bc-muted">
-              "INTERRUPTED" messages were being sent when the server stopped. They may already have been delivered, so retrying could message someone twice.
-            </p>
-          )}
-          {error && <p className="wa-bc-muted">{error}</p>}
-          {failed && (
-            <ul className="wa-bc-failed-list">
-              {failed.items.map(i => (
-                <li key={i.id}>
-                  <span className="wa-bc-failed-who">{i.displayName && !i.displayName.startsWith('+') ? i.displayName : `+${i.phone}`}</span>
-                  <span className="wa-bc-failed-why">{i.errorCode ? `${i.errorCode}: ` : ''}{i.errorMessage || 'Failed'}</span>
-                </li>
+      {campaign.serverSend && p.failed > 0 && canManage && campaign.status !== 'CANCELLED' && onAction && (
+        <div className="wa-bc-failed-head">
+          <strong>{p.failed.toLocaleString()} failed</strong>
+          <button type="button" className="wa-bc-act" onClick={() => onAction(campaign.id, 'retry-failed')}>
+            Retry failed
+          </button>
+        </div>
+      )}
+      {interrupted && (
+        <p className="wa-bc-muted">
+          "INTERRUPTED" messages were being sent when the server stopped. They may already have been delivered, so retrying could message someone twice.
+        </p>
+      )}
+
+      <div className="wa-bc-report-bar">
+        <div className="wa-bc-report-tabs" role="tablist" aria-label="Show">
+          {REPORT_FILTERS.map(f => (
+            <button
+              key={f.key}
+              type="button"
+              role="tab"
+              aria-selected={filterKey === f.key}
+              className={filterKey === f.key ? 'is-active' : ''}
+              onClick={() => setFilterKey(f.key)}
+            >
+              {f.label} <span>{filterCount(f.statuses, counts).toLocaleString()}</span>
+            </button>
+          ))}
+        </div>
+        <input
+          type="search"
+          className="wa-bc-report-search"
+          placeholder="Search name or number"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          aria-label="Search the report"
+        />
+        <button type="button" className="wa-bc-act" onClick={download} disabled={downloading || !page || page.total === 0}>
+          {downloading ? 'Preparing…' : 'Download CSV'}
+        </button>
+      </div>
+
+      {error && <p className="wa-bc-muted">{error}</p>}
+      {!page && !error && <p className="wa-bc-muted">Loading the report…</p>}
+      {page && page.items.length === 0 && <p className="wa-bc-muted">No numbers in this view.</p>}
+      {page && page.items.length > 0 && (
+        <div className="wa-bc-report-scroll">
+          <table className="wa-bc-report">
+            <thead>
+              <tr>
+                <th>Contact</th>
+                <th>Status</th>
+                <th>Sent</th>
+                <th>Delivered</th>
+                <th>Read</th>
+                <th>Reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              {page.items.map(r => (
+                <tr key={r.id}>
+                  <td data-label="Contact">
+                    <strong>{r.displayName && !r.displayName.startsWith('+') ? r.displayName : 'No name'}</strong>
+                    <span className="wa-bc-muted">+{r.phone}</span>
+                  </td>
+                  <td data-label="Status">
+                    <span className={`wa-bc-rstatus tone-${STATUS_TONE[r.status]}`}>{STATUS_LABEL[r.status] || r.status}</span>
+                  </td>
+                  <td data-label="Sent">{time(r.sentAt)}</td>
+                  <td data-label="Delivered">{time(r.deliveredAt)}</td>
+                  <td data-label="Read">{time(r.readAt)}</td>
+                  <td data-label="Reason" className="wa-bc-report-why">
+                    {r.status === 'FAILED' ? failureReason(r.errorCode, r.errorMessage) : ''}
+                  </td>
+                </tr>
               ))}
-              {failed.total > failed.items.length && (
-                <li className="wa-bc-muted">Showing {failed.items.length} of {failed.total.toLocaleString()}.</li>
-              )}
-            </ul>
-          )}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {page && page.total > page.items.length && (
+        <div className="wa-bc-report-more">
+          <span className="wa-bc-muted">Showing {page.items.length.toLocaleString()} of {page.total.toLocaleString()}</span>
+          <button type="button" className="wa-bc-act" onClick={() => setLimit(l => Math.min(l + REPORT_PAGE, 200))} disabled={limit >= 200}>
+            {limit >= 200 ? 'Download the CSV for the rest' : 'Show more'}
+          </button>
         </div>
       )}
     </div>
@@ -204,10 +319,16 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
 
   const canCreate = canCreateCampaigns(currentUser?.role);
 
-  const totalCampaignRevenue = campaigns.reduce((acc, c) => acc + c.stats.revenue, 0);
-  const totalCampaignCost = campaigns.reduce((acc, c) => acc + c.stats.cost, 0);
-  const totalSent = campaigns.reduce((acc, c) => acc + c.stats.sent, 0);
-  const totalConverted = campaigns.reduce((acc, c) => acc + c.stats.converted, 0);
+  // Top cards: only measured broadcasts count (per-number records updated by Meta's receipts). Older broadcasts only
+  // have numbers estimated at launch, so they are left out rather than shown as if real.
+  const measured = campaigns.filter(c => c.progress);
+  const unmeasuredCount = campaigns.length - measured.length;
+  const sum = (f: (p: NonNullable<Campaign['progress']>) => number) => measured.reduce((n, c) => n + f(c.progress!), 0);
+  const totalAccepted = sum(p => p.accepted);
+  const totalDelivered = sum(p => p.delivered + p.read);
+  const totalRead = sum(p => p.read);
+  const totalFailed = sum(p => p.failed);
+  const totalAttempted = totalAccepted + totalFailed;
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
@@ -229,14 +350,15 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
       sentAt: new Date().toISOString(),
       targetTags: [selectedTag],
       totalRecipients: recipientsCount,
+      // Nothing is guessed: delivered / read / failed come from Meta's receipts once the sends are recorded.
       stats: {
-        sent: recipientsCount,
-        delivered: Math.round(recipientsCount * 0.98),
-        read: Math.round(recipientsCount * 0.85),
-        clickedOrReplied: Math.round(recipientsCount * 0.32),
-        converted: Math.round(recipientsCount * 0.09),
-        failed: Math.round(recipientsCount * 0.02),
-        revenue: Math.round(recipientsCount * 0.09 * 145),
+        sent: 0,
+        delivered: 0,
+        read: 0,
+        clickedOrReplied: 0,
+        converted: 0,
+        failed: 0,
+        revenue: 0,
         cost: Number(estimateCampaignCostUSD(recipientsCount, chosenTemplate.category).toFixed(4)),
       },
     };
@@ -285,9 +407,12 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
             </KpiIcon>
           </div>
           <div className="wa-bc-kpi-body">
-            <span className="wa-bc-kpi-label">Broadcast Attributed Sales</span>
-            <strong className="wa-bc-kpi-value is-brand">{formatCurrency(totalCampaignRevenue, currency)}</strong>
-            <span className="wa-bc-kpi-foot">Generated from {campaigns.length} {campaigns.length === 1 ? 'campaign' : 'campaigns'}</span>
+            <span className="wa-bc-kpi-label">Messages sent</span>
+            <strong className="wa-bc-kpi-value is-brand">{totalAccepted.toLocaleString()}</strong>
+            <span className="wa-bc-kpi-foot">
+              Accepted by Meta, from {measured.length} measured {measured.length === 1 ? 'broadcast' : 'broadcasts'}
+              {unmeasuredCount > 0 ? ` (${unmeasuredCount} older not measured)` : ''}
+            </span>
           </div>
         </div>
 
@@ -299,9 +424,9 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
             </KpiIcon>
           </div>
           <div className="wa-bc-kpi-body">
-            <span className="wa-bc-kpi-label">Completed Orders</span>
-            <strong className="wa-bc-kpi-value">{totalConverted.toLocaleString()}</strong>
-            <span className="wa-bc-kpi-foot">{totalSent > 0 ? ((totalConverted / totalSent) * 100).toFixed(1) : '0'}% overall conversion</span>
+            <span className="wa-bc-kpi-label">Delivered</span>
+            <strong className="wa-bc-kpi-value">{totalDelivered.toLocaleString()}</strong>
+            <span className="wa-bc-kpi-foot">{pct(totalDelivered, totalAccepted).toFixed(1)}% of sent, from Meta's receipts</span>
           </div>
         </div>
 
@@ -313,9 +438,9 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
             </KpiIcon>
           </div>
           <div className="wa-bc-kpi-body">
-            <span className="wa-bc-kpi-label">Total Outbound Cost</span>
-            <strong className="wa-bc-kpi-value">{formatCurrency(totalCampaignCost, currency)}</strong>
-            <span className="wa-bc-kpi-foot">{formatCurrency(totalConverted > 0 ? totalCampaignCost / totalConverted : 0, currency, 2)} cost per order</span>
+            <span className="wa-bc-kpi-label">Read</span>
+            <strong className="wa-bc-kpi-value">{totalRead.toLocaleString()}</strong>
+            <span className="wa-bc-kpi-foot">{pct(totalRead, totalDelivered).toFixed(1)}% of delivered (people with read receipts on)</span>
           </div>
         </div>
 
@@ -328,9 +453,9 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
             </KpiIcon>
           </div>
           <div className="wa-bc-kpi-body">
-            <span className="wa-bc-kpi-label">Campaign ROI Multiple</span>
-            <strong className="wa-bc-kpi-value">{totalCampaignCost > 0 ? (totalCampaignRevenue / totalCampaignCost).toFixed(1) : '0.0'}x</strong>
-            <span className="wa-bc-kpi-foot">Gross revenue return</span>
+            <span className="wa-bc-kpi-label">Failed</span>
+            <strong className="wa-bc-kpi-value">{totalFailed.toLocaleString()}</strong>
+            <span className="wa-bc-kpi-foot">{pct(totalFailed, totalAttempted).toFixed(1)}% of attempts; open a broadcast's Report to see who and why</span>
           </div>
         </div>
       </div>
@@ -371,15 +496,17 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
             </thead>
             <tbody>
               {campaigns.map((cmp) => {
-                const p = cmp.serverSend ? cmp.progress : undefined;
+                // Measured broadcasts have one record per number, updated by Meta's receipts; older ones do not.
+                const p = cmp.progress;
                 const waitingForLimit = !!p && cmp.status === 'SENDING' && cmp.pauseReason === 'DAILY_LIMIT';
                 const meta = waitingForLimit
                   ? { label: 'Waiting: daily limit', tone: 'live' as const }
                   : STATUS_META[cmp.status] || STATUS_META.SCHEDULED;
-                const active = cmp.status === 'SENDING' || cmp.status === 'PAUSED';
-                const deliveryPct = pct(cmp.stats.delivered, cmp.stats.sent);
-                const openPct = pct(cmp.stats.read, cmp.stats.delivered);
-                const ctrPct = pct(cmp.stats.clickedOrReplied, cmp.stats.read);
+                // Pause / resume / cancel only exist for broadcasts the server sends.
+                const serverActive = !!cmp.serverSend && (cmp.status === 'SENDING' || cmp.status === 'PAUSED');
+                const readPct = p ? pct(p.read, p.delivered + p.read) : 0;
+                const notMeasuredTitle =
+                  'Sent before per-number reports existed: only an estimate made at launch was kept, so no figures are shown.';
 
                 return (
                   <React.Fragment key={cmp.id}>
@@ -415,17 +542,17 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                             {p.cancelled > 0 ? ` · ${p.cancelled.toLocaleString()} cancelled` : ''}
                           </div>
                           <div className="wa-bc-actions">
-                            {canCreate && onCampaignAction && cmp.status === 'SENDING' && (
+                            {canCreate && onCampaignAction && serverActive && cmp.status === 'SENDING' && (
                               <button type="button" className="wa-bc-act" onClick={() => onCampaignAction(cmp.id, 'pause')}>
                                 Pause
                               </button>
                             )}
-                            {canCreate && onCampaignAction && cmp.status === 'PAUSED' && (
+                            {canCreate && onCampaignAction && serverActive && cmp.status === 'PAUSED' && (
                               <button type="button" className="wa-bc-act is-primary" onClick={() => onCampaignAction(cmp.id, 'resume')}>
                                 Resume
                               </button>
                             )}
-                            {canCreate && onCampaignAction && active && (
+                            {canCreate && onCampaignAction && serverActive && (
                               <button
                                 type="button"
                                 className="wa-bc-act is-danger"
@@ -444,51 +571,40 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                               aria-expanded={expandedId === cmp.id}
                               onClick={() => setExpandedId(prev => (prev === cmp.id ? null : cmp.id))}
                             >
-                              {expandedId === cmp.id ? 'Hide details' : 'Details'}
+                              {expandedId === cmp.id ? 'Hide report' : 'Report'}
                             </button>
                           </div>
                         </>
                       ) : (
                         <>
                           <div className="wa-bc-delivery">
-                            <strong>{cmp.stats.delivered.toLocaleString()}</strong>
-                            <span> / {cmp.stats.sent.toLocaleString()}</span>
+                            <strong>{(cmp.totalRecipients || cmp.stats.sent).toLocaleString()}</strong>
+                            <span> numbers</span>
                           </div>
-                          <div className="wa-bc-bar" role="presentation">
-                            <div className="wa-bc-bar-fill" style={{ width: `${Math.min(100, deliveryPct)}%` }} />
-                          </div>
-                          <div className="wa-bc-muted">{deliveryPct.toFixed(1)}% delivered</div>
-                          <span
-                            className="wa-bc-est"
-                            title="These figures were estimated when the broadcast was launched, not measured from Meta's delivery receipts."
-                          >
-                            Estimated
+                          <span className="wa-bc-est" title={notMeasuredTitle}>
+                            Not measured
                           </span>
                         </>
                       )}
                     </td>
                     <td data-label="Engagement">
-                      <div className="wa-bc-eng">
-                        <strong>{cmp.stats.read.toLocaleString()}</strong>
-                        <span> opened · {openPct.toFixed(1)}%</span>
-                      </div>
                       {p ? (
-                        <div className="wa-bc-eng wa-bc-muted" title="Replies are not linked to a broadcast yet.">Replies: not tracked yet</div>
+                        <>
+                          <div className="wa-bc-eng">
+                            <strong>{p.read.toLocaleString()}</strong>
+                            <span> read · {readPct.toFixed(1)}%</span>
+                          </div>
+                          <div className="wa-bc-eng wa-bc-muted" title="Replies are not linked to a broadcast yet.">Replies: not tracked yet</div>
+                        </>
                       ) : (
-                        <div className="wa-bc-eng">
-                          <strong>{cmp.stats.clickedOrReplied.toLocaleString()}</strong>
-                          <span> CTR · {ctrPct.toFixed(1)}%</span>
-                        </div>
+                        <div className="wa-bc-muted" title={notMeasuredTitle}>Not measured</div>
                       )}
                     </td>
                     <td data-label="Sales">
                       {p ? (
                         <div className="wa-bc-muted" title="Order attribution is not connected to broadcasts yet.">Not tracked yet</div>
                       ) : (
-                        <>
-                          <div className="wa-bc-sales">{formatCurrency(cmp.stats.revenue, currency)}</div>
-                          <div className="wa-bc-muted">{cmp.stats.converted.toLocaleString()} orders</div>
-                        </>
+                        <div className="wa-bc-muted" title={notMeasuredTitle}>Not measured</div>
                       )}
                     </td>
                     <td data-label="Meta spend">
