@@ -1,6 +1,10 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { Contact } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { batchNumberOf, batchTag, isBatchLikeTag, needsBatch, planBatches } from './contact-batches.logic';
+import { applyTagEdit, batchNumberOf, batchTag, isBatchLikeTag, needsBatch, planBatches } from './contact-batches.logic';
+
+// Cohorts the Contacts page can set (kept in contact.attributes.rfmSegment).
+const RFM_SEGMENTS = ['NEW_LEADS', 'CHAMPIONS', 'LOYAL_CUSTOMERS', 'POTENTIAL_LOYALIST', 'AT_RISK'];
 
 export function normalizePhone(phone: string): string {
   if (!phone) return '';
@@ -134,17 +138,7 @@ export class ContactsService implements OnModuleInit {
         }
       }
 
-      return contacts.map(c => ({
-        id: c.id,
-        phone: c.phone,
-        displayName: c.displayName || `+${c.phone}`,
-        avatarUrl: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80`,
-        optedIn: c.optedIn,
-        tags: c.tags || ['New Lead'],
-        lifetimeValue: (c.attributes as any)?.lifetimeValue || 0,
-        attributes: c.attributes,
-        createdAt: c.createdAt.toISOString(),
-      }));
+      return contacts.map(c => this.toDto(c));
     } catch (e: any) {
       this.logger.error(`Failed to get contacts: ${e.message}`);
       return [];
@@ -232,6 +226,59 @@ export class ContactsService implements OnModuleInit {
       this.logger.error(`Failed to bulk save contacts: ${e.message}`);
       return [];
     }
+  }
+
+  private toDto(c: Contact) {
+    const attrs = (c.attributes as any) || {};
+    return {
+      id: c.id,
+      phone: c.phone,
+      displayName: c.displayName || `+${c.phone}`,
+      avatarUrl: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80`,
+      optedIn: c.optedIn,
+      optedInAt: c.optedInAt ? c.optedInAt.toISOString() : null,
+      tags: c.tags || ['New Lead'],
+      rfmSegment: attrs.rfmSegment || undefined,
+      lifetimeValue: attrs.lifetimeValue || 0,
+      attributes: c.attributes,
+      createdAt: c.createdAt.toISOString(),
+    };
+  }
+
+  /**
+   * An edit from the Contacts page: name, cohort, opt-in, and the tags the person added or removed. Tags are applied to
+   * what the contact has now (see applyTagEdit), batch tags are never touched, and the phone number is not editable
+   * here because chats are linked to it. The row is locked while it is changed, so a concurrent update is not lost.
+   */
+  async updateContact(
+    id: string,
+    dto: { displayName?: string; optedIn?: boolean; rfmSegment?: string; addTags?: unknown[]; removeTags?: unknown[] },
+  ) {
+    const name = dto.displayName === undefined ? undefined : String(dto.displayName).trim().slice(0, 100);
+    if (name !== undefined && !name) throw new BadRequestException('The name cannot be empty.');
+    if (dto.rfmSegment !== undefined && !RFM_SEGMENTS.includes(dto.rfmSegment)) {
+      throw new BadRequestException('Unknown cohort.');
+    }
+
+    const updated = await this.prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT 1 FROM "Contact" WHERE id = ${id} FOR UPDATE`;
+      const current = await tx.contact.findUnique({ where: { id } });
+      if (!current) throw new NotFoundException('That contact no longer exists.');
+
+      const attrs = ((current.attributes as any) || {}) as Record<string, any>;
+      const turningOn = dto.optedIn === true && !current.optedIn;
+      return tx.contact.update({
+        where: { id },
+        data: {
+          ...(name !== undefined ? { displayName: name } : {}),
+          ...(dto.optedIn !== undefined ? { optedIn: !!dto.optedIn } : {}),
+          ...(turningOn ? { optedInAt: new Date() } : {}),
+          ...(dto.rfmSegment !== undefined ? { attributes: { ...attrs, rfmSegment: dto.rfmSegment } } : {}),
+          tags: applyTagEdit(current.tags || [], Array.isArray(dto.addTags) ? dto.addTags : [], Array.isArray(dto.removeTags) ? dto.removeTags : []),
+        },
+      });
+    });
+    return this.toDto(updated);
   }
 
   /** The "Sort contacts into batches" action: batching is automatic now, this just runs it straight away. */

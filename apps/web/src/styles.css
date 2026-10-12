@@ -13350,3 +13350,112 @@ a.wa-doc:hover {
 .wa-attach-btn:focus-visible {
   box-shadow: 0 0 0 2px #00a884;
 }
+
+/* ==========================================================================
+   CONTACTS: tag / batch / opt-in filters, and read-only fields in Edit contact
+   ========================================================================== */
+.wa-ct-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 10px 20px;
+  border-bottom: 1px solid #e9edef;
+  background: #ffffff;
+}
+
+.wa-ct-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  max-width: 100%;
+  padding: 0 4px 0 12px;
+  border: 1px solid #d1d7db;
+  border-radius: 18px;
+  background: #ffffff;
+  font-size: 13px;
+  color: #54656f;
+  cursor: pointer;
+}
+
+.wa-ct-filter > span {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.wa-ct-filter select {
+  min-width: 0;
+  max-width: 260px;
+  height: 30px;
+  padding: 0 6px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  color: #111b21;
+  cursor: pointer;
+  outline: none;
+}
+
+.wa-ct-filter.is-active {
+  border-color: #00a884;
+  background: #e7fce3;
+}
+
+.wa-ct-filter.is-active > span {
+  color: #008069;
+}
+
+.wa-ct-filter:focus-within {
+  box-shadow: 0 0 0 2px rgba(0, 168, 132, 0.25);
+}
+
+.wa-ct-filter-clear {
+  height: 34px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 18px;
+  background: transparent;
+  color: #008069;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wa-ct-filter-clear:hover {
+  background: #f0f2f5;
+}
+
+.wa-ct-readonly {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 40px;
+  justify-content: center;
+  padding: 8px 12px;
+  border: 1px dashed #d1d7db;
+  border-radius: 8px;
+  background: #f7f8fa;
+  color: #111b21;
+  font-size: 14px;
+}
+
+.wa-ct-readonly small {
+  font-size: 11.5px;
+  color: #667781;
+}
+
+@media (max-width: 760px) {
+  .wa-ct-filters {
+    padding: 10px 14px;
+  }
+
+  .wa-ct-filter {
+    flex: 1 1 100%;
+  }
+
+  .wa-ct-filter select {
+    flex: 1;
+    max-width: none;
+  }
+}

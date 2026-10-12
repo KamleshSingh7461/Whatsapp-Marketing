@@ -1,6 +1,6 @@
 // Run with: npx tsx src/contacts/contact-batches.logic.check.ts
 import assert from 'node:assert/strict';
-import { BATCH_SIZE, BatchContact, batchNumberOf, batchTag, isBatchLikeTag, needsBatch, planBatches } from './contact-batches.logic';
+import { applyTagEdit, BATCH_SIZE, BatchContact, batchNumberOf, batchTag, cleanTag, isBatchLikeTag, needsBatch, planBatches } from './contact-batches.logic';
 
 const B = batchTag;
 const people = (n: number, from = 0, tags: string[] = []): BatchContact[] =>
@@ -93,6 +93,21 @@ console.log('ok  batch names: 500 each, Batch 1 and 2 unchanged');
   assert.deepEqual(plan.add.get(1), ['lost']);
   assert.deepEqual(sizes(plan), { 1: 1, 2: 3 });
   console.log('ok  someone who received a batch broadcast but lost the tag is put back in that batch');
+}
+
+// ---- manual tag edits: only what was added or removed changes; batch tags cannot be touched by hand
+{
+  const now = ['New Lead', B(3), 'Hot Lead', 'Instagram Lead'];
+  assert.deepEqual(applyTagEdit(now, ['VIP Customers'], ['New Lead']), [B(3), 'Hot Lead', 'Instagram Lead', 'VIP Customers']);
+  assert.deepEqual(applyTagEdit(now, [], [B(3)]), now, 'a batch tag cannot be removed by hand');
+  assert.deepEqual(applyTagEdit(now, [B(4), 'Batch 9: Contacts 1 - 2'], []), now, 'a batch tag cannot be added by hand');
+  assert.deepEqual(applyTagEdit(now, ['  Hot   Lead '], []), now, 'tidied duplicate is not added twice');
+  assert.deepEqual(applyTagEdit(now, ['', '   '], ['']), now, 'empty tags ignored');
+  assert.equal(cleanTag('x'.repeat(80)).length, 60);
+  // a tag added by someone else after the page loaded survives an edit made from the older page
+  const meanwhile = [...now, 'Interested'];
+  assert.ok(applyTagEdit(meanwhile, ['VIP Customers'], ['New Lead']).includes('Interested'));
+  console.log('ok  manual tag edits change only what was added or removed; batch tags are protected');
 }
 
 // ---- large import keeps every batch at exactly 500

@@ -34,6 +34,25 @@ export function isBatchLikeTag(tag: string): boolean {
   return BATCH_TAG.test(tag || '');
 }
 
+const MAX_TAG_LENGTH = 60;
+
+/** A hand-typed tag, tidied: trimmed, single spaces, at most 60 characters. Empty when nothing is left. */
+export function cleanTag(tag: unknown): string {
+  return String(tag ?? '').trim().replace(/\s+/g, ' ').slice(0, MAX_TAG_LENGTH);
+}
+
+/**
+ * A manual tag edit from the Contacts page, applied to the tags the contact has NOW: only the tags the person added
+ * or removed change, so a tag added meanwhile (by a reply rule, an import or batching) is never lost. Batch tags are
+ * given out by the server and can be neither added nor removed by hand.
+ */
+export function applyTagEdit(current: string[], add: unknown[] = [], remove: unknown[] = []): string[] {
+  const toRemove = new Set(remove.map(cleanTag).filter(t => t && !isBatchLikeTag(t)));
+  const kept = (current || []).filter(t => !toRemove.has(t));
+  const toAdd = add.map(cleanTag).filter(t => t && !isBatchLikeTag(t) && !kept.includes(t));
+  return [...kept, ...Array.from(new Set(toAdd))];
+}
+
 export interface BatchContact {
   id: string;
   tags: string[];

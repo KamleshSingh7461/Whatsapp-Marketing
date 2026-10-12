@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Contact, RFMSegment, Template, User } from '../types';
 import { CurrencyCode, formatCurrency } from '../lib/currency';
 import { canManageContacts } from '../lib/permissions';
 import { csvCell, csvText, downloadCsv } from '../lib/csv';
 import { formatBlockUntil, metaBlockOf, metaBlockReason } from '../lib/metaDelivery';
 import { BulkContactUploadModal } from './BulkContactUploadModal';
+import type { ContactEdit } from '../lib/api';
+import { batchNumberOf, isBatchLikeTag } from '../lib/contactBatches';
 import {
   POPULAR_COUNTRY_CODES,
   cleanPhoneWithCountry,
@@ -39,8 +41,9 @@ interface ContactsViewProps {
   currency?: CurrencyCode;
   currentUser?: User | null;
   onAddContact: (contact: Contact) => void;
-  /** Editing is only offered when this is provided; an Edit button that discards changes is worse than none. */
-  onUpdateContact?: (contact: Contact) => void;
+  /** Editing is only offered when this is provided; an Edit button that discards changes is worse than none. Throws
+   *  with the reason when the change could not be saved. */
+  onUpdateContact?: (id: string, changes: ContactEdit) => Promise<void>;
   onBulkAddContacts?: (contacts: Contact[]) => void;
   onStartChat?: (contact: Contact) => void;
   onAutoCategorizeContacts?: () => void;
@@ -82,8 +85,6 @@ const isHotTag = (t: string) => {
 };
 const isHotLead = (c: Contact) => (c.tags || []).some(isHotTag);
 
-const COUNTRIES_LONGEST_FIRST = [...POPULAR_COUNTRY_CODES].sort((a, b) => b.code.length - a.code.length);
-
 /** "+" + digits, using the same normalisation the inbox uses. */
 const toE164 = (countryCode: string, raw: string) => {
   const digits = cleanPhoneWithCountry(countryCode, raw);
@@ -93,18 +94,6 @@ const toE164 = (countryCode: string, raw: string) => {
 const displayPhone = (phone: string) => {
   const digits = (phone || '').replace(/[^\d]/g, '');
   return digits ? `+${digits}` : phone;
-};
-
-/** Splits a stored number into a country code and the local part shown in the input. */
-const splitPhone = (phone: string): { code: string; local: string } => {
-  const digits = (phone || '').replace(/[^\d]/g, '');
-  for (const c of COUNTRIES_LONGEST_FIRST) {
-    const cd = c.code.replace(/[^\d]/g, '');
-    if (digits.startsWith(cd) && digits.length - cd.length >= 6) {
-      return { code: c.code, local: formatPhoneNumber(c.code, digits.slice(cd.length)) };
-    }
-  }
-  return { code: '+91', local: formatPhoneNumber('+91', digits) };
 };
 
 const ContactAvatar: React.FC<{ contact: Contact; size?: number }> = ({ contact, size = 40 }) => {
@@ -137,8 +126,43 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
   const canManage = canManageContacts(currentUser?.role);
   const approvedTemplates = templates.filter(t => t.status === 'APPROVED');
 
-  // Every tag that can be picked: the presets plus anything already used on a contact.
-  const allExistingTags = Array.from(new Set([...PRESET_TAGS, ...contacts.flatMap(c => c.tags || [])])).filter(Boolean);
+  // Every tag that can be picked: the presets plus anything already used on a contact. Batch tags are given out by the
+  // server and are never picked or removed by hand, so they are not offered.
+  const allExistingTags = Array.from(new Set([...PRESET_TAGS, ...contacts.flatMap(c => c.tags || [])])).filter(
+    t => t && !isBatchLikeTag(t),
+  );
+
+  // Filters: one tag, one batch, opt-in status. They combine with the search box and the cohort chips.
+  const [tagFilter, setTagFilter] = useState('');
+  const [batchFilter, setBatchFilter] = useState('');
+  const [optInFilter, setOptInFilter] = useState<'ALL' | 'IN' | 'OUT'>('ALL');
+  const NO_BATCH = '__none__';
+
+  const tagCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of contacts) for (const t of c.tags || []) if (t && !isBatchLikeTag(t)) counts.set(t, (counts.get(t) || 0) + 1);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [contacts]);
+
+  const batchCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of contacts) for (const t of c.tags || []) if (batchNumberOf(t) !== null) counts.set(t, (counts.get(t) || 0) + 1);
+    return [...counts.entries()].sort((a, b) => batchNumberOf(a[0])! - batchNumberOf(b[0])!);
+  }, [contacts]);
+  const unbatchedCount = useMemo(() => contacts.filter(c => !(c.tags || []).some(t => batchNumberOf(t) !== null)).length, [contacts]);
+
+  const batchLabel = (tag: string) => {
+    const m = /^Batch (\d+): Contacts (\d+) - (\d+)$/.exec(tag);
+    return m ? `Batch ${m[1]} · contacts ${Number(m[2]).toLocaleString('en-IN')}–${Number(m[3]).toLocaleString('en-IN')}` : tag;
+  };
+  const filtersActive = !!tagFilter || !!batchFilter || optInFilter !== 'ALL' || selectedRfm !== 'ALL' || !!search;
+  const clearFilters = () => {
+    setSearch('');
+    setSelectedRfm('ALL');
+    setTagFilter('');
+    setBatchFilter('');
+    setOptInFilter('ALL');
+  };
 
   // Add contact form
   const [name, setName] = useState('');
@@ -150,12 +174,12 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
   // Edit contact form
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [editName, setEditName] = useState('');
-  const [editCountryCode, setEditCountryCode] = useState('+91');
-  const [editPhone, setEditPhone] = useState('');
   const [editTags, setEditTags] = useState<string[]>([]);
   const [editRfm, setEditRfm] = useState<RFMSegment>('NEW_LEADS');
   const [editOptedIn, setEditOptedIn] = useState(true);
   const [editNewCustomTag, setEditNewCustomTag] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState('');
 
   // Direct template dialog
   const [directTplContact, setDirectTplContact] = useState<Contact | null>(null);
@@ -174,6 +198,11 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
       (qDigits.length > 0 && (c.phone || '').replace(/[^\d]/g, '').includes(qDigits)) ||
       (c.tags || []).some(t => t.toLowerCase().includes(q));
     if (!matchesSearch) return false;
+    const tags = c.tags || [];
+    if (tagFilter && !tags.includes(tagFilter)) return false;
+    if (batchFilter === NO_BATCH ? tags.some(t => batchNumberOf(t) !== null) : batchFilter && !tags.includes(batchFilter)) return false;
+    if (optInFilter === 'IN' && !c.optedIn) return false;
+    if (optInFilter === 'OUT' && c.optedIn) return false;
     if (selectedRfm === 'ALL') return true;
     if (selectedRfm === 'YES_LEADS') return isHotLead(c);
     return c.rfmSegment === selectedRfm;
@@ -196,15 +225,16 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
   ];
 
   // ------------------------------------------------------------------ exports
+  // Exports the contacts on screen: everyone, or only those matching the current search and filters.
   const handleExportCsv = () => {
-    if (contacts.length === 0) {
+    if (filtered.length === 0) {
       alert('No contacts to export.');
       return;
     }
     downloadCsv(
       `FGSN_Contacts_CRM_${new Date().toISOString().slice(0, 10)}.csv`,
       ['Customer Name', 'WhatsApp Phone', 'Cohort', 'Opt-In Status', 'Source', 'Audience Tags', 'Lifetime Value', 'Total Orders', 'Last Active'],
-      contacts.map(c => [
+      filtered.map(c => [
         csvText(c.displayName || ''),
         csvCell(c.phone),
         csvCell(c.rfmSegment || 'NEW_LEADS'),
@@ -280,40 +310,44 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
   };
 
   // ------------------------------------------------------------------ edit contact
-  const editPhoneE164 = toE164(editCountryCode, editPhone);
-  const editValidation = validatePhoneNumber(editCountryCode, editPhone);
-  const editDuplicate =
-    editingContact && editPhone.trim()
-      ? contacts.find(c => c.id !== editingContact.id && isSamePhoneNumber(c.phone, editPhoneE164))
-      : undefined;
+  // The phone number is shown but not editable here: chats are linked to it. Batch tags are shown read-only.
+  const editBatchTags = (editingContact?.tags || []).filter(isBatchLikeTag);
 
   const handleStartEdit = (contact: Contact) => {
-    const { code, local } = splitPhone(contact.phone);
     setEditingContact(contact);
     setEditName(contact.displayName);
-    setEditCountryCode(code);
-    setEditPhone(local);
-    setEditTags(contact.tags || []);
+    setEditTags((contact.tags || []).filter(t => !isBatchLikeTag(t)));
     setEditRfm(contact.rfmSegment || 'NEW_LEADS');
     setEditOptedIn(contact.optedIn ?? true);
     setEditNewCustomTag('');
+    setEditError('');
   };
 
-  const handleSaveEdit = (e: React.FormEvent) => {
+  const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingContact || !editName.trim() || !editPhone.trim() || !editValidation.isValid || editDuplicate) return;
+    if (!editingContact || !editName.trim() || !onUpdateContact || editSaving) return;
 
-    const finalTags = Array.from(new Set([...editTags, ...(editNewCustomTag.trim() ? [editNewCustomTag.trim()] : [])]));
+    const before = (editingContact.tags || []).filter(t => !isBatchLikeTag(t));
+    const after = Array.from(new Set([...editTags, ...(editNewCustomTag.trim() ? [editNewCustomTag.trim()] : [])]));
+    // Only what changed is sent, so tags added meanwhile by someone else (or a reply rule) are kept.
+    const changes: ContactEdit = {
+      addTags: after.filter(t => !before.includes(t)),
+      removeTags: before.filter(t => !after.includes(t)),
+    };
+    if (editName.trim() !== editingContact.displayName) changes.displayName = editName.trim();
+    if (editRfm !== (editingContact.rfmSegment || 'NEW_LEADS')) changes.rfmSegment = editRfm;
+    if (editOptedIn !== (editingContact.optedIn ?? true)) changes.optedIn = editOptedIn;
 
-    onUpdateContact?.({
-      ...editingContact,
-      displayName: editName.trim(),
-      phone: editPhoneE164,
-      tags: finalTags,
-      rfmSegment: editRfm,
-      optedIn: editOptedIn,
-    });
-    setEditingContact(null);
+    setEditSaving(true);
+    setEditError('');
+    try {
+      await onUpdateContact(editingContact.id, changes);
+      setEditingContact(null);
+    } catch (err: any) {
+      setEditError(err?.message || 'The changes could not be saved.');
+    } finally {
+      setEditSaving(false);
+    }
   };
 
   // ------------------------------------------------------------------ direct template
@@ -622,6 +656,46 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
           ))}
         </div>
 
+        {/* Filters: tag, batch, opt-in. They combine with the search and the chips above. */}
+        <div className="wa-ct-filters" role="group" aria-label="Filter contacts">
+          <label className={`wa-ct-filter ${tagFilter ? 'is-active' : ''}`}>
+            <span>Tag</span>
+            <select value={tagFilter} onChange={e => setTagFilter(e.target.value)} aria-label="Filter by tag">
+              <option value="">All tags</option>
+              {tagCounts.map(([t, n]) => (
+                <option key={t} value={t}>
+                  {t} ({n.toLocaleString()})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className={`wa-ct-filter ${batchFilter ? 'is-active' : ''}`}>
+            <span>Batch</span>
+            <select value={batchFilter} onChange={e => setBatchFilter(e.target.value)} aria-label="Filter by batch">
+              <option value="">All batches</option>
+              {batchCounts.map(([t, n]) => (
+                <option key={t} value={t}>
+                  {batchLabel(t)} ({n.toLocaleString()})
+                </option>
+              ))}
+              {unbatchedCount > 0 && <option value={NO_BATCH}>Not in a batch yet ({unbatchedCount.toLocaleString()})</option>}
+            </select>
+          </label>
+          <label className={`wa-ct-filter ${optInFilter !== 'ALL' ? 'is-active' : ''}`}>
+            <span>Opt-in</span>
+            <select value={optInFilter} onChange={e => setOptInFilter(e.target.value as 'ALL' | 'IN' | 'OUT')} aria-label="Filter by opt-in">
+              <option value="ALL">Everyone</option>
+              <option value="IN">Opted in ({optedInCount.toLocaleString()})</option>
+              <option value="OUT">Opted out ({(contacts.length - optedInCount).toLocaleString()})</option>
+            </select>
+          </label>
+          {filtersActive && (
+            <button type="button" className="wa-ct-filter-clear" onClick={clearFilters}>
+              Clear filters
+            </button>
+          )}
+        </div>
+
         {filtered.length === 0 ? (
           <div className="wa-bc-empty">
             <div className="wa-bc-empty-icon">
@@ -651,10 +725,7 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
                 <button
                   type="button"
                   className="wa-ct-btn"
-                  onClick={() => {
-                    setSearch('');
-                    setSelectedRfm('ALL');
-                  }}
+                  onClick={clearFilters}
                 >
                   Clear search and filters
                 </button>
@@ -962,37 +1033,20 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
                 />
               </div>
 
-              <div className="wa-form-group">
-                <label className="wa-form-label" htmlFor="wa-ct-edit-phone">
-                  WhatsApp number <span className="wa-ct-req">*</span>
-                </label>
-                <div className="wa-phone-input-row">
-                  <select
-                    className="wa-country-select"
-                    value={editCountryCode}
-                    onChange={e => {
-                      setEditCountryCode(e.target.value);
-                      if (editPhone) setEditPhone(formatPhoneNumber(e.target.value, editPhone));
-                    }}
-                    aria-label="Country code"
-                  >
-                    {POPULAR_COUNTRY_CODES.map(c => (
-                      <option key={c.code} value={c.code}>
-                        {c.flag} {c.code} ({c.name})
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    id="wa-ct-edit-phone"
-                    type="tel"
-                    required
-                    className={`wa-phone-number-input ${editDuplicate ? 'has-warning' : ''}`}
-                    value={editPhone}
-                    onChange={e => setEditPhone(formatPhoneInput(editCountryCode, e.target.value, (e.nativeEvent as InputEvent).inputType))}
-                  />
+              <div className="wa-ct-two-col">
+                <div className="wa-form-group">
+                  <span className="wa-form-label">WhatsApp number</span>
+                  <div className="wa-ct-readonly" title="The number cannot be changed here because chats are linked to it">
+                    {displayPhone(editingContact.phone)}
+                  </div>
                 </div>
-                {editDuplicate && duplicateAlert(editDuplicate)}
-                {phoneHint(editValidation, editPhone)}
+                <div className="wa-form-group">
+                  <span className="wa-form-label">Batch</span>
+                  <div className="wa-ct-readonly" title="Batches are set automatically, 500 contacts each">
+                    {editBatchTags.length > 0 ? editBatchTags.map(batchLabel).join(', ') : 'Being set…'}
+                    <small>Set automatically</small>
+                  </div>
+                </div>
               </div>
 
               <div className="wa-ct-two-col">
@@ -1035,16 +1089,18 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
                 })}
               </div>
 
+              {editError && (
+                <div className="wa-rr-notice is-error" role="alert">
+                  {editError}
+                </div>
+              )}
+
               <div className="wa-modal-actions">
                 <button type="button" className="wa-modal-cancel-btn" onClick={() => setEditingContact(null)}>
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  className="wa-modal-submit-btn"
-                  disabled={!editName.trim() || !editPhone.trim() || !editValidation.isValid || !!editDuplicate}
-                >
-                  Save changes
+                <button type="submit" className="wa-modal-submit-btn" disabled={!editName.trim() || editSaving}>
+                  {editSaving ? 'Saving…' : 'Save changes'}
                 </button>
               </div>
             </form>

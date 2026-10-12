@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { ContactsService } from './contacts.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -26,6 +26,17 @@ export class ContactsController {
   @Roles(Role.ADMIN, Role.MARKETER)
   async bulkSaveContacts(@Body() body: { contacts: Array<{ phone: string; displayName?: string; tags?: string[] }> }) {
     return this.contactsService.bulkSaveContacts(body.contacts || []);
+  }
+
+  // Edit from the Contacts page: name, cohort, opt-in, and tags added/removed (batch tags and the phone number stay as
+  // they are). Same people who can import and add contacts.
+  @Patch(':id')
+  @Roles(Role.ADMIN, Role.MARKETER)
+  async updateContact(
+    @Param('id') id: string,
+    @Body() body: { displayName?: string; optedIn?: boolean; rfmSegment?: string; addTags?: unknown[]; removeTags?: unknown[] },
+  ) {
+    return this.contactsService.updateContact(id, body || {});
   }
 
   @Post('auto-categorize')

@@ -9,6 +9,8 @@ import {
   setToken,
   getContactsApi,
   saveContactApi,
+  updateContactApi,
+  ContactEdit,
   bulkSaveContactsApi,
   autoCategorizeContactsApi,
   getCampaignsApi,
@@ -37,7 +39,7 @@ import { SettingsView } from './components/SettingsView';
 import { AuthModal } from './components/AuthModal';
 import { AcceptInviteModal } from './components/AcceptInviteModal';
 import { CurrencyCode } from './lib/currency';
-import { canAccessTab, canSeeCallTeamActivity, getDefaultTabForRole } from './lib/permissions';
+import { canAccessTab, canManageContacts, canSeeCallTeamActivity, getDefaultTabForRole } from './lib/permissions';
 import { resolveCampaignRecipients } from './lib/campaignAudience';
 import { ChatAttachment, outboundKindForMime, roleLabelOf } from './lib/chatMessage';
 import { batchOptions } from './lib/contactBatches';
@@ -1462,6 +1464,12 @@ export function Dashboard() {
     }
   };
 
+  // Saves an edit from the Contacts page; throws with the server's reason so the dialog can show it.
+  const handleUpdateContact = async (id: string, changes: ContactEdit) => {
+    const updated = await updateContactApi(id, changes);
+    setContacts(prev => prev.map(c => (c.id === id ? { ...c, ...updated } : c)));
+  };
+
   const handleBulkAddContacts = async (newContacts: Contact[]) => {
     setContacts(prev => {
       const existingPhones = new Set(prev.map(c => c.phone.replace(/[^0-9]/g, '')));
@@ -1723,6 +1731,7 @@ export function Dashboard() {
               currency={currency}
               currentUser={user}
               onAddContact={handleAddContact}
+              onUpdateContact={canManageContacts(user.role) ? handleUpdateContact : undefined}
               onBulkAddContacts={handleBulkAddContacts}
               onStartChat={handleStartChatWithContact}
               onAutoCategorizeContacts={handleAutoCategorizeContacts}

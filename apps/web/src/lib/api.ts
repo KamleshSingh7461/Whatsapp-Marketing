@@ -192,6 +192,22 @@ export async function getContactsApi() {
   return apiFetch<any[]>('/contacts');
 }
 
+/** What the Edit contact dialog changes. Tags are sent as what was added and removed, never as a full list. */
+export interface ContactEdit {
+  displayName?: string;
+  optedIn?: boolean;
+  rfmSegment?: string;
+  addTags?: string[];
+  removeTags?: string[];
+}
+
+export async function updateContactApi(id: string, changes: ContactEdit) {
+  return apiFetch<import('../types').Contact>(`/contacts/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(changes),
+  });
+}
+
 export async function saveContactApi(contact: { phone: string; displayName?: string; tags?: string[]; optedIn?: boolean }) {
   return apiFetch<any>('/contacts', {
     method: 'POST',
