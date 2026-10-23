@@ -86,7 +86,11 @@ console.log('ok  customer messages and short/unrelated texts get no template but
   assert.deepEqual(p.buttons.map(b => b.kind), ['reply', 'url', 'phone', 'copy']);
   // an image header has no text to draw
   const img = tpl({ name: 'img', body: 'A long enough body text for matching purposes here.', header: { type: 'IMAGE', url: 'https://x.y/a.png' } });
-  assert.equal(templateParts(msg({ content: 'A long enough body text for matching purposes here.' }), [img]).headerText, undefined);
+  const withImg = templateParts(msg({ content: 'A long enough body text for matching purposes here.' }), [img]);
+  assert.equal(withImg.headerText, undefined);
+  // ...but its image is drawn, served by the API under the template's name
+  assert.deepEqual(withImg.headerMedia, { kind: 'image', url: '/api/whatsapp/media/template/img' });
+  assert.equal(p.headerMedia, undefined);
   console.log('ok  header, footer and the four button kinds');
 }
 

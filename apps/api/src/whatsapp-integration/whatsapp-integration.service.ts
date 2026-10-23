@@ -342,7 +342,22 @@ export class WhatsappIntegrationService {
     const data: any = await res.json().catch(() => ({}));
     if (!res.ok || !data.id) throw new Error(data.error?.message || `Meta media upload error ${res.status}`);
     this.logger.log(`Uploaded template header media (${mime}, ${Math.round(bytes.length / 1024)} KB) as ${data.id}.`);
+    // Kept locally too, so Chats can show the template's image without asking Meta again.
+    await this.writeMediaCache(String(data.id), Buffer.from(bytes), mime);
     return String(data.id);
+  }
+
+  /**
+   * The image / video / document at the top of a template, for drawing template messages in Chats. It is the same media
+   * every send attaches (see withTemplateHeader), so the team sees what the customer got.
+   */
+  async getTemplateHeaderMedia(templateName: string): Promise<{ buffer: Buffer; contentType: string }> {
+    // Meta template names are lowercase letters, digits and underscores; nothing else is looked up.
+    if (!/^[a-z0-9_]{1,512}$/.test(templateName)) throw new Error('Not a template name');
+    const header = await this.templateMediaHeader(templateName, '');
+    if (!header?.exampleUrl) throw new Error('This template has no header media');
+    const mediaId = await this.headerMediaId(header.exampleUrl);
+    return this.getMediaStream(mediaId);
   }
 
   async sendTextMessage(dto: { to: string; text: string }) {

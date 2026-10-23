@@ -11,6 +11,8 @@ export interface TemplateParts {
   /** The template this message was sent from, when we could tell. */
   template?: Template;
   headerText?: string;
+  /** The image / video / document at the top of the template, served by the API (see WhatsappMediaController). */
+  headerMedia?: { kind: 'image' | 'video' | 'document'; url: string };
   footerText?: string;
   buttons: TemplateButtonView[];
 }
@@ -98,9 +100,18 @@ export function templateParts(msg: Message, templates: Template[]): TemplatePart
     }))
     .filter(b => b.text);
 
+  // An image / video / document header is drawn from the template's own media, which the API serves by template name.
+  const mediaKind = String(headerType || '').toLowerCase();
+  const nameForMedia = template?.name || (/^[a-z0-9_]+$/.test(String(msg.templateId || '')) ? msg.templateId : undefined);
+  const headerMedia =
+    (mediaKind === 'image' || mediaKind === 'video' || mediaKind === 'document') && nameForMedia
+      ? { kind: mediaKind as 'image' | 'video' | 'document', url: `/api/whatsapp/media/template/${encodeURIComponent(nameForMedia)}` }
+      : undefined;
+
   return {
     template,
-    // An image/video header has no text to show here; only a text header is drawn.
+    headerMedia,
+    // Only a text header has text to show.
     headerText: headerType && headerType !== 'TEXT' ? undefined : headerText || undefined,
     footerText: typeof footerText === 'string' && footerText ? footerText : undefined,
     buttons,

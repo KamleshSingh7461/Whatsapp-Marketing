@@ -1276,7 +1276,9 @@ export const InboxView: React.FC<InboxViewProps> = ({
 
               // A message sent from a template shows the template's header, footer and buttons, as it does on the phone.
               const tpl = templateParts(msg, templates);
-              const hasTemplateCard = tpl.buttons.length > 0 || !!tpl.headerText || !!tpl.footerText;
+              // The template's own image, unless this message already carries media of its own.
+              const tplMedia = !hasMedia ? tpl.headerMedia : undefined;
+              const hasTemplateCard = tpl.buttons.length > 0 || !!tpl.headerText || !!tpl.footerText || !!tplMedia;
 
               return (
                 <div key={msg.id} className={`wa-bubble-row ${isOutbound ? 'outbound' : 'inbound'}`}>
@@ -1291,7 +1293,10 @@ export const InboxView: React.FC<InboxViewProps> = ({
                       <MessageMedia kind={mediaKind!} url={mediaUrl} fileName={msg.fileName} mimeType={msg.mimeType} fileSize={msg.fileSize} />
                     )}
 
-                    {/* Template header (text) */}
+                    {/* Template header: its image / video / document, or its text */}
+                    {tplMedia && (
+                      <MessageMedia kind={tplMedia.kind} url={tplMedia.url} fileName={tplMedia.kind === 'document' ? 'Template document' : undefined} />
+                    )}
                     {tpl.headerText && <p className="wa-bubble-tpl-header">{tpl.headerText}</p>}
 
                     {/* Message Content / Caption */}
