@@ -200,7 +200,7 @@ export class ContactsService implements OnModuleInit {
   }
 
   async bulkSaveContacts(contactsList: Array<{ phone: string; displayName?: string; tags?: string[] }>) {
-    if (!contactsList || contactsList.length === 0) return [];
+    if (!contactsList || contactsList.length === 0) return { received: 0, saved: 0, created: 0 };
 
     try {
       // 1. Deduplicate & normalize inputs locally first
@@ -215,10 +215,17 @@ export class ContactsService implements OnModuleInit {
       }
 
       const normalizedList = Array.from(validMap.values());
-      if (normalizedList.length === 0) return [];
+      if (normalizedList.length === 0) return { received: contactsList.length, saved: 0, created: 0 };
+
+      // Which of these numbers we already have, in one query (their names may need updating below).
+      const existing = await this.prisma.contact.findMany({
+        where: { phone: { in: normalizedList.map(c => c.phone) } },
+        select: { phone: true, displayName: true },
+      });
+      const existingName = new Map(existing.map(e => [e.phone, e.displayName]));
 
       // 2. Fast createMany in DB with skipDuplicates
-      await this.prisma.contact.createMany({
+      const created = await this.prisma.contact.createMany({
         data: normalizedList.map(c => ({
           phone: c.phone,
           displayName: c.displayName,
@@ -228,20 +235,25 @@ export class ContactsService implements OnModuleInit {
         skipDuplicates: true,
       });
 
-      // 3. Update displayNames for existing contacts if custom name provided
-      for (const c of normalizedList) {
-        if (c.displayName && !c.displayName.startsWith('+')) {
-          await this.prisma.contact.updateMany({
-            where: { phone: c.phone },
-            data: { displayName: c.displayName },
-          }).catch(() => {});
-        }
+      // 3. Existing contacts: update the name only where a real, different name was given (one query each, and only
+      // for those; new contacts already have theirs).
+      const renames = normalizedList.filter(
+        c => existingName.has(c.phone) && c.displayName && !c.displayName.startsWith('+') && existingName.get(c.phone) !== c.displayName,
+      );
+      if (renames.length > 0) {
+        await this.prisma
+          .$transaction(renames.map(c => this.prisma.contact.update({ where: { phone: c.phone }, data: { displayName: c.displayName } })))
+          .catch((e: any) => this.logger.warn(`Could not update names during import: ${e.message}`));
       }
 
-      return this.getAllContacts();
+      // New contacts get their batch now rather than on the next page load.
+      if (created.count > 0) await this.ensureBatches().catch((e: any) => this.logger.warn(`Could not batch new contacts: ${e.message}`));
+
+      // A summary, not the whole list: the importer loads the list once at the end (it used to come back with every chunk).
+      return { received: contactsList.length, saved: normalizedList.length, created: created.count };
     } catch (e: any) {
       this.logger.error(`Failed to bulk save contacts: ${e.message}`);
-      return [];
+      return { received: contactsList.length, saved: 0, created: 0, error: e.message };
     }
   }
 

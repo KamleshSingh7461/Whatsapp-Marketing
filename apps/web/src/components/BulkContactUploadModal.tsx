@@ -12,6 +12,16 @@ interface BulkContactUploadModalProps {
   onImportContacts: (contacts: Contact[]) => Promise<void> | void;
 }
 
+/**
+ * The tag every contact in one import gets, e.g. "Imported 23 Oct 2026 · 9:38 PM", so an import can be found, filtered
+ * and broadcast to later. No commas: tags are typed as a comma-separated list elsewhere.
+ */
+export function importTag(at: Date = new Date()): string {
+  const day = at.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  const time = at.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  return `Imported ${day} · ${time}`.replace(/,/g, '');
+}
+
 export const BulkContactUploadModal: React.FC<BulkContactUploadModalProps> = ({
   isOpen,
   onClose,
@@ -26,6 +36,7 @@ export const BulkContactUploadModal: React.FC<BulkContactUploadModalProps> = ({
   const [parseResult, setParseResult] = useState<ParsedContactResult | null>(null);
   const [showErrors, setShowErrors] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [addImportTag, setAddImportTag] = useState(true);
   const [fileName, setFileName] = useState<string | null>(null);
   const [sheetInfo, setSheetInfo] = useState<{ sheetName: string; rowCount: number } | null>(null);
 
@@ -107,8 +118,15 @@ export const BulkContactUploadModal: React.FC<BulkContactUploadModalProps> = ({
     if (!parseResult || parseResult.valid.length === 0 || isImporting) return;
     setIsImporting(true);
     try {
-      await onImportContacts(parseResult.valid);
-      alert(`Imported ${parseResult.valid.length} contacts into your CRM.`);
+      const tag = importTag();
+      const contacts = addImportTag
+        ? parseResult.valid.map(c => ({ ...c, tags: Array.from(new Set([...(c.tags || []), tag])) }))
+        : parseResult.valid;
+      await onImportContacts(contacts);
+      alert(
+        `Imported ${parseResult.valid.length} contacts into your CRM.` +
+          (addImportTag ? `\n\nThey are tagged "${tag}", so you can find this import under Contacts > Tag.` : ''),
+      );
       onClose();
     } catch (e: any) {
       alert(`Import error: ${e.message || 'Error saving contacts'}`);
@@ -345,6 +363,13 @@ export const BulkContactUploadModal: React.FC<BulkContactUploadModalProps> = ({
                 );
               })}
             </div>
+            {/* Date-and-time tag, so each import can be found and broadcast to later */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, fontSize: '0.78rem', color: '#334155', cursor: 'pointer' }}>
+              <input type="checkbox" checked={addImportTag} onChange={e => setAddImportTag(e.target.checked)} />
+              <span>
+                Also tag them <strong>{importTag()}</strong> (the time of import)
+              </span>
+            </label>
           </div>
 
           {/* Cohort Segment */}

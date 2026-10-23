@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Contact, RFMSegment, Template, User } from '../types';
 import { CurrencyCode, formatCurrency } from '../lib/currency';
 import { canManageContacts } from '../lib/permissions';
@@ -96,6 +96,8 @@ const displayPhone = (phone: string) => {
   return digits ? `+${digits}` : phone;
 };
 
+const ROWS_PER_PAGE = 100;
+
 const ContactAvatar: React.FC<{ contact: Contact; size?: number }> = ({ contact, size = 40 }) => {
   const usable = contact.avatarUrl && !contact.avatarUrl.includes(STOCK_AVATAR_MARKER);
   return usable ? (
@@ -128,8 +130,9 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
 
   // Every tag that can be picked: the presets plus anything already used on a contact. Batch tags are given out by the
   // server and are never picked or removed by hand, so they are not offered.
-  const allExistingTags = Array.from(new Set([...PRESET_TAGS, ...contacts.flatMap(c => c.tags || [])])).filter(
-    t => t && !isBatchLikeTag(t),
+  const allExistingTags = useMemo(
+    () => Array.from(new Set([...PRESET_TAGS, ...contacts.flatMap(c => c.tags || [])])).filter(t => t && !isBatchLikeTag(t)),
+    [contacts],
   );
 
   // Filters: one tag, one batch, opt-in status. They combine with the search box and the cohort chips.
@@ -191,29 +194,45 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
   const q = search.trim().toLowerCase();
   const qDigits = q.replace(/[^\d]/g, '');
 
-  const filtered = contacts.filter(c => {
-    const matchesSearch =
-      !q ||
-      (c.displayName || '').toLowerCase().includes(q) ||
-      (qDigits.length > 0 && (c.phone || '').replace(/[^\d]/g, '').includes(qDigits)) ||
-      (c.tags || []).some(t => t.toLowerCase().includes(q));
-    if (!matchesSearch) return false;
-    const tags = c.tags || [];
-    if (tagFilter && !tags.includes(tagFilter)) return false;
-    if (batchFilter === NO_BATCH ? tags.some(t => batchNumberOf(t) !== null) : batchFilter && !tags.includes(batchFilter)) return false;
-    if (optInFilter === 'IN' && !c.optedIn) return false;
-    if (optInFilter === 'OUT' && c.optedIn) return false;
-    if (selectedRfm === 'ALL') return true;
-    if (selectedRfm === 'YES_LEADS') return isHotLead(c);
-    return c.rfmSegment === selectedRfm;
-  });
+  // Worked out only when the contacts or the filters change, not on every click on the page.
+  const filtered = useMemo(
+    () =>
+      contacts.filter(c => {
+        const matchesSearch =
+          !q ||
+          (c.displayName || '').toLowerCase().includes(q) ||
+          (qDigits.length > 0 && (c.phone || '').replace(/[^\d]/g, '').includes(qDigits)) ||
+          (c.tags || []).some(t => t.toLowerCase().includes(q));
+        if (!matchesSearch) return false;
+        const tags = c.tags || [];
+        if (tagFilter && !tags.includes(tagFilter)) return false;
+        if (batchFilter === NO_BATCH ? tags.some(t => batchNumberOf(t) !== null) : batchFilter && !tags.includes(batchFilter)) return false;
+        if (optInFilter === 'IN' && !c.optedIn) return false;
+        if (optInFilter === 'OUT' && c.optedIn) return false;
+        if (selectedRfm === 'ALL') return true;
+        if (selectedRfm === 'YES_LEADS') return isHotLead(c);
+        return c.rfmSegment === selectedRfm;
+      }),
+    [contacts, q, qDigits, tagFilter, batchFilter, optInFilter, selectedRfm],
+  );
 
-  const hotLeadCount = contacts.filter(isHotLead).length;
-  const vipContacts = contacts.filter(c => c.rfmSegment === 'CHAMPIONS');
-  const loyalContacts = contacts.filter(c => c.rfmSegment === 'LOYAL_CUSTOMERS');
+  // Only the first rows are drawn; "Show more" adds the next page. Drawing thousands of rows at once is what made the
+  // page (and every dialog opened from it) slow. Search, filters and Download still cover every contact.
+  const [rowLimit, setRowLimit] = useState(ROWS_PER_PAGE);
+  useEffect(() => setRowLimit(ROWS_PER_PAGE), [q, tagFilter, batchFilter, optInFilter, selectedRfm]);
+  const shownRows = useMemo(() => filtered.slice(0, rowLimit), [filtered, rowLimit]);
+
+  const { hotLeadCount, vipContacts, loyalContacts, optedInCount } = useMemo(
+    () => ({
+      hotLeadCount: contacts.filter(isHotLead).length,
+      vipContacts: contacts.filter(c => c.rfmSegment === 'CHAMPIONS'),
+      loyalContacts: contacts.filter(c => c.rfmSegment === 'LOYAL_CUSTOMERS'),
+      optedInCount: contacts.filter(c => c.optedIn).length,
+    }),
+    [contacts],
+  );
   const avg = (list: Contact[]) =>
     list.length > 0 ? Math.round(list.reduce((a, c) => a + (c.lifetimeValue || 0), 0) / list.length) : 0;
-  const optedInCount = contacts.filter(c => c.optedIn).length;
 
   const filterChips: Array<[string, string, number | null]> = [
     ['ALL', 'All', contacts.length],
@@ -747,7 +766,7 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
               </tr>
             </thead>
             <tbody>
-              {filtered.map(c => {
+              {shownRows.map(c => {
                 const cohort = COHORTS[c.rfmSegment || 'NEW_LEADS'] || COHORTS.NEW_LEADS;
                 const tags = c.tags || [];
                 const last = c.lastActiveAt ? new Date(c.lastActiveAt) : null;
@@ -845,6 +864,16 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
               })}
             </tbody>
           </table>
+          {filtered.length > shownRows.length && (
+            <div className="wa-ct-more-rows">
+              <span>
+                Showing {shownRows.length.toLocaleString('en-IN')} of {filtered.length.toLocaleString('en-IN')} contacts
+              </span>
+              <button type="button" className="wa-ct-btn" onClick={() => setRowLimit(n => n + ROWS_PER_PAGE)}>
+                Show {Math.min(ROWS_PER_PAGE, filtered.length - shownRows.length).toLocaleString('en-IN')} more
+              </button>
+            </div>
+          )}
           </div>
         )}
       </section>

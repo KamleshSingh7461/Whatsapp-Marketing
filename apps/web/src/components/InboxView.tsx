@@ -1888,7 +1888,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
                       <strong>{tpl.name}</strong>
                       <span className={`status-chip ${tpl.status === 'APPROVED' ? 'success' : 'neutral'}`}>{tpl.category}</span>
                     </div>
-                    <p className="tpl-pick-body">{tpl.bodyJson?.body || (tpl as any).body}</p>
+                    <p className="tpl-pick-body"><WaText text={tpl.bodyJson?.body || (tpl as any).body || ''} /></p>
                   </div>
                 ))
               )}

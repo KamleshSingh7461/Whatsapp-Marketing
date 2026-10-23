@@ -255,21 +255,22 @@ export async function saveContactApi(contact: { phone: string; displayName?: str
   });
 }
 
+/** Saves contacts in chunks; returns how many were new. Reload the contact list afterwards (once). */
 export async function bulkSaveContactsApi(contacts: Array<{ phone: string; displayName?: string; tags?: string[] }>) {
-  if (!contacts || contacts.length === 0) return [];
-  const BATCH_SIZE = 300;
-  const results = [];
+  const total = { saved: 0, created: 0 };
+  if (!contacts || contacts.length === 0) return total;
+  const BATCH_SIZE = 500;
   for (let i = 0; i < contacts.length; i += BATCH_SIZE) {
     const chunk = contacts.slice(i, i + BATCH_SIZE);
-    const res = await apiFetch<any[]>('/contacts/bulk', {
+    const res = await apiFetch<{ saved?: number; created?: number; error?: string }>('/contacts/bulk', {
       method: 'POST',
       body: JSON.stringify({ contacts: chunk }),
     });
-    if (Array.isArray(res)) {
-      results.push(...res);
-    }
+    if (res?.error) throw new Error(res.error);
+    total.saved += res?.saved || 0;
+    total.created += res?.created || 0;
   }
-  return results;
+  return total;
 }
 
 export async function autoCategorizeContactsApi() {

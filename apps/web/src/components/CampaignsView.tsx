@@ -25,6 +25,7 @@ import {
 } from '../lib/campaignAudience';
 import { BATCH_SIZE, batchOptions, isBatchLikeTag, nextUnsentBatch } from '../lib/contactBatches';
 import { BroadcastIcon, CloseIcon } from './WhatsAppIcons';
+import { WaText } from './WaText';
 
 interface CampaignsViewProps {
   campaigns: Campaign[];
@@ -693,14 +694,29 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                 {previewTemplate?.bodyJson?.body && (
                   <div className="wa-bc-preview" aria-label="Template preview">
                     <div className="wa-bc-bubble">
+                      {String(previewTemplate.bodyJson.header?.type || '').toUpperCase() === 'IMAGE' && (
+                        <img
+                          className="wa-bc-bubble-img"
+                          src={`/api/whatsapp/media/template/${encodeURIComponent(previewTemplate.name)}`}
+                          alt="Template image"
+                          onError={e => { e.currentTarget.style.display = 'none'; }}
+                        />
+                      )}
                       {previewTemplate.bodyJson.header?.type === 'TEXT' && previewTemplate.bodyJson.header.text && (
                         <div className="wa-bc-bubble-head">{previewTemplate.bodyJson.header.text}</div>
                       )}
-                      <div className="wa-bc-bubble-body">{previewTemplate.bodyJson.body}</div>
+                      <div className="wa-bc-bubble-body"><WaText text={previewTemplate.bodyJson.body} /></div>
                       {previewTemplate.bodyJson.footer && (
                         <div className="wa-bc-bubble-foot">{previewTemplate.bodyJson.footer}</div>
                       )}
                     </div>
+                    {Array.isArray(previewTemplate.bodyJson.buttons) && previewTemplate.bodyJson.buttons.length > 0 && (
+                      <div className="wa-bc-bubble-btns">
+                        {previewTemplate.bodyJson.buttons.map((b: any, i: number) => (
+                          <div key={i} className="wa-bc-bubble-btn">{b?.text || b}</div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
