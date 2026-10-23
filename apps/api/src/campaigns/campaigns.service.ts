@@ -19,7 +19,6 @@ import { BroadcastChatService } from './broadcast-chat.service';
 const ALL_OPTED_IN = 'All Opted-In';
 const INTERNAL_TEST_GROUP = 'Internal Team Test Group';
 const INTERNAL_TEAM_TAG = 'Internal Team';
-const MEDIA_HEADERS = ['IMAGE', 'VIDEO', 'DOCUMENT'];
 
 const LEGACY_STATS = { sent: 0, delivered: 0, read: 0, clickedOrReplied: 0, converted: 0, failed: 0, revenue: 0, cost: 0 };
 
@@ -250,7 +249,7 @@ export class CampaignsService {
     return { recipients, skippedMetaBlocked: candidates.length - recipients.length };
   }
 
-  /** Only templates we can actually send unattended: approved, and body-only with at most {{1}}. */
+  /** Only templates we can actually send unattended: approved, with at most {{1}} in the body. */
   private async requireSendableTemplate(name: string, language?: string) {
     const all: any[] = await this.templates.findAll();
     const t = all.find(x => x.name === name && (!language || x.language === language)) ?? all.find(x => x.name === name);
@@ -263,11 +262,7 @@ export class CampaignsService {
 
     const body = String(t.bodyJson?.body ?? '');
     const header = t.bodyJson?.header;
-    const headerType = String(header?.type ?? '').toUpperCase();
-
-    if (MEDIA_HEADERS.includes(headerType)) {
-      throw new BadRequestException(`Template "${name}" has a ${headerType.toLowerCase()} header, which server-side broadcasts do not support yet.`);
-    }
+    // An image / video / document header is fine: every send attaches the template's own media (WhatsappIntegrationService).
     if (typeof header?.text === 'string' && /\{\{\d+\}\}/.test(header.text)) {
       throw new BadRequestException(`Template "${name}" has a variable in its header, which is not supported yet.`);
     }

@@ -315,6 +315,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
   const audience = resolveCampaignAudience(contacts, [selectedTag]);
   const recipientsCount = audience.recipients.length;
   const restingCount = audience.skipped.length;
+  const notOptedInCount = selectedBatch ? selectedBatch.members - recipientsCount - restingCount : 0;
   const countFor = (tag: string) => resolveCampaignRecipients(contacts, [tag]).length;
 
   const canCreate = canCreateCampaigns(currentUser?.role);
@@ -733,7 +734,9 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                     ) : (
                       batches.map(b => (
                         <option key={b.tag} value={b.tag}>
-                          {b.label} ({b.reachable.toLocaleString()} {b.reachable === 1 ? 'contact' : 'contacts'})
+                          {b.label} ({b.reachable === b.members
+                            ? `${b.members.toLocaleString()} ${b.members === 1 ? 'contact' : 'contacts'}`
+                            : `${b.reachable.toLocaleString()} of ${b.members.toLocaleString()} reachable now`})
                           {b.sentWith.length > 0 ? ' · sent this template' : b.tag === nextBatch?.tag ? ' · next' : ''}
                         </option>
                       ))
@@ -762,6 +765,16 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                       : `opted-in ${recipientsCount === 1 ? 'contact' : 'contacts'} will receive this broadcast`}
                   </span>
                 </div>
+                {selectedBatch && selectedBatch.reachable < selectedBatch.members && (
+                  <p className="wa-bc-batch-note">
+                    {selectedBatch.label.split(' · ')[0]} still has all its {selectedBatch.members.toLocaleString()} people (batches never
+                    change). {(selectedBatch.members - selectedBatch.reachable).toLocaleString()} are left out of this send:{' '}
+                    {[
+                      restingCount > 0 ? `${restingCount.toLocaleString()} resting after Meta refused to deliver to them` : '',
+                      notOptedInCount > 0 ? `${notOptedInCount.toLocaleString()} not opted in` : '',
+                    ].filter(Boolean).join(', ')}.
+                  </p>
+                )}
                 {selectedBatch && selectedBatch.sentWith.length > 0 && (
                   <div className="wa-bc-warn" role="alert">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

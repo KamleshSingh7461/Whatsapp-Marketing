@@ -15,8 +15,13 @@ import {
   MetaInsightsUnavailable,
   sumMessageAnalytics,
 } from './meta-insights';
+import { hasHeaderComponent, MediaHeader, mediaHeaderOf, withMediaHeader } from './template-header.logic';
 
 const SINGLETON_ID = 'primary';
+// How long a template's header (from Meta) and the uploaded header media are reused. Meta keeps media ids for 30 days.
+const TEMPLATE_HEADER_TTL_MS = 10 * 60 * 1000;
+const HEADER_MEDIA_TTL_MS = 7 * 24 * 3600 * 1000;
+const MAX_HEADER_MEDIA_BYTES = 16 * 1024 * 1024;
 
 @Injectable()
 export class WhatsappIntegrationService {
@@ -132,6 +137,19 @@ export class WhatsappIntegrationService {
 
     const initialLang = dto.language || 'en';
 
+    // A template with an image / video / document header must be sent with that media, or Meta refuses it (#132012).
+    let header: { components?: any[]; error?: string };
+    try {
+      header = await this.withTemplateHeader(dto.templateName, initialLang, dto.components);
+    } catch (e: any) {
+      header = { error: `Could not attach the template's header media: ${e.message}` };
+    }
+    if (header.error) {
+      this.logger.error(`Template '${dto.templateName}' to +${formattedTo}: ${header.error}`);
+      return { success: false, error: header.error };
+    }
+    dto = { ...dto, components: header.components };
+
     const executeCall = async (langCode: string, comps?: any[]) => {
       const payload: any = {
         messaging_product: 'whatsapp',
@@ -183,10 +201,12 @@ export class WhatsappIntegrationService {
           callResult = await executeCall(alternateLang, dto.components);
         } else if (errorCode === 132000 || details.toLowerCase().includes('localizable_params') || errorMsg.toLowerCase().includes('parameters does not match')) {
           this.logger.warn(`Retrying template '${dto.templateName}' without component parameters due to param count mismatch...`);
-          callResult = await executeCall(initialLang, undefined);
+          // The media header stays: only the text parameters are dropped.
+          const headerOnly = (dto.components || []).filter(c => hasHeaderComponent([c]));
+          callResult = await executeCall(initialLang, headerOnly);
           if (!callResult.ok && (initialLang === 'en_US' || initialLang === 'en')) {
             const alternateLang = initialLang === 'en_US' ? 'en' : 'en_US';
-            callResult = await executeCall(alternateLang, undefined);
+            callResult = await executeCall(alternateLang, headerOnly);
           }
         }
       }
@@ -214,6 +234,99 @@ export class WhatsappIntegrationService {
         error: err.message,
       };
     }
+  }
+
+  private templateHeaders = new Map<string, { at: number; headers: Array<{ language: string; header: MediaHeader | null }> }>();
+  private headerMediaIds = new Map<string, { at: number; id: Promise<string> }>();
+
+  /**
+   * The caller's components, plus the template's own header media when the template has an image / video / document
+   * header and the caller did not choose one. The media is the sample the template was approved with, uploaded to Meta
+   * once and reused, so a broadcast does not upload it for every number.
+   */
+  private async withTemplateHeader(templateName: string, language: string, components?: any[]) {
+    if (hasHeaderComponent(components)) return { components };
+    const header = await this.templateMediaHeader(templateName, language);
+    if (!header) return { components };
+    const kind = header.format.toLowerCase();
+    if (!header.exampleUrl) {
+      return { error: `Template "${templateName}" has a ${kind} header, but Meta returned no ${kind} for it. Re-create the template with its ${kind} in WhatsApp Manager.` };
+    }
+    const mediaId = await this.headerMediaId(header.exampleUrl);
+    return { components: withMediaHeader(components, header.format, mediaId) };
+  }
+
+  /** The template's media header from Meta, or null (no media header, or Meta could not be asked: send as before). */
+  private async templateMediaHeader(templateName: string, language: string): Promise<MediaHeader | null> {
+    let cached = this.templateHeaders.get(templateName);
+    if (!cached || Date.now() - cached.at > TEMPLATE_HEADER_TTL_MS) {
+      const token = this.config.get<string>('META_SYSTEM_USER_TOKEN');
+      const apiVersion = this.config.get<string>('META_GRAPH_API_VERSION') || 'v21.0';
+      const wabaId = this.config.get<string>('META_WABA_ID') || '1845046976654799';
+      if (!token) return null;
+      try {
+        const url = `https://graph.facebook.com/${apiVersion}/${wabaId}/message_templates?name=${encodeURIComponent(templateName)}&fields=name,language,components&limit=50`;
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+        const data: any = await res.json().catch(() => ({}));
+        if (!res.ok || !Array.isArray(data.data)) {
+          this.logger.warn(`Could not read template '${templateName}' from Meta (${res.status}); sending without a header.`);
+          return null;
+        }
+        // Meta matches names by prefix, so keep only this exact template.
+        const headers = data.data
+          .filter((t: any) => t.name === templateName)
+          .map((t: any) => ({ language: String(t.language || ''), header: mediaHeaderOf(t.components) }));
+        cached = { at: Date.now(), headers };
+        this.templateHeaders.set(templateName, cached);
+      } catch (e: any) {
+        this.logger.warn(`Could not read template '${templateName}' from Meta: ${e.message}`);
+        return null;
+      }
+    }
+    const match = cached.headers.find(h => h.language === language) ?? cached.headers[0];
+    return match?.header ?? null;
+  }
+
+  /** Uploads the template's sample media to Meta once and reuses the media id for a week. */
+  private headerMediaId(exampleUrl: string): Promise<string> {
+    // Meta signs the sample URL afresh on every read, so the part before "?" identifies the file.
+    const key = exampleUrl.split('?')[0];
+    const cached = this.headerMediaIds.get(key);
+    if (cached && Date.now() - cached.at < HEADER_MEDIA_TTL_MS) return cached.id;
+
+    const id = this.uploadHeaderMedia(exampleUrl);
+    this.headerMediaIds.set(key, { at: Date.now(), id });
+    id.catch(() => this.headerMediaIds.delete(key)); // a failed upload is tried again on the next send
+    return id;
+  }
+
+  private async uploadHeaderMedia(exampleUrl: string): Promise<string> {
+    const phoneNumberId = this.config.get<string>('META_PHONE_NUMBER_ID') || '1268849126320372';
+    const systemToken = this.config.get<string>('META_SYSTEM_USER_TOKEN');
+    const apiVersion = this.config.get<string>('META_GRAPH_API_VERSION') || 'v21.0';
+
+    const download = await fetch(exampleUrl);
+    if (!download.ok) throw new Error(`the template's sample media could not be downloaded (${download.status})`);
+    const bytes = new Uint8Array(await download.arrayBuffer());
+    if (bytes.length === 0 || bytes.length > MAX_HEADER_MEDIA_BYTES) {
+      throw new Error(`the template's sample media is ${bytes.length === 0 ? 'empty' : 'too large'}`);
+    }
+    const mime = (download.headers.get('content-type') || 'application/octet-stream').split(';')[0].trim();
+    const ext = mime.split('/')[1] || 'bin';
+
+    const form = new FormData();
+    form.append('messaging_product', 'whatsapp');
+    form.append('type', mime);
+    form.append('file', new Blob([bytes], { type: mime }), `template-header.${ext}`);
+    const res = await fetch(`https://graph.facebook.com/${apiVersion}/${phoneNumberId}/media`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${systemToken}` },
+      body: form,
+    });
+    const data: any = await res.json().catch(() => ({}));
+    if (!res.ok || !data.id) throw new Error(data.error?.message || `Meta media upload error ${res.status}`);
+    this.logger.log(`Uploaded template header media (${mime}, ${Math.round(bytes.length / 1024)} KB) as ${data.id}.`);
+    return String(data.id);
   }
 
   async sendTextMessage(dto: { to: string; text: string }) {

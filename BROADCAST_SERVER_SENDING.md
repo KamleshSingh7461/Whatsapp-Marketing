@@ -37,9 +37,10 @@ All state is in Postgres, so a restart or crash loses nothing.
 - **Meta limits.** Sending is paced. If Meta throttles (codes 4, 17, 80007, 130429) the worker backs off
   30 s and the unsent recipients stay queued. If your rolling-24h messaging tier is reached the campaign
   waits (`Waiting: daily limit`) and resumes on its own.
-- **Templates it will accept:** `APPROVED`, body only, at most `{{1}}`. `{{1}}` is filled with the
-  contact's name (or "there" if the contact only has a phone number). Media headers and variables in the
-  header or a button URL are rejected at launch with a clear message.
+- **Templates it will accept:** `APPROVED`, at most `{{1}}` in the body. `{{1}}` is filled with the
+  contact's name (or "there" if the contact only has a phone number). An image, video or document header is
+  sent with the media the template was approved with (uploaded to Meta once, reused for a week). Variables in
+  the header or a button URL are rejected at launch with a clear message.
 - **Double-click guard.** A second launch with the same name within 2 minutes is refused.
 - **Stub mode** (`BROADCAST_SENDER=stub`) simulates sending with no network call. The API refuses to
   start with it when `NODE_ENV=production`.

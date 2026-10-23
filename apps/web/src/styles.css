@@ -9015,6 +9015,13 @@ td {
   margin-top: 1px;
 }
 
+.wa-bc-batch-note {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: #54656f;
+}
+
 .wa-bc-estimate {
   display: flex;
   flex-direction: column;
