@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
 import { Template, TemplateCategory, User } from '../types';
 import { canCreateTemplates } from '../lib/permissions';
 import fgsnLogo from '../assets/logo.png';
 import { TemplateIcon } from './WhatsAppIcons';
+import { stripWaFormatting, wrapSelection } from '../lib/waFormat';
 
 const TEMPLATE_STATUS: Record<string, { label: string; tone: 'done' | 'live' | 'idle' | 'fail' }> = {
   APPROVED: { label: 'Approved', tone: 'done' },
@@ -24,6 +25,11 @@ interface TemplatesViewProps {
   displayPhoneNumber?: string;
   currentUser?: User | null;
   onCreateTemplate: (template: Partial<Template>) => Promise<{ success?: boolean; message?: string } | void> | void;
+  /** Edits a template on Meta; `id` is its Meta template id. */
+  onUpdateTemplate?: (
+    id: string,
+    changes: { category?: TemplateCategory; bodyJson: any; sampleVariables?: Record<string, string> },
+  ) => Promise<{ success?: boolean; message?: string }>;
   onSendTestTemplate?: (template: Template, targetPhone: string) => Promise<{ success?: boolean; error?: string } | void>;
 }
 
@@ -46,8 +52,12 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
   displayPhoneNumber = '+91 86558 51749',
   currentUser,
   onCreateTemplate,
+  onUpdateTemplate,
   onSendTestTemplate,
 }) => {
+  // The template being edited, or null when the form creates a new one.
+  const [editing, setEditing] = useState<Template | null>(null);
+  const formTopRef = useRef<HTMLDivElement>(null);
   const [name, setName] = useState('');
   const [testModalTemplate, setTestModalTemplate] = useState<Template | null>(null);
   // Deliberately empty: the WhatsApp Business number itself cannot receive messages from itself,
@@ -148,8 +158,33 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
     }
   };
 
-  const handleWrapText = (prefix: string, suffix: string = prefix) => {
-    setBodyText(prev => `${prev} ${prefix}sample${suffix}`);
+  // B / I / S / <> wrap the text selected in the body (or insert the marks at the cursor), as in WhatsApp.
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const handleWrapText = (mark: string) => {
+    const el = bodyRef.current;
+    const start = el ? el.selectionStart : bodyText.length;
+    const end = el ? el.selectionEnd : bodyText.length;
+    const next = wrapSelection(bodyText, start, end, mark);
+    pendingSelection.current = { start: next.start, end: next.end };
+    setBodyText(next.value.slice(0, 1024));
+  };
+  // Re-select the wrapped words once the new text is on screen (setting the value moves the cursor to the end).
+  const pendingSelection = useRef<{ start: number; end: number } | null>(null);
+  useLayoutEffect(() => {
+    const sel = pendingSelection.current;
+    const el = bodyRef.current;
+    if (!sel || !el) return;
+    pendingSelection.current = null;
+    el.focus();
+    el.setSelectionRange(sel.start, sel.end);
+  }, [bodyText]);
+  const handleBodyShortcut = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    const key = e.key.toLowerCase();
+    const mark = key === 'b' ? '*' : key === 'i' ? '_' : e.shiftKey && key === 'x' ? '~' : null;
+    if (!mark) return;
+    e.preventDefault();
+    handleWrapText(mark);
   };
 
   const handleAddEmoji = (emoji: string) => {
@@ -174,6 +209,54 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
   const handleRemoveButton = (id: string) => {
     setButtons(prev => prev.filter(b => b.id !== id));
   };
+
+  // A file chosen from the computer for the header. It is sent with the template and uploaded to Meta by the server.
+  const handleHeaderFile = (file: File | undefined) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setHeaderMediaUrl(String(reader.result || ''));
+    reader.readAsDataURL(file);
+  };
+
+  /** Fills the form with a template so it can be edited. Name and language stay fixed (Meta does not allow changing them). */
+  const startEdit = (t: Template) => {
+    const b: any = t.bodyJson || {};
+    const hType = String(b.header?.type || '').toUpperCase();
+    setEditing(t);
+    setName(t.name);
+    setLanguage(t.language);
+    setCategory(t.category);
+    setHeaderType((['TEXT', 'IMAGE', 'VIDEO', 'DOCUMENT'].includes(hType) ? hType : 'NONE') as any);
+    setHeaderText(b.header?.text || '');
+    setHeaderMediaUrl(''); // empty = keep the template's current image / video / document
+    setBodyText(b.body || '');
+    setFooterText(b.footer || '');
+    setButtons(
+      (Array.isArray(b.buttons) ? b.buttons : []).map((btn: any, i: number) => ({
+        id: `btn_edit_${i}`,
+        type: (['QUICK_REPLY', 'URL', 'PHONE_NUMBER', 'COPY_CODE'].includes(String(btn?.type).toUpperCase())
+          ? String(btn.type).toUpperCase()
+          : 'QUICK_REPLY') as TemplateButtonConfig['type'],
+        text: btn?.text || '',
+        url: btn?.url,
+        phone: btn?.phone_number || btn?.phone,
+        code: btn?.example?.[0] || btn?.example || btn?.code,
+      })),
+    );
+    setFeedback(null);
+    requestAnimationFrame(() => formTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  };
+
+  const cancelEdit = () => {
+    setEditing(null);
+    setName('');
+    setFeedback(null);
+  };
+
+  // What the preview shows for a media header: the chosen file or link, or (when editing) the template's current one.
+  const previewMediaSrc =
+    headerMediaUrl ||
+    (editing && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerType) ? `/api/whatsapp/media/template/${encodeURIComponent(editing.name)}` : '');
 
   // Render WhatsApp markdown with sample values and authentic styling
   const renderWhatsAppText = (rawText: string) => {
@@ -278,6 +361,36 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
       return { type: 'QUICK_REPLY' as const, text: b.text.trim() };
     });
 
+    if (editing) {
+      try {
+        const result = await onUpdateTemplate?.(editing.metaTemplateId || editing.id, {
+          category,
+          bodyJson: {
+            header: headerObj,
+            body: bodyText,
+            footer: footerText.trim() || undefined,
+            buttons: buttonsObj.length > 0 ? buttonsObj : undefined,
+          },
+          sampleVariables: varValues,
+        });
+        if (!result || result.success === false) {
+          setFeedback({ type: 'error', message: result?.message || 'Meta did not accept the edit.' });
+        } else {
+          setFeedback({
+            type: 'success',
+            message: `Changes to "${editing.name}" were sent to Meta. It is in review again; it can be sent once Meta approves it.`,
+          });
+          setEditing(null);
+          setName('');
+        }
+      } catch (err: any) {
+        setFeedback({ type: 'error', message: err.message || 'The template could not be edited.' });
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
     try {
       const result = await onCreateTemplate({
         name: formattedName,
@@ -344,6 +457,20 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
             <span className="badge-meta-spec">Meta v21.0 Compliant</span>
           </div>
 
+          <div ref={formTopRef} />
+          {editing && (
+            <div className="wa-tpl-alert is-editing" role="status">
+              <div>
+                <strong>Editing "{editing.name}"</strong>
+                <p>
+                  The name and language cannot be changed. After you save, Meta reviews the template again, and it cannot
+                  be sent until it is approved. An approved template can be edited once a day, up to 10 times a month.
+                </p>
+              </div>
+              <button type="button" className="wa-bc-act" onClick={cancelEdit}>Cancel editing</button>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="template-form" style={{ marginTop: 16 }}>
             {/* Template Name & Category */}
             <div className="form-group">
@@ -354,6 +481,7 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
                 placeholder="e.g. fgsn_match_pass_alert"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                disabled={!!editing}
                 className="form-input"
               />
               <span className="field-hint" style={{ fontSize: '0.74rem', color: '#64748B' }}>
@@ -366,7 +494,9 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
                 <label>Category *</label>
                 <select
                   value={category}
-                  onChange={(e) => handleCategoryChange(e.target.value as TemplateCategory)}
+                  onChange={(e) => (editing ? setCategory(e.target.value as TemplateCategory) : handleCategoryChange(e.target.value as TemplateCategory))}
+                  disabled={editing?.status === 'APPROVED'}
+                  title={editing?.status === 'APPROVED' ? 'Meta does not allow changing the category of an approved template' : undefined}
                   className="form-input"
                 >
                   <option value="MARKETING">Marketing (Promotions, Offers & News)</option>
@@ -380,8 +510,10 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
                 <select
                   value={language}
                   onChange={(e) => setLanguage(e.target.value)}
+                  disabled={!!editing}
                   className="form-input"
                 >
+                  <option value="en">English - en</option>
                   <option value="en_US">English (US) - en_US</option>
                   <option value="en_GB">English (UK) - en_GB</option>
                   <option value="hi_IN">Hindi (India) - hi_IN</option>
@@ -428,15 +560,36 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
 
               {['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerType) && (
                 <div>
-                  <input
-                    type="url"
-                    placeholder="Sample Media URL (e.g. https://images.unsplash.com/... or https://fgsnlive.com/media/banner.jpg)"
-                    value={headerMediaUrl}
-                    onChange={(e) => setHeaderMediaUrl(e.target.value)}
-                    className="form-input"
-                  />
+                  <div className="wa-tpl-media-pick">
+                    <label className="wa-bc-act wa-tpl-file-btn">
+                      Choose file…
+                      <input
+                        type="file"
+                        accept={headerType === 'IMAGE' ? 'image/jpeg,image/png' : headerType === 'VIDEO' ? 'video/mp4' : 'application/pdf'}
+                        onChange={(e) => handleHeaderFile(e.target.files?.[0])}
+                        hidden
+                      />
+                    </label>
+                    <input
+                      type="url"
+                      placeholder={editing ? 'Leave empty to keep the current file, or paste a link' : 'or paste a link (https://...)'}
+                      value={headerMediaUrl.startsWith('data:') ? 'File chosen from this computer' : headerMediaUrl}
+                      onChange={(e) => setHeaderMediaUrl(e.target.value)}
+                      readOnly={headerMediaUrl.startsWith('data:')}
+                      className="form-input"
+                    />
+                    {headerMediaUrl && (
+                      <button type="button" className="wa-bc-act" onClick={() => setHeaderMediaUrl('')}>
+                        {editing ? 'Keep current' : 'Clear'}
+                      </button>
+                    )}
+                  </div>
                   <span className="field-hint" style={{ fontSize: '0.72rem', color: '#64748B', marginTop: 3 }}>
-                    Meta requires a sample media URL to review media templates.
+                    {headerType === 'IMAGE'
+                      ? 'JPG or PNG, under 5 MB. For WhatsApp use a wide image (1200 × 628) so nothing is cut off.'
+                      : headerType === 'VIDEO'
+                        ? 'MP4, under 16 MB.'
+                        : 'PDF, under 100 MB.'}
                   </span>
                 </div>
               )}
@@ -466,7 +619,7 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
                   type="button"
                   className="meta-tool-btn"
                   onClick={() => handleWrapText('*')}
-                  title="Bold (*text*)"
+                  title="Bold: select text, then click (Ctrl+B)"
                 >
                   <strong>B</strong>
                 </button>
@@ -475,7 +628,7 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
                   type="button"
                   className="meta-tool-btn"
                   onClick={() => handleWrapText('_')}
-                  title="Italic (_text_)"
+                  title="Italic: select text, then click (Ctrl+I)"
                 >
                   <em>I</em>
                 </button>
@@ -484,7 +637,7 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
                   type="button"
                   className="meta-tool-btn"
                   onClick={() => handleWrapText('~')}
-                  title="Strikethrough (~text~)"
+                  title="Strikethrough: select text, then click (Ctrl+Shift+X)"
                 >
                   <del>S</del>
                 </button>
@@ -493,7 +646,7 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
                   type="button"
                   className="meta-tool-btn"
                   onClick={() => handleWrapText('`')}
-                  title="Monospace (`code`)"
+                  title="Monospace: select text, then click"
                 >
                   <code>&lt;&gt;</code>
                 </button>
@@ -521,8 +674,10 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
                 required
                 maxLength={1024}
                 placeholder="Hello {{1}}, welcome to Freedom Global Sports Network! Use promo code {{2}} to get 20% off..."
+                ref={bodyRef}
                 value={bodyText}
                 onChange={(e) => setBodyText(e.target.value)}
+                onKeyDown={handleBodyShortcut}
                 className="form-input textarea"
                 style={{ fontSize: 13.5, lineHeight: 1.5, fontFamily: 'inherit' }}
               />
@@ -702,7 +857,11 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
 
             {canCreateTemplates(currentUser?.role) ? (
               <button type="submit" className="wa-bc-primary wa-tpl-submit" disabled={isSubmitting}>
-                {isSubmitting ? 'Submitting to Meta…' : 'Save & submit to Meta for approval'}
+                {isSubmitting
+                  ? 'Submitting to Meta…'
+                  : editing
+                    ? 'Save changes & send to Meta for review'
+                    : 'Save & submit to Meta for approval'}
               </button>
             ) : (
               <div className="wa-tpl-locked">
@@ -835,8 +994,8 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
                     {/* Image Header */}
                     {headerType === 'IMAGE' && (
                       <div className="wa-bubble-media-header">
-                        {headerMediaUrl && headerMediaUrl.startsWith('http') ? (
-                          <img src={headerMediaUrl} alt="Template Header" className="wa-bubble-img" />
+                        {previewMediaSrc ? (
+                          <img src={previewMediaSrc} alt="Template Header" className="wa-bubble-img" />
                         ) : (
                           <div className="wa-media-placeholder">
                             <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#64748B" strokeWidth="2">
@@ -977,8 +1136,8 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
                   {/* Image Header */}
                   {headerType === 'IMAGE' && (
                     <div className="wa-bubble-media-header" style={{ maxHeight: 240 }}>
-                      {headerMediaUrl && headerMediaUrl.startsWith('http') ? (
-                        <img src={headerMediaUrl} alt="Template Header" className="wa-bubble-img" style={{ maxHeight: 240 }} />
+                      {previewMediaSrc ? (
+                        <img src={previewMediaSrc} alt="Template Header" className="wa-bubble-img" style={{ maxHeight: 240 }} />
                       ) : (
                         <div className="wa-media-placeholder" style={{ height: 120 }}>
                           <span>Header Image Attachment</span>
@@ -1081,7 +1240,13 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
               {templates.map((t) => {
                 const statusMeta = TEMPLATE_STATUS[t.status] || TEMPLATE_STATUS.DRAFT;
                 const canTest = t.status === 'APPROVED';
-                const snippet = String(t.bodyJson?.body || '').replace(/\s+/g, ' ').trim();
+                // Meta allows editing approved, rejected and paused templates (not ones still in review).
+                const canEdit =
+                  !!onUpdateTemplate &&
+                  canCreateTemplates(currentUser?.role) &&
+                  ['APPROVED', 'REJECTED', 'PAUSED'].includes(t.status) &&
+                  /^\d+$/.test(String(t.metaTemplateId || t.id));
+                const snippet = stripWaFormatting(String(t.bodyJson?.body || '')).replace(/\s+/g, ' ').trim();
                 const created = new Date(t.createdAt);
                 return (
                   <tr key={t.id}>
@@ -1101,7 +1266,12 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
                     </td>
                     <td data-label="Language">{t.language}</td>
                     <td data-label="Created">{isNaN(created.getTime()) ? '—' : created.toLocaleDateString()}</td>
-                    <td data-label="Action">
+                    <td data-label="Action" className="wa-tpl-actions">
+                      {canEdit && (
+                        <button type="button" className="wa-bc-act" onClick={() => startEdit(t)} title="Change this template and send it to Meta for review again">
+                          Edit
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="wa-bc-act"

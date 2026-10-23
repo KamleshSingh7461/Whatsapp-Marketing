@@ -1462,6 +1462,26 @@ export function Dashboard() {
     }
   };
 
+  // Edits a template on Meta, then reloads the list so it shows as "In review".
+  const handleUpdateTemplate = async (
+    id: string,
+    changes: { category?: string; bodyJson: any; sampleVariables?: Record<string, string> },
+  ): Promise<{ success?: boolean; message?: string }> => {
+    try {
+      const res = await apiFetch<{ success: boolean; error?: string }>(`/templates/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(changes),
+      });
+      if (!res?.success) return { success: false, message: res?.error || 'Meta did not accept the edit.' };
+      apiFetch<Template[]>('/templates')
+        .then(list => { if (Array.isArray(list) && list.length > 0) setTemplates(list); })
+        .catch(() => null);
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, message: e?.message || 'The template could not be edited.' };
+    }
+  };
+
   const handleCreateTemplate = async (newTpl: Partial<Template>): Promise<{ success: boolean; message?: string }> => {
     try {
       const res = await apiFetch<any>('/templates', {
@@ -1801,6 +1821,7 @@ export function Dashboard() {
               displayPhoneNumber={status?.displayPhoneNumber || '+91 86558 51749'}
               currentUser={user}
               onCreateTemplate={handleCreateTemplate}
+              onUpdateTemplate={handleUpdateTemplate}
               onSendTestTemplate={handleSendTestTemplate}
             />
           )}

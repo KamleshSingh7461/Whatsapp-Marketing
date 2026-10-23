@@ -2,11 +2,26 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TemplateCategory, TemplateStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateTemplateDto } from './dto/create-template.dto';
+import { CreateTemplateDto, UpdateTemplateDto } from './dto/create-template.dto';
+import { parseDataUrl } from '../inbox/message-view.logic';
+import { mediaHeaderOf } from '../whatsapp-integration/template-header.logic';
 import { decryptToken } from '../common/crypto/token-cipher';
 
 // The template list comes from Meta; every open tab asks for it every few seconds, and it changes rarely.
 const TEMPLATES_TTL_MS = 60 * 1000;
+
+// What Meta accepts as a template header sample.
+const HEADER_MEDIA_RULES: Record<string, { types: string[]; label: string; maxBytes: number }> = {
+  IMAGE: { types: ['image/jpeg', 'image/png'], label: 'a JPG or PNG image', maxBytes: 5 * 1024 * 1024 },
+  VIDEO: { types: ['video/mp4', 'video/3gpp'], label: 'an MP4 video', maxBytes: 16 * 1024 * 1024 },
+  DOCUMENT: { types: ['application/pdf'], label: 'a PDF', maxBytes: 100 * 1024 * 1024 },
+};
+
+/** Meta's own explanation of an error when it gives one (error_user_msg is written for people). */
+function metaError(data: any, fallback: string): string {
+  const e = data?.error;
+  return e?.error_user_msg || e?.error_user_title || e?.message || fallback;
+}
 
 const PROMOTIONAL_KEYWORDS = ['sale', 'discount', 'offer', 'deal', 'buy now', 'coupon', '% off'];
 
@@ -145,7 +160,8 @@ export class TemplatesService {
     return dbTemplates;
   }
 
-  private async submitToMetaGraphApi(dto: CreateTemplateDto): Promise<{ id?: string; status?: string; error?: string } | null> {
+  /** The token and WABA to call Meta with: the connected account's own token when there is one, else the system user's. */
+  private async metaAuth(): Promise<{ token?: string; wabaId: string; apiVersion: string }> {
     const apiVersion = this.config.get<string>('META_GRAPH_API_VERSION') ?? 'v21.0';
     let token = this.config.get<string>('META_SYSTEM_USER_TOKEN');
     let wabaId = this.config.get<string>('META_WABA_ID') || '1845046976654799';
@@ -166,13 +182,68 @@ export class TemplatesService {
     } catch (e) {
       // ignore DB connection error
     }
+    return { token: token && !token.includes('...') ? token : undefined, wabaId, apiVersion };
+  }
 
-    if (!token || token.includes('...')) {
-      this.logger.warn('Meta System User Token not configured. Template saved locally.');
-      return { error: 'Meta System User Token not configured in .env' };
+  /**
+   * A template's image / video / document must reach Meta through its upload API: the "handle" it returns goes in the
+   * template, not a web link. `source` is a file chosen in the editor (data: URL) or a web link to download.
+   */
+  private async uploadHeaderSample(source: string, format: string, auth: { token?: string; apiVersion: string }): Promise<string> {
+    const appId = this.config.get<string>('META_APP_ID');
+    if (!appId) throw new Error('META_APP_ID is not set on the server, so the template media cannot be uploaded to Meta.');
+
+    let bytes: Buffer;
+    let mime: string;
+    const file = parseDataUrl(source);
+    if (file) {
+      bytes = file.bytes;
+      mime = file.mime;
+    } else if (/^https?:\/\//i.test(source)) {
+      const res = await fetch(source);
+      if (!res.ok) throw new Error(`The ${format.toLowerCase()} link could not be downloaded (${res.status}).`);
+      bytes = Buffer.from(await res.arrayBuffer());
+      mime = (res.headers.get('content-type') || '').split(';')[0].trim();
+    } else {
+      throw new Error(`Choose the ${format.toLowerCase()} for the template header.`);
     }
 
-    // Format Meta Graph API components array
+    const rule = HEADER_MEDIA_RULES[format];
+    if (!rule || !rule.types.includes(mime)) {
+      throw new Error(`A ${format.toLowerCase()} header must be ${rule?.label || 'a supported file'} (this file is ${mime || 'unknown'}).`);
+    }
+    if (bytes.length === 0 || bytes.length > rule.maxBytes) {
+      throw new Error(`The ${format.toLowerCase()} must be under ${Math.round(rule.maxBytes / (1024 * 1024))} MB.`);
+    }
+
+    const oauth = { Authorization: `OAuth ${auth.token}` };
+    const fileName = `template-header.${mime.split('/')[1] || 'bin'}`;
+    const startRes = await fetch(
+      `https://graph.facebook.com/${auth.apiVersion}/${appId}/uploads?file_name=${encodeURIComponent(fileName)}&file_length=${bytes.length}&file_type=${encodeURIComponent(mime)}`,
+      { method: 'POST', headers: oauth },
+    );
+    const session: any = await startRes.json().catch(() => ({}));
+    if (!startRes.ok || !session.id) throw new Error(metaError(session, 'Meta did not accept the upload'));
+
+    const upRes = await fetch(`https://graph.facebook.com/${auth.apiVersion}/${session.id}`, {
+      method: 'POST',
+      headers: { ...oauth, file_offset: '0' },
+      body: new Uint8Array(bytes),
+    });
+    const uploaded: any = await upRes.json().catch(() => ({}));
+    if (!upRes.ok || !uploaded.h) throw new Error(metaError(uploaded, 'Meta did not accept the upload'));
+    return String(uploaded.h);
+  }
+
+  /**
+   * Meta's template components from the editor's bodyJson. For a media header, `keepHeaderFrom` is the template's
+   * current sample (when editing), used when no new file or link was chosen.
+   */
+  private async buildComponents(
+    dto: { bodyJson: any; sampleVariables?: Record<string, string> },
+    auth: { token?: string; apiVersion: string },
+    keepHeaderFrom?: string | null,
+  ) {
     const bodyObj: any = dto.bodyJson || {};
     const components: any[] = [];
 
@@ -194,15 +265,9 @@ export class TemplatesService {
         }
         components.push(headerComp);
       } else if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(hType)) {
-        const headerComp: any = {
-          type: 'HEADER',
-          format: hType,
-        };
-        const mediaUrl = bodyObj.header.url || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600';
-        headerComp.example = {
-          header_handle: [mediaUrl],
-        };
-        components.push(headerComp);
+        const source = String(bodyObj.header.url || '').trim() || keepHeaderFrom || '';
+        const handle = await this.uploadHeaderSample(source, hType, auth);
+        components.push({ type: 'HEADER', format: hType, example: { header_handle: [handle] } });
       }
     }
 
@@ -264,7 +329,7 @@ export class TemplatesService {
         } else if (bType === 'COPY_CODE') {
           formattedButtons.push({
             type: 'COPY_CODE',
-            example: b.code || 'FGSN20',
+            example: b.code || b.example || 'FGSN20',
           });
         }
       }
@@ -276,6 +341,22 @@ export class TemplatesService {
         });
       }
     }
+    return components;
+  }
+
+  private async submitToMetaGraphApi(dto: CreateTemplateDto): Promise<{ id?: string; status?: string; error?: string } | null> {
+    const auth = await this.metaAuth();
+    if (!auth.token) {
+      this.logger.warn('Meta System User Token not configured. Template saved locally.');
+      return { error: 'Meta System User Token not configured in .env' };
+    }
+
+    let components: any[];
+    try {
+      components = await this.buildComponents(dto, auth);
+    } catch (e: any) {
+      return { error: e.message };
+    }
 
     const payload = {
       name: dto.name.toLowerCase().replace(/[^a-z0-9_]/g, '_'),
@@ -284,13 +365,13 @@ export class TemplatesService {
       components,
     };
 
-    const url = `https://graph.facebook.com/${apiVersion}/${wabaId}/message_templates`;
+    const url = `https://graph.facebook.com/${auth.apiVersion}/${auth.wabaId}/message_templates`;
     this.logger.log(`Submitting template '${payload.name}' to Meta Graph API: ${url}`);
 
     const res = await fetch(url, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${auth.token}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
@@ -299,11 +380,62 @@ export class TemplatesService {
     const data = await res.json();
     if (!res.ok) {
       this.logger.error(`Meta Template Submission Error: ${JSON.stringify(data)}`);
-      return { error: data.error?.message || 'Meta API Submission Failed' };
+      return { error: metaError(data, 'Meta API Submission Failed') };
     }
 
     this.logger.log(`Meta Template Successfully Created! ID: ${data.id}, Status: ${data.status}`);
     return { id: data.id, status: data.status };
+  }
+
+  /**
+   * Edits a template on Meta. The name and language cannot change (Meta's rule). An edited template goes back to
+   * review; an approved one can be edited once a day and 10 times a month. A media header keeps its current file unless
+   * a new one is chosen.
+   */
+  async update(id: string, dto: UpdateTemplateDto): Promise<{ success: boolean; status?: string; error?: string }> {
+    if (!/^\d{1,30}$/.test(id)) return { success: false, error: 'Only templates that are on Meta can be edited.' };
+    const auth = await this.metaAuth();
+    if (!auth.token) return { success: false, error: 'Meta System User Token not configured in .env' };
+    const headers = { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' };
+
+    try {
+      const curRes = await fetch(`https://graph.facebook.com/${auth.apiVersion}/${id}?fields=name,status,category,components`, { headers });
+      const current: any = await curRes.json().catch(() => ({}));
+      if (!curRes.ok) return { success: false, error: metaError(current, 'This template could not be read from Meta') };
+      const status = String(current.status || '').toUpperCase();
+      if (status === 'PENDING' || status === 'IN_APPEAL') {
+        return { success: false, error: 'This template is still in review at Meta. It can be edited once Meta has decided.' };
+      }
+
+      const keep = mediaHeaderOf(current.components)?.exampleUrl ?? null;
+      const components = await this.buildComponents(dto, auth, keep);
+      const payload: any = { components };
+      // An approved template's category cannot be changed.
+      if (dto.category && dto.category !== current.category && status !== 'APPROVED') {
+        payload.category = dto.category;
+      }
+
+      const res = await fetch(`https://graph.facebook.com/${auth.apiVersion}/${id}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      });
+      const data: any = await res.json().catch(() => ({}));
+      if (!res.ok || data.success === false) {
+        this.logger.error(`Meta template edit failed for ${current.name}: ${JSON.stringify(data)}`);
+        return { success: false, error: metaError(data, 'Meta did not accept the edit') };
+      }
+
+      this.logger.log(`Template '${current.name}' edited and sent back to Meta for review.`);
+      this.templatesCache = null;
+      await this.prisma.template
+        .updateMany({ where: { metaTemplateId: id }, data: { bodyJson: dto.bodyJson as any, status: TemplateStatus.PENDING } })
+        .catch(() => null);
+      return { success: true, status: 'PENDING' };
+    } catch (e: any) {
+      this.logger.error(`Template edit failed: ${e.message}`);
+      return { success: false, error: e.message || 'The template could not be edited' };
+    }
   }
 
   private checkLikelyMiscategorized(dto: CreateTemplateDto): string | null {

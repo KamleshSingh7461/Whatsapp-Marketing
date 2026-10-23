@@ -27,3 +27,17 @@ export class CreateTemplateDto {
   warning?: string;
 }
 
+
+/** An edit of an existing template. Name and language cannot change on Meta, so they are not part of it. */
+export class UpdateTemplateDto {
+  @IsOptional()
+  @IsIn(CATEGORIES)
+  category?: TemplateCategory;
+
+  @IsObject()
+  bodyJson!: Record<string, unknown>;
+
+  @IsOptional()
+  @IsObject()
+  sampleVariables?: Record<string, string>;
+}

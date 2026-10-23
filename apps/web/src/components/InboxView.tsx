@@ -40,6 +40,8 @@ import {
   MediaUnavailableIcon,
 } from './WhatsAppIcons';
 import { templateParts } from '../lib/templateMatch';
+import { stripWaFormatting } from '../lib/waFormat';
+import { WaText } from './WaText';
 import { ChatAttachment, attachmentProblem, canEditMessage, formatFileSize, senderLabel } from '../lib/chatMessage';
 import { formatBlockUntil, metaBlockOf, metaBlockReason } from '../lib/metaDelivery';
 
@@ -1069,7 +1071,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
                         {isOutbound && (
                           <DoubleCheckIcon isRead={isRead} size={15} />
                         )}
-                        <span>{conv.lastMessage?.content || 'Started conversation'}</span>
+                        <span>{stripWaFormatting(conv.lastMessage?.content || '') || 'Started conversation'}</span>
                       </div>
 
                       {conv.unreadCount > 0 && !isSelected && (
@@ -1300,8 +1302,8 @@ export const InboxView: React.FC<InboxViewProps> = ({
                     {tpl.headerText && <p className="wa-bubble-tpl-header">{tpl.headerText}</p>}
 
                     {/* Message Content / Caption */}
-                    {caption && <p className="wa-bubble-text" style={{ marginTop: 4 }}>{caption}</p>}
-                    {!hasMedia && <p className="wa-bubble-text">{msg.content}</p>}
+                    {caption && <p className="wa-bubble-text" style={{ marginTop: 4 }}><WaText text={caption} /></p>}
+                    {!hasMedia && <p className="wa-bubble-text"><WaText text={msg.content} /></p>}
 
                     {/* Template footer */}
                     {tpl.footerText && <p className="wa-bubble-tpl-footer">{tpl.footerText}</p>}

@@ -9929,6 +9929,55 @@ td {
   color: #b3261e;
 }
 
+.wa-tpl-alert.is-editing {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #f5dfa4;
+  background: #fff8e6;
+  color: #6b4700;
+}
+
+.wa-tpl-alert.is-editing p {
+  margin: 4px 0 0;
+}
+
+.wa-tpl-alert.is-editing .wa-bc-act {
+  flex-shrink: 0;
+}
+
+.wa-tpl-media-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wa-tpl-media-pick .form-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.wa-tpl-file-btn {
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.wa-tpl-actions {
+  white-space: nowrap;
+}
+
+.wa-tpl-actions .wa-bc-act + .wa-bc-act {
+  margin-left: 6px;
+}
+
+@media (max-width: 600px) {
+  .wa-tpl-alert.is-editing,
+  .wa-tpl-media-pick {
+    flex-wrap: wrap;
+  }
+}
+
 .wa-tpl-submit {
   width: 100%;
   height: 44px;
