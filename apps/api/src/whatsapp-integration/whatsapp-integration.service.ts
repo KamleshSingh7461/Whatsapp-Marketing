@@ -22,6 +22,9 @@ const SINGLETON_ID = 'primary';
 const TEMPLATE_HEADER_TTL_MS = 10 * 60 * 1000;
 const HEADER_MEDIA_TTL_MS = 7 * 24 * 3600 * 1000;
 const MAX_HEADER_MEDIA_BYTES = 16 * 1024 * 1024;
+// Every open tab asks for the status every few seconds; Meta's answer (tier, quality) changes rarely.
+const STATUS_TTL_MS = 60 * 1000;
+const META_ANALYTICS_TTL_MS = 5 * 60 * 1000;
 
 @Injectable()
 export class WhatsappIntegrationService {
@@ -56,11 +59,24 @@ export class WhatsappIntegrationService {
     }
 
     await this.subscribeToWebhooks(dto.wabaId, dto.businessToken);
+    this.statusCache = null;
 
     return { id: connection?.id || SINGLETON_ID, wabaId: dto.wabaId, phoneNumberId: dto.phoneNumberId };
   }
 
-  async getStatus() {
+  private statusCache: { at: number; value: Promise<any> } | null = null;
+
+  /** The connection status, reused for a minute so open tabs do not each ask Meta every few seconds. */
+  getStatus() {
+    if (!this.statusCache || Date.now() - this.statusCache.at > STATUS_TTL_MS) {
+      const value = this.readStatus();
+      this.statusCache = { at: Date.now(), value };
+      value.catch(() => (this.statusCache = null));
+    }
+    return this.statusCache.value;
+  }
+
+  private async readStatus() {
     let connection: any = null;
     try {
       connection = await this.prisma.wabaConnection.findUnique({ where: { id: SINGLETON_ID } });
@@ -402,7 +418,37 @@ export class WhatsappIntegrationService {
     }
   }
 
-  async getLiveMessagingLedger() {
+  /**
+   * Changes whenever anything the Chats page shows changes: a message (new, edited, delivered, read), a chat, or a
+   * contact (name, tags, assignment, status). Cheap to read, so tabs can ask "anything new?" every few seconds.
+   */
+  private async ledgerVersion(): Promise<string> {
+    const [m, c, k] = await Promise.all([
+      this.prisma.message.aggregate({ _count: { _all: true }, _max: { updatedAt: true } }),
+      this.prisma.conversation.aggregate({ _count: { _all: true }, _max: { updatedAt: true } }),
+      this.prisma.contact.aggregate({ _count: { _all: true }, _max: { updatedAt: true } }),
+    ]);
+    const part = (a: { _count: { _all: number }; _max: { updatedAt: Date | null } }) =>
+      `${a._count._all}.${a._max.updatedAt?.getTime() ?? 0}`;
+    return [part(m), part(c), part(k)].join('-');
+  }
+
+  /** With `since` set to the version the tab already has, answers `unchanged` instead of resending every chat. */
+  async getLiveMessagingLedger(since?: string) {
+    let version: string | undefined;
+    try {
+      version = await this.ledgerVersion();
+      if (since && since === version) return { unchanged: true, version };
+    } catch (e: any) {
+      this.logger.warn(`Could not read the chats version: ${e.message}`);
+    }
+    const ledger: any = await this.buildLedger();
+    return { ...ledger, version };
+  }
+
+  private metaAnalyticsCache: { at: number; sent: number; delivered: number } | null = null;
+
+  private async buildLedger() {
     try {
       const convs = await this.prisma.conversation.findMany({
         include: {
@@ -488,12 +534,8 @@ export class WhatsappIntegrationService {
           };
         });
 
-        const cleanPhone = phone.replace(/[^0-9]/g, '');
-        // Store under convId and also cleanPhone conv key for instant lookup without duplicating arrays across iteration
+        // Stored once, under the chat id. The web app adds the conv_<phone> alias itself, so the list is not sent twice.
         messagesByConvId[convId] = msgs;
-        if (cleanPhone && convId !== `conv_${cleanPhone}`) {
-          messagesByConvId[`conv_${cleanPhone}`] = msgs;
-        }
 
         const lastMsg = msgs[msgs.length - 1];
         const attrs = (c.contact?.attributes as any) || {};
@@ -551,7 +593,14 @@ export class WhatsappIntegrationService {
         const systemToken = this.config.get<string>('META_SYSTEM_USER_TOKEN');
         const apiVersion = this.config.get<string>('META_GRAPH_API_VERSION') || 'v21.0';
 
-        if (systemToken && wabaId) {
+        // Meta's 30-day totals, read at most every 5 minutes rather than on every refresh of every tab.
+        const cached = this.metaAnalyticsCache;
+        if (cached && Date.now() - cached.at < META_ANALYTICS_TTL_MS) {
+          if (cached.sent > 0) {
+            metaOfficialSent = Math.max(totalOutbound, cached.sent);
+            metaOfficialDelivered = Math.max(totalDelivered, cached.delivered);
+          }
+        } else if (systemToken && wabaId) {
           const start = Math.floor(Date.now() / 1000) - 30 * 86400;
           const end = Math.floor(Date.now() / 1000);
           const res = await fetch(`https://graph.facebook.com/${apiVersion}/${wabaId}?fields=analytics.start(${start}).end(${end}).granularity(DAY)`, {
@@ -566,6 +615,7 @@ export class WhatsappIntegrationService {
               sumSent += dp.sent || 0;
               sumDelivered += dp.delivered || 0;
             });
+            this.metaAnalyticsCache = { at: Date.now(), sent: sumSent, delivered: sumDelivered };
             if (sumSent > 0) {
               metaOfficialSent = Math.max(totalOutbound, sumSent);
               metaOfficialDelivered = Math.max(totalDelivered, sumDelivered);

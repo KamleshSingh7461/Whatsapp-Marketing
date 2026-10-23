@@ -5,6 +5,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateTemplateDto } from './dto/create-template.dto';
 import { decryptToken } from '../common/crypto/token-cipher';
 
+// The template list comes from Meta; every open tab asks for it every few seconds, and it changes rarely.
+const TEMPLATES_TTL_MS = 60 * 1000;
+
 const PROMOTIONAL_KEYWORDS = ['sale', 'discount', 'offer', 'deal', 'buy now', 'coupon', '% off'];
 
 @Injectable()
@@ -17,6 +20,7 @@ export class TemplatesService {
   ) {}
 
   async create(dto: CreateTemplateDto) {
+    this.templatesCache = null;
     let metaResult: { id?: string; status?: string; error?: string } | null = null;
 
     try {
@@ -62,6 +66,7 @@ export class TemplatesService {
       };
     }
 
+    this.templatesCache = null; // again, in case a refresh cached the list while this one was being submitted
     return {
       ...template,
       metaResponse: metaResult,
@@ -69,7 +74,19 @@ export class TemplatesService {
     };
   }
 
-  async findAll() {
+  private templatesCache: { at: number; value: Promise<any[]> } | null = null;
+
+  /** Every template, reused for a minute (see TEMPLATES_TTL_MS). Creating a template refreshes it straight away. */
+  findAll(): Promise<any[]> {
+    if (!this.templatesCache || Date.now() - this.templatesCache.at > TEMPLATES_TTL_MS) {
+      const value = this.readAll();
+      this.templatesCache = { at: Date.now(), value };
+      value.catch(() => (this.templatesCache = null));
+    }
+    return this.templatesCache.value;
+  }
+
+  private async readAll() {
     const apiVersion = this.config.get<string>('META_GRAPH_API_VERSION') ?? 'v21.0';
     const token = this.config.get<string>('META_SYSTEM_USER_TOKEN');
     const wabaId = this.config.get<string>('META_WABA_ID') || '1845046976654799';

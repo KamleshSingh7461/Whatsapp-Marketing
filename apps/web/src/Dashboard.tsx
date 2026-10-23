@@ -8,6 +8,7 @@ import {
   loginApi,
   setToken,
   getContactsApi,
+  getContactsSinceApi,
   saveContactApi,
   updateContactApi,
   ContactEdit,
@@ -69,6 +70,26 @@ const DEFAULT_REGIONAL_RATES = [
   { country: 'European Union (Avg)', code: 'EU', marketingRate: 0.055, utilityRate: 0.028, serviceRate: 0.015, authRate: 0.025 },
   { country: 'Brazil / Latin America', code: 'BR', marketingRate: 0.062, utilityRate: 0.035, serviceRate: 0.018, authRate: 0.030 },
 ];
+
+/**
+ * Messages are sent once per chat; chats started in this browser are first known as conv_<phone>, so the same list is
+ * also reachable under that key (the same array, not a copy).
+ */
+function withPhoneAliases(conversations: any[], messagesByConvId: Record<string, any[]>): Record<string, any[]> {
+  const out = { ...messagesByConvId };
+  for (const c of conversations || []) {
+    const phone = String(c?.contact?.phone || '').replace(/[^0-9]/g, '');
+    const alias = `conv_${phone}`;
+    if (phone && c.id !== alias && out[c.id] && !out[alias]) out[alias] = out[c.id];
+  }
+  return out;
+}
+
+// How often an open tab refreshes. Chats and contacts are only re-sent by the server when something changed; the rest
+// (connection status, templates, automations) changes rarely. A tab in the background refreshes less often.
+const SYNC_EVERY_MS = 5000;
+const SYNC_HIDDEN_EVERY_MS = 30000;
+const SLOW_SYNC_EVERY_MS = 30000;
 
 export function Dashboard() {
   // Navigation & Control States
@@ -441,32 +462,59 @@ export function Dashboard() {
     });
   };
 
-  // Single Unified Atomic Heartbeat Sync Loop (5s) for Live Ledger, Contacts, Status & Meta Metrics
-  useEffect(() => {
-    if (!getToken()) return;
-    let isMounted = true;
+  // Versions of the chats and contacts this tab already has, so the server can answer "unchanged" (see api.ts).
+  const ledgerVersion = useRef<string | undefined>(undefined);
+  const contactsVersion = useRef<string>('');
+  // JSON of the last small lists received, so an identical answer does not re-render every page.
+  const lastSynced = useRef<Record<string, string>>({});
+  const changedSince = (key: string, data: unknown) => {
+    const json = JSON.stringify(data);
+    if (lastSynced.current[key] === json) return false;
+    lastSynced.current[key] = json;
+    return true;
+  };
 
-    async function syncAllRealTimeData() {
+  // One refresh loop for everything the pages show. Chats and contacts every 5s (only downloaded when they changed),
+  // status / templates / automations every 30s, and only every 30s at all while the tab is in the background.
+  const userId = user?.id;
+  useEffect(() => {
+    // Starts once the signed-in user is known (not also before), so a page load downloads everything once.
+    if (!userId || !getToken()) return;
+    let isMounted = true;
+    let running = false;
+    let lastRun = 0;
+    let lastSlowRun = 0;
+
+    async function syncAllRealTimeData(force = false) {
+      if (running) return; // a slow answer must not stack up refreshes behind it
+      const now = Date.now();
+      if (!force && document.hidden && now - lastRun < SYNC_HIDDEN_EVERY_MS) return;
+      const slow = force || now - lastSlowRun >= SLOW_SYNC_EVERY_MS;
+      running = true;
+      lastRun = now;
+      if (slow) lastSlowRun = now;
       try {
-        const [ledger, s, t, c, cmp, fl, ss] = await Promise.all([
-          getLiveMessagingLedgerApi().catch(() => null),
-          apiFetch<WhatsappStatus>('/whatsapp/status').catch(() => null),
-          apiFetch<Template[]>('/templates').catch(() => null),
-          getContactsApi().catch(() => null),
+        const [ledger, c, cmp, s, t, fl, ss] = await Promise.all([
+          getLiveMessagingLedgerApi(ledgerVersion.current).catch(() => null),
+          getContactsSinceApi(contactsVersion.current).catch(() => null),
           getCampaignsApi().catch(() => null),
-          getFlowsApi().catch(() => null),
-          getServerSendStatusApi().catch(() => null),
+          slow ? apiFetch<WhatsappStatus>('/whatsapp/status').catch(() => null) : null,
+          slow ? apiFetch<Template[]>('/templates').catch(() => null) : null,
+          slow ? getFlowsApi().catch(() => null) : null,
+          slow ? getServerSendStatusApi().catch(() => null) : null,
         ]);
 
         if (!isMounted) return;
 
-        if (ledger) {
+        if (ledger && !ledger.unchanged) {
+          ledgerVersion.current = ledger.version;
           if (Array.isArray(ledger.conversations)) {
             setConversations(ledger.conversations);
           }
           if (ledger.messagesByConvId) {
+            const all = Object.values(ledger.messagesByConvId).flat();
             if (seenMessageIds.current.size > 0) {
-              Object.values(ledger.messagesByConvId).flat().forEach((sm: any) => {
+              all.forEach((sm: any) => {
                 if (!seenMessageIds.current.has(sm.id) && sm.direction === 'INBOUND') {
                   triggerDesktopNotification(
                     `💬 Message from ${sm.senderName || 'Customer'}`,
@@ -475,35 +523,45 @@ export function Dashboard() {
                 }
               });
             }
-            Object.values(ledger.messagesByConvId).flat().forEach((sm: any) => seenMessageIds.current.add(sm.id));
-            setMessagesByConvId(ledger.messagesByConvId);
+            all.forEach((sm: any) => seenMessageIds.current.add(sm.id));
+            setMessagesByConvId(withPhoneAliases(ledger.conversations, ledger.messagesByConvId));
           }
           if (ledger.metrics) {
             setServerMetrics(ledger.metrics);
           }
         }
-        if (s) setStatus(s);
-        if (t && Array.isArray(t)) setTemplates(t as any);
-        if (c && Array.isArray(c)) setContacts(c);
-        if (cmp && Array.isArray(cmp)) mergeServerCampaigns(cmp);
+        if (Array.isArray(c)) {
+          setContacts(c); // an API from before ?since= existed answers with the plain list
+        } else if (c && !c.unchanged && Array.isArray(c.contacts)) {
+          contactsVersion.current = c.version;
+          setContacts(c.contacts);
+        }
+        if (cmp && Array.isArray(cmp) && changedSince('campaigns', cmp)) mergeServerCampaigns(cmp);
+        if (s && changedSince('status', s)) setStatus(s);
+        if (t && Array.isArray(t) && changedSince('templates', t)) setTemplates(t as any);
         if (ss) setServerSendEnabled(!!ss.enabled);
-        if (fl && Array.isArray(fl)) setFlows(fl);
+        if (fl && Array.isArray(fl) && changedSince('flows', fl)) setFlows(fl);
       } catch (e) {
         console.warn('Real-time sync heartbeat error:', e);
+      } finally {
+        running = false;
       }
     }
 
-    syncAllRealTimeData();
-    const interval = setInterval(syncAllRealTimeData, 5000);
-    const handleFocus = () => syncAllRealTimeData();
+    syncAllRealTimeData(true);
+    const interval = setInterval(() => syncAllRealTimeData(), SYNC_EVERY_MS);
+    const handleFocus = () => syncAllRealTimeData(true);
+    const handleVisible = () => { if (!document.hidden) syncAllRealTimeData(true); };
     window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisible);
 
     return () => {
       isMounted = false;
       clearInterval(interval);
       window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisible);
     };
-  }, [user]);
+  }, [userId]);
 
   // Live progress: while any server-sent broadcast is actively sending, refresh the campaign list
   // every 2s (the general heartbeat above is 5s). Stops on its own once nothing is sending.
@@ -1633,8 +1691,9 @@ export function Dashboard() {
       ]);
       if (ledger) {
         if (Array.isArray(ledger.conversations)) setConversations(ledger.conversations);
-        if (ledger.messagesByConvId) setMessagesByConvId(ledger.messagesByConvId);
+        if (ledger.messagesByConvId) setMessagesByConvId(withPhoneAliases(ledger.conversations, ledger.messagesByConvId));
         if (ledger.metrics) setServerMetrics(ledger.metrics);
+        ledgerVersion.current = ledger.version;
       }
       if (s) setStatus(s);
       if (t && Array.isArray(t)) setTemplates(t as any);

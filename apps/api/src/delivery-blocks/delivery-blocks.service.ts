@@ -47,7 +47,8 @@ export class DeliveryBlocksService {
       // jsonb_set changes only this one key, so anything else stored on the contact is left exactly as it was.
       await this.prisma.$executeRaw`
         UPDATE "Contact"
-        SET "attributes" = jsonb_set(COALESCE("attributes", '{}'::jsonb), '{metaDelivery}', ${JSON.stringify(next)}::jsonb, true)
+        SET "attributes" = jsonb_set(COALESCE("attributes", '{}'::jsonb), '{metaDelivery}', ${JSON.stringify(next)}::jsonb, true),
+            "updatedAt" = NOW()
         WHERE "id" = ${contact.id}`;
       this.logger.warn(`Meta refused delivery to +${contact.phone.replace(/\D/g, '')} (code ${next.code}); broadcasts will skip them until ${next.until}.`);
       return;
@@ -57,7 +58,7 @@ export class DeliveryBlocksService {
       const contact = await this.findContact(status.recipient_id);
       if (!contact || !shouldClearOnDelivery(contact.attributes)) return;
       await this.prisma.$executeRaw`
-        UPDATE "Contact" SET "attributes" = "attributes" - 'metaDelivery' WHERE "id" = ${contact.id}`;
+        UPDATE "Contact" SET "attributes" = "attributes" - 'metaDelivery', "updatedAt" = NOW() WHERE "id" = ${contact.id}`;
       this.logger.log(`A message reached +${contact.phone.replace(/\D/g, '')}, so their "undeliverable" mark was cleared.`);
     }
   }

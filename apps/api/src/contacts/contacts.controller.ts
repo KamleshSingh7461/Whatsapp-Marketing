@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { sendJson } from '../common/http/send-json';
 import { ContactsService } from './contacts.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -12,8 +13,10 @@ export class ContactsController {
 
   @Get()
   @Roles(Role.ADMIN, Role.MARKETER, Role.AGENT, Role.VIEWER)
-  async getAllContacts() {
-    return this.contactsService.getAllContacts();
+  async getAllContacts(@Query('since') since: string | undefined, @Req() req: any, @Res() res: any) {
+    // With ?since= the answer carries a version, and is just { unchanged: true } when nothing changed since then.
+    const data = since !== undefined ? await this.contactsService.getContactsSince(since) : await this.contactsService.getAllContacts();
+    return sendJson(req, res, data);
   }
 
   @Post()

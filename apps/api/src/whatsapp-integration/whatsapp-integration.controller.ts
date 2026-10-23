@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Headers, Param, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { WhatsappIntegrationService } from './whatsapp-integration.service';
 import { ConnectWhatsappDto } from './dto/connect-whatsapp.dto';
+import { sendJson } from '../common/http/send-json';
 
 @Controller('whatsapp')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -25,8 +26,8 @@ export class WhatsappIntegrationController {
 
   @Get('ledger')
   @Roles(Role.ADMIN, Role.AGENT, Role.MARKETER, Role.VIEWER)
-  ledger() {
-    return this.integration.getLiveMessagingLedger();
+  async ledger(@Query('since') since: string | undefined, @Req() req: any, @Res() res: any) {
+    return sendJson(req, res, await this.integration.getLiveMessagingLedger(since));
   }
 
   @Get('insights')

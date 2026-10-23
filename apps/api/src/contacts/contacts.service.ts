@@ -120,6 +120,23 @@ export class ContactsService implements OnModuleInit {
     }
   }
 
+  /** Changes whenever a contact is added, removed or changed (tags, name, opt-in, Meta delivery mark). */
+  async contactsVersion(): Promise<string> {
+    const a = await this.prisma.contact.aggregate({ _count: { _all: true }, _max: { updatedAt: true } });
+    return `${a._count._all}.${a._max.updatedAt?.getTime() ?? 0}`;
+  }
+
+  /**
+   * For tabs that refresh every few seconds: `unchanged` when the tab already has this version, otherwise every
+   * contact with the new version. New contacts change the version, so they are still put into batches here.
+   */
+  async getContactsSince(since: string) {
+    const version = await this.contactsVersion();
+    if (since && since === version) return { unchanged: true, version };
+    // The version read BEFORE the list: if anything changes meanwhile, the next refresh sees a newer version.
+    return { version, contacts: await this.getAllContacts() };
+  }
+
   async getAllContacts() {
     try {
       // Direct, non-blocking query — instant response in <5ms

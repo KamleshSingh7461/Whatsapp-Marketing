@@ -170,8 +170,14 @@ export async function getWebhookStatusApi() {
   return apiFetch<any>('/webhooks/whatsapp/status');
 }
 
-export async function getLiveMessagingLedgerApi() {
+/**
+ * Every chat with its messages. Pass the `version` from the previous answer as `since`: when nothing changed the server
+ * answers `{ unchanged: true }` instead of sending every chat again.
+ */
+export async function getLiveMessagingLedgerApi(since?: string) {
   return apiFetch<{
+    unchanged?: boolean;
+    version?: string;
     conversations: any[];
     messagesByConvId: Record<string, any[]>;
     metrics: {
@@ -184,7 +190,7 @@ export async function getLiveMessagingLedgerApi() {
       marketingCostINR?: number;
       totalCostINR?: number;
     };
-  }>('/whatsapp/ledger');
+  }>(`/whatsapp/ledger${since ? `?since=${encodeURIComponent(since)}` : ''}`);
 }
 
 export async function markConversationReadApi(conversationId: string) {
@@ -219,6 +225,11 @@ export async function testWebhookPingApi() {
 // Contacts API Calls
 export async function getContactsApi() {
   return apiFetch<any[]>('/contacts');
+}
+
+/** Like getContactsApi, but answers `{ unchanged: true }` when the contacts are still at `since` (a previous `version`). */
+export async function getContactsSinceApi(since: string) {
+  return apiFetch<{ unchanged?: boolean; version: string; contacts?: any[] }>(`/contacts?since=${encodeURIComponent(since)}`);
 }
 
 /** What the Edit contact dialog changes. Tags are sent as what was added and removed, never as a full list. */
